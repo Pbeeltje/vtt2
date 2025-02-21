@@ -11,6 +11,7 @@ import type { Character } from "../types/character"
 
 interface CharacterListProps {
   characters: Character[]
+  categories: string[]
   onAddCharacter: (category: string) => void
   onUpdateCharacter: (updatedCharacter: Character) => void
   onDeleteCharacter: (character: Character) => void
@@ -47,7 +48,7 @@ export default function CharacterList({
           <ScrollArea className="h-[calc(100vh-250px)] pr-4">
             <ul className="space-y-2">
               {characters
-                .filter((character) => character.category === category)
+                .filter((character) => character.Category === category)
                 .map((character) => (
                   <li
                     key={character.CharacterId}

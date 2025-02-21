@@ -18,13 +18,7 @@ interface ChatMessage {
   username: string
 }
 
-interface Character {
-  CharacterId: number
-  Name: string
-  Description: string
-  Path: string
-  // Add other fields as needed
-}
+import { Character } from "../types/character"
 
 interface RightSideMenuProps {
   messages: ChatMessage[]
