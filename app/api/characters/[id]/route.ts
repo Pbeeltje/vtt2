@@ -14,7 +14,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Character ID is required' }, { status: 400 })
   }
 
-  const allowedFields = ['Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'Armor', 'MaxGuard', 'Strength', 'MaxStrength', 'Dexternity', 'MaxDexternity', 'Mind', 'MaxMind', 'Charisma', 'MaxCharisma', 'Skill', 'MaxSkill', 'Mp', 'MaxMp', 'PortraitUrl']
+  const allowedFields = ['Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'Armor', 'MaxGuard', 'Strength', 'MaxStrength', 'Dexternity', 'MaxDexternity', 'Mind', 'MaxMind', 'Charisma', 'MaxCharisma', 'Skill', 'MaxSkill', 'Mp', 'MaxMp', 'PortraitUrl', 'TokenUrl']
   const updateFields = Object.keys(updatedCharacter).filter(key => allowedFields.includes(key))
 
   try {

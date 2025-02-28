@@ -86,20 +86,17 @@ export default function MainContent({
           ? { ...item, x: Math.floor((item.x + dx) / gridSize) * gridSize, y: Math.floor((item.y + dy) / gridSize) * gridSize }
           : item
       )
-    if (middleLayerImages.some((img) => img.id === id)) {
-      middleLayerImages = updateLayer(middleLayerImages)
-    } else if (topLayerImages.some((img) => img.id === id)) {
-      topLayerImages = updateLayer(topLayerImages)
-    }
+    const newMiddleLayer = updateLayer(middleLayerImages)
+    const newTopLayer = updateLayer(topLayerImages)
+    return { middleLayer: newMiddleLayer, topLayer: newTopLayer }
   }, [draggingIds, gridSize, middleLayerImages, topLayerImages])
 
   const updateItemSize = useCallback((id: string, width: number, height: number) => {
     const updateLayer = (layer: LayerImage[]) =>
       layer.map((item) => (item.id === id ? { ...item, width, height } : item))
-    if (middleLayerImages.some((img) => img.id === id)) {
-      middleLayerImages = updateLayer(middleLayerImages)
-    }
-  }, [middleLayerImages])
+    const newMiddleLayer = updateLayer(middleLayerImages)
+    return { middleLayer: newMiddleLayer, topLayer: topLayerImages }
+  }, [middleLayerImages, topLayerImages])
 
   const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -137,9 +134,9 @@ export default function MainContent({
 
   const handleItemDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => {
     if (selectedIds.length === 0) {
-      setSelectedIds([item.id]) // Auto-select if nothing selected
+      setSelectedIds([item.id])
     } else if (!selectedIds.includes(item.id)) {
-      return // Only drag selected items
+      return
     }
     setDraggingIds(selectedIds)
     const rect = e.currentTarget.getBoundingClientRect()
@@ -174,8 +171,9 @@ export default function MainContent({
     const dx = newX - referenceItem.x
     const dy = newY - referenceItem.y
 
-    draggingIds.forEach((id) => updateItemPosition(id, dx, dy))
-  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition])
+    const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy)
+    onUpdateImages?.(middleLayer, topLayer) // Update parent state during drag
+  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages])
 
   const handleItemDragEnd = useCallback(() => {
     setDraggingIds(null)
@@ -202,8 +200,9 @@ export default function MainContent({
     const newWidth = Math.max(gridSize, Math.floor((resizeStart.width + dx) / gridSize) * gridSize)
     const newHeight = Math.max(gridSize, Math.floor((resizeStart.height + dy) / gridSize) * gridSize)
 
-    updateItemSize(resizingId, newWidth, newHeight)
-  }, [resizingId, resizeStart, gridSize, updateItemSize])
+    const { middleLayer, topLayer } = updateItemSize(resizingId, newWidth, newHeight)
+    onUpdateImages?.(middleLayer, topLayer) // Update parent state during resize
+  }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages])
 
   const handleResizeEnd = useCallback(() => {
     setResizingId(null)
@@ -270,8 +269,8 @@ export default function MainContent({
         default:
           return
       }
-      updateItemPosition(id, dx, dy)
-      onUpdateImages?.(middleLayerImages, topLayerImages)
+      const { middleLayer, topLayer } = updateItemPosition(id, dx, dy)
+      onUpdateImages?.(middleLayer, topLayer)
     }
   }, [selectedIds, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages])
 
@@ -341,7 +340,7 @@ export default function MainContent({
             key={img.id}
             className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
             style={{ left: img.x, top: img.y, zIndex: 10 }}
-            draggable={true} // Always draggable for auto-selection
+            draggable={true}
             onDragStart={(e) => handleItemDragStart(e, img, false)}
             onDrag={(e) => handleItemDrag(e)}
             onDragEnd={handleItemDragEnd}
@@ -365,7 +364,7 @@ export default function MainContent({
             key={img.id}
             className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
             style={{ left: img.x, top: img.y, zIndex: 20 }}
-            draggable={true} // Always draggable for auto-selection
+            draggable={true}
             onDragStart={(e) => handleItemDragStart(e, img, true)}
             onDrag={(e) => handleItemDrag(e)}
             onDragEnd={handleItemDragEnd}

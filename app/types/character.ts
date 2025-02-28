@@ -5,6 +5,7 @@ export interface Character {
   Path: string
   Category: string
   PortraitUrl?: string
+  TokenUrl?: string
   Age: number
   Level: number
   Guard: number
