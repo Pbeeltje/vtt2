@@ -12,6 +12,7 @@ import { getUserFromCookie } from "@/lib/auth"
 import type { User } from "../types/user"
 import type { Character } from "../types/character"
 import ErrorBoundary from "./ErrorBoundary"
+import type { DMImage } from "../types/image";
 
 export type MessageType = "user" | "system"
 
@@ -27,27 +28,33 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [characters, setCharacters] = useState<Character[]>([])
   const [chatBackgroundColor, setChatBackgroundColor] = useState("bg-white")
+  const [images, setImages] = useState<DMImage[]>([]);
 
   useEffect(() => {
     const checkUser = async () => {
       try {
-        const userData = await getUserFromCookie()
+        const userData = await getUserFromCookie();
         if (userData) {
-          setUser(userData)
-          void fetchCharacters()
+          setUser(userData);
+          // Fetch characters for all users
+          await fetchCharacters();
+          // Fetch images only for DMs
+          if (userData.role === "DM") {
+            await fetchImages();
+          }
         }
       } catch (error) {
-        console.error("Error checking user:", error)
+        console.error("Error checking user:", error);
         toast({
           title: "Error",
           description: "Failed to authenticate user. Please try logging in again.",
           variant: "destructive",
-        })
+        });
       }
-    }
-
-    void checkUser()
-  }, [])
+    };
+  
+    void checkUser();
+  }, []);
 
   const fetchCharacters = async () => {
     try {
@@ -136,7 +143,7 @@ export default function Home() {
       })
     }
   }
-
+  
   const handleUpdateCharacter = async (updatedCharacter: Character) => {
     try {
       const response = await fetch(`/api/characters/${updatedCharacter.CharacterId}`, {
@@ -185,6 +192,30 @@ export default function Home() {
     }
   }
 
+  const fetchImages = async () => {
+    const response = await fetch("/api/images", { credentials: "include" });
+    if (response.ok) setImages(await response.json());
+  };
+  
+  const handleAddImage = async (category: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("category", category);
+    const response = await fetch("/api/images", {
+      method: "POST",
+      body: formData,
+    });
+    if (response.ok) {
+      const newImage = await response.json();
+      setImages((prev) => [...prev, newImage]);
+    }
+  };
+  
+  const handleDeleteImage = async (image: DMImage) => {
+    const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE" });
+    if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id));
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -223,6 +254,9 @@ export default function Home() {
             onUpdateCharacter={handleUpdateCharacter}
             onDeleteCharacter={handleDeleteCharacter}
             onLogout={handleLogout}
+            images={images}
+            onAddImage={handleAddImage}
+            onDeleteImage={handleDeleteImage}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />

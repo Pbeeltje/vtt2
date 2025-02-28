@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { MessageSquare, Users, Map, Settings, LogOut } from "lucide-react"
 import CharacterList from "./CharacterList"
+import ImageList from "./ImageList"
 import { toast } from "@/components/ui/use-toast"
 
 type MessageType = "user" | "system"
@@ -19,6 +20,7 @@ interface ChatMessage {
 }
 
 import { Character } from "../types/character"
+import { DMImage } from "../types/image"
 
 interface RightSideMenuProps {
   messages: ChatMessage[]
@@ -30,6 +32,9 @@ interface RightSideMenuProps {
   onUpdateCharacter: (updatedCharacter: Character) => void
   onDeleteCharacter: (character: Character) => void
   onLogout: () => void
+  images: DMImage[];
+  onAddImage: (category: string, file: File) => Promise<void>;
+  onDeleteImage: (image: DMImage) => Promise<void>;
 }
 
 export default function RightSideMenu({
@@ -42,6 +47,9 @@ export default function RightSideMenu({
   onUpdateCharacter,
   onDeleteCharacter,
   onLogout,
+  images,
+  onAddImage,
+  onDeleteImage,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -172,7 +180,11 @@ export default function RightSideMenu({
         {activeSection === "maps" && (
           <div className="p-4">
             <h2 className="text-lg font-semibold mb-4">Maps</h2>
-            <p>Map functionality coming soon...</p>
+            <ImageList
+              images={images}
+              categories={["Scene", "Image", "Token"]}
+              onAddImage={onAddImage}
+              onDeleteImage={onDeleteImage} />
           </div>
         )}
       </div>

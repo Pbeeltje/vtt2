@@ -117,7 +117,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
           id={name}
           name={name}
           type={type}
-          value={editedCharacter[name as keyof Character]}
+          value={editedCharacter[name as keyof Character] ?? ''}
           onChange={handleInputChange}
           className={type === "number" ? "w-16" : "w-full max-w-xs"}
           {...(type === "number" ? { min: 0, max: 99 } : {})}
@@ -129,7 +129,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
               id={maxField}
               name={maxField}
               type="number"
-              value={editedCharacter[maxField as keyof Character]}
+              value={editedCharacter[maxField as keyof Character] ?? ''}
               onChange={handleInputChange}
               className="w-16"
               min={0}
