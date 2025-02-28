@@ -2,6 +2,8 @@
 
 import { useRef, useState, useEffect } from "react"
 import Image from "next/image"
+import { Button } from "@/components/ui/button"
+import { getUserFromCookie } from "@/lib/auth"
 import type { LayerImage } from "../types/layerImage"
 
 interface MainContentProps {
@@ -18,14 +20,26 @@ export default function MainContent({
   onUpdateImages,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
-  const GRID_SIZE = 50 // Grid cell size in pixels
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [gridSize, setGridSize] = useState(50)
+  const IMAGE_MAX_SIZE = 1200;
+  const IMAGE_MIN_SIZE = 50;
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [draggingIds, setDraggingIds] = useState<string[] | null>(null)
   const [resizingId, setResizingId] = useState<string | null>(null)
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null)
   const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [gridColor, setGridColor] = useState("rgba(0,0,0,0.1)")
+  const [showColorMenu, setShowColorMenu] = useState(false)
 
-  // Generate a unique ID for each instance
+  useEffect(() => {
+    const fetchUser = async () => {
+      const user = await getUserFromCookie()
+      setUserRole(user?.role || null)
+    }
+    fetchUser()
+  }, [])
+
   const generateUniqueId = (baseId: string) => `${baseId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -37,27 +51,36 @@ export default function MainContent({
     let newHeight = height
     const aspectRatio = width / height
 
-    if (width > 500 || height > 500) {
+    if (width > IMAGE_MAX_SIZE || height > IMAGE_MAX_SIZE) {
       if (width > height) {
-        newWidth = 500
-        newHeight = Math.round(500 / aspectRatio)
+        newWidth = IMAGE_MAX_SIZE
+        newHeight = Math.round(IMAGE_MAX_SIZE / aspectRatio)
       } else {
-        newHeight = 500
-        newWidth = Math.round(500 * aspectRatio)
+        newHeight = IMAGE_MAX_SIZE
+        newWidth = Math.round(IMAGE_MAX_SIZE * aspectRatio)
       }
     }
 
-    if (newWidth < 50 || newHeight < 50) {
+    if (newWidth < IMAGE_MIN_SIZE || newHeight < IMAGE_MIN_SIZE) {
       if (newWidth < newHeight) {
-        newWidth = 50
-        newHeight = Math.round(50 / aspectRatio)
+        newWidth = IMAGE_MIN_SIZE
+        newHeight = Math.round(IMAGE_MIN_SIZE / aspectRatio)
       } else {
-        newHeight = 50
-        newWidth = Math.round(50 * aspectRatio)
+        newHeight = IMAGE_MIN_SIZE
+        newWidth = Math.round(IMAGE_MIN_SIZE * aspectRatio)
       }
     }
 
     return { width: newWidth, height: newHeight }
+  }
+
+  const snapToGrid = (layer: LayerImage[], newGridSize: number) => {
+    return layer.map((item) => ({
+      ...item,
+      x: Math.floor(item.x / newGridSize) * newGridSize,
+      y: Math.floor(item.y / newGridSize) * newGridSize,
+      ...(item.width === gridSize && item.height === gridSize ? { width: newGridSize, height: newGridSize } : {}),
+    }))
   }
 
   const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
@@ -68,8 +91,8 @@ export default function MainContent({
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return
 
-    const x = Math.floor((e.clientX - rect.left) / GRID_SIZE) * GRID_SIZE
-    const y = Math.floor((e.clientY - rect.top) / GRID_SIZE) * GRID_SIZE
+    const x = Math.floor((e.clientX - rect.left) / gridSize) * gridSize
+    const y = Math.floor((e.clientY - rect.top) / gridSize) * gridSize
 
     const image = new window.Image()
     image.src = url
@@ -77,48 +100,57 @@ export default function MainContent({
       image.onload = resolve
     })
 
-    const uniqueId = generateUniqueId(imageId) // Generate unique ID for each drop
+    const uniqueId = generateUniqueId(imageId)
     const imageData: LayerImage = { id: uniqueId, url: url || "", x, y }
     if (category === "Image") {
       const { width, height } = adjustImageSize(image.width, image.height)
       imageData.width = width
       imageData.height = height
     } else if (category === "Token") {
-      imageData.width = GRID_SIZE
-      imageData.height = GRID_SIZE
+      imageData.width = gridSize
+      imageData.height = gridSize
     }
     window.dispatchEvent(new CustomEvent("dropImage", { detail: { category, image: imageData, x, y } }))
   }
 
   const handleItemDragStart = (e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => {
-    setDraggingId(item.id)
-    setSelectedId(item.id)
+    if (!selectedIds.includes(item.id)) return // Only drag if item is selected
+    setDraggingIds(selectedIds)
     const rect = e.currentTarget.getBoundingClientRect()
     setDragOffset({
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     })
-    // Set drag preview to current size
-    const dragImage = new window.Image()
-    dragImage.src = item.url
-    dragImage.width = item.width || GRID_SIZE
-    dragImage.height = item.height || GRID_SIZE
-    e.dataTransfer.setDragImage(dragImage, (item.width || GRID_SIZE) / 2, (item.height || GRID_SIZE) / 2)
+    const canvas = document.createElement("canvas")
+    const ctx = canvas.getContext("2d")
+    const img = new window.Image()
+    img.src = item.url
+    img.onload = () => {
+      canvas.width = item.width || gridSize
+      canvas.height = item.height || gridSize
+      ctx?.drawImage(img, 0, 0, canvas.width, canvas.height)
+      e.dataTransfer.setDragImage(canvas, canvas.width / 2, canvas.height / 2)
+    }
   }
 
   const handleItemDrag = (e: React.DragEvent<HTMLDivElement>) => {
-    if (!draggingId || !dragOffset || e.clientX === 0 || e.clientY === 0) return
+    if (!draggingIds || !dragOffset || e.clientX === 0 || e.clientY === 0) return
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return
 
-    const x = Math.floor((e.clientX - rect.left - dragOffset.x) / GRID_SIZE) * GRID_SIZE
-    const y = Math.floor((e.clientY - rect.top - dragOffset.y) / GRID_SIZE) * GRID_SIZE
+    const referenceItem = middleLayerImages.find((i) => i.id === draggingIds[0]) || topLayerImages.find((i) => i.id === draggingIds[0])
+    if (!referenceItem) return
 
-    updateItemPosition(draggingId, x, y)
+    const newX = Math.floor((e.clientX - rect.left - dragOffset.x) / gridSize) * gridSize
+    const newY = Math.floor((e.clientY - rect.top - dragOffset.y) / gridSize) * gridSize
+    const dx = newX - referenceItem.x
+    const dy = newY - referenceItem.y
+
+    draggingIds.forEach((id) => updateItemPosition(id, dx, dy))
   }
 
   const handleItemDragEnd = () => {
-    setDraggingId(null)
+    setDraggingIds(null)
     setDragOffset(null)
     if (onUpdateImages) {
       onUpdateImages(middleLayerImages, topLayerImages)
@@ -132,8 +164,8 @@ export default function MainContent({
     setResizeStart({
       x: e.clientX,
       y: e.clientY,
-      width: item.width || GRID_SIZE,
-      height: item.height || GRID_SIZE,
+      width: item.width || gridSize,
+      height: item.height || gridSize,
     })
   }
 
@@ -141,8 +173,8 @@ export default function MainContent({
     if (!resizingId || !resizeStart) return
     const dx = e.clientX - resizeStart.x
     const dy = e.clientY - resizeStart.y
-    const newWidth = Math.max(GRID_SIZE, Math.floor((resizeStart.width + dx) / GRID_SIZE) * GRID_SIZE)
-    const newHeight = Math.max(GRID_SIZE, Math.floor((resizeStart.height + dy) / GRID_SIZE) * GRID_SIZE)
+    const newWidth = Math.max(gridSize, Math.floor((resizeStart.width + dx) / gridSize) * gridSize)
+    const newHeight = Math.max(gridSize, Math.floor((resizeStart.height + dy) / gridSize) * gridSize)
 
     updateItemSize(resizingId, newWidth, newHeight)
   }
@@ -155,9 +187,13 @@ export default function MainContent({
     }
   }
 
-  const updateItemPosition = (id: string, x: number, y: number) => {
+  const updateItemPosition = (id: string, dx: number, dy: number) => {
     const updateLayer = (layer: LayerImage[]) =>
-      layer.map((item) => (item.id === id ? { ...item, x, y } : item))
+      layer.map((item) =>
+        draggingIds?.includes(item.id)
+          ? { ...item, x: Math.floor((item.x + dx) / gridSize) * gridSize, y: Math.floor((item.y + dy) / gridSize) * gridSize }
+          : item
+      )
     if (middleLayerImages.some((img) => img.id === id)) {
       middleLayerImages = updateLayer(middleLayerImages)
     } else if (topLayerImages.some((img) => img.id === id)) {
@@ -174,32 +210,100 @@ export default function MainContent({
   }
 
   const handleDelete = (e: KeyboardEvent) => {
-    if (e.key === "Delete" && selectedId) {
-      const newMiddleLayer = middleLayerImages.filter((img) => img.id !== selectedId)
-      const newTopLayer = topLayerImages.filter((img) => img.id !== selectedId)
+    if (e.key === "Delete" && selectedIds.length > 0) {
+      const newMiddleLayer = middleLayerImages.filter((img) => !selectedIds.includes(img.id))
+      const newTopLayer = topLayerImages.filter((img) => !selectedIds.includes(img.id))
       if (onUpdateImages) {
         onUpdateImages(newMiddleLayer, newTopLayer)
       }
-      setSelectedId(null)
+      setSelectedIds([])
     }
   }
 
   const handleGridClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === gridRef.current) {
-      setSelectedId(null) // Deselect if clicking empty grid area
+      setSelectedIds([])
     }
   }
 
+  const handleItemClick = (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
+    e.stopPropagation()
+    if (e.shiftKey) {
+      setSelectedIds((prev) => {
+        if (prev.includes(item.id)) {
+          return prev.filter((id) => id !== item.id)
+        } else {
+          return [...prev, item.id]
+        }
+      })
+    } else {
+      setSelectedIds([item.id])
+    }
+  }
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.shiftKey) {
+      e.preventDefault()
+      const newSize = Math.min(200, Math.max(20, gridSize + (e.deltaY < 0 ? 5 : -5)))
+      setGridSize(newSize)
+      const newMiddleLayer = snapToGrid(middleLayerImages, newSize)
+      const newTopLayer = snapToGrid(topLayerImages, newSize)
+      if (onUpdateImages) {
+        onUpdateImages(newMiddleLayer, newTopLayer)
+      }
+    }
+  }
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (selectedIds.length === 1) {
+      const id = selectedIds[0]
+      const item = middleLayerImages.find((i) => i.id === id) || topLayerImages.find((i) => i.id === id)
+      if (!item) return
+
+      let dx = 0
+      let dy = 0
+      switch (e.key) {
+        case "ArrowUp":
+          dy = -gridSize
+          break
+        case "ArrowDown":
+          dy = gridSize
+          break
+        case "ArrowLeft":
+          dx = -gridSize
+          break
+        case "ArrowRight":
+          dx = gridSize
+          break
+        default:
+          return
+      }
+      updateItemPosition(id, dx, dy)
+      if (onUpdateImages) {
+        onUpdateImages(middleLayerImages, topLayerImages)
+      }
+    }
+  }
+
+  const handleColorChange = (color: string) => {
+    setGridColor(color === "hidden" ? "transparent" : color === "gray" ? "rgba(0,0,0,0.1)" : color)
+    setShowColorMenu(false)
+  }
+
   useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      handleDelete(e)
+      handleKeyDown(e)
+    }
     window.addEventListener("mousemove", handleResizeMove)
     window.addEventListener("mouseup", handleResizeEnd)
-    window.addEventListener("keydown", handleDelete)
+    window.addEventListener("keydown", handleGlobalKeyDown)
     return () => {
       window.removeEventListener("mousemove", handleResizeMove)
       window.removeEventListener("mouseup", handleResizeEnd)
-      window.removeEventListener("keydown", handleDelete)
+      window.removeEventListener("keydown", handleGlobalKeyDown)
     }
-  }, [resizingId, resizeStart, selectedId, middleLayerImages, topLayerImages])
+  }, [resizingId, resizeStart, selectedIds, middleLayerImages, topLayerImages, gridSize])
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
@@ -214,33 +318,50 @@ export default function MainContent({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         onClick={handleGridClick}
+        onWheel={handleWheel}
       >
+        {userRole === "DM" && (
+          <div className="absolute top-2 left-2 z-30">
+            <div
+              className="w-6 h-6 rounded-full cursor-pointer border border-black"
+              style={{ backgroundColor: gridColor === "transparent" ? "gray" : gridColor }}
+              onClick={() => setShowColorMenu(!showColorMenu)}
+            />
+            {showColorMenu && (
+              <div className="absolute top-8 left-0 bg-white border rounded p-1.5 flex flex-col gap-1.5 scale-75 origin-top-left">
+                <Button onClick={() => handleColorChange("white")} className="bg-white text-black h-6 text-xs">White</Button>
+                <Button onClick={() => handleColorChange("black")} className="bg-black text-white h-6 text-xs">Black</Button>
+                <Button onClick={() => handleColorChange("red")} className="bg-red-500 text-white h-6 text-xs">Red</Button>
+                <Button onClick={() => handleColorChange("green")} className="bg-green-500 text-white h-6 text-xs">Green</Button>
+                <Button onClick={() => handleColorChange("gray")} className="bg-gray-500 text-white h-6 text-xs">Gray</Button>
+                <Button onClick={() => handleColorChange("hidden")} className="bg-gray-700 text-white h-6 text-xs">Hidden</Button>
+              </div>
+            )}
+          </div>
+        )}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
-            backgroundImage: `linear-gradient(to right, rgba(0,0,0,0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.1) 1px, transparent 1px)`,
-            backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
+            backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
+            backgroundSize: `${gridSize}px ${gridSize}px`,
           }}
         />
         {middleLayerImages.map((img) => (
           <div
             key={img.id}
-            className={`absolute ${selectedId === img.id ? "border-2 border-blue-500" : ""}`}
+            className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
             style={{ left: img.x, top: img.y, zIndex: 10 }}
-            draggable
+            draggable={selectedIds.includes(img.id)}
             onDragStart={(e) => handleItemDragStart(e, img, false)}
             onDrag={(e) => handleItemDrag(e)}
             onDragEnd={handleItemDragEnd}
-            onClick={(e) => {
-              e.stopPropagation()
-              setSelectedId(img.id)
-            }}
+            onClick={(e) => handleItemClick(e, img)}
           >
             <Image
               src={img.url}
               alt="Middle layer image"
-              width={img.width || GRID_SIZE * 2}
-              height={img.height || GRID_SIZE * 2}
+              width={img.width || gridSize * 2}
+              height={img.height || gridSize * 2}
               objectFit="contain"
             />
             <div
@@ -252,22 +373,19 @@ export default function MainContent({
         {topLayerImages.map((img) => (
           <div
             key={img.id}
-            className={`absolute ${selectedId === img.id ? "border-2 border-blue-500" : ""}`}
+            className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
             style={{ left: img.x, top: img.y, zIndex: 20 }}
-            draggable
+            draggable={selectedIds.includes(img.id)}
             onDragStart={(e) => handleItemDragStart(e, img, true)}
             onDrag={(e) => handleItemDrag(e)}
             onDragEnd={handleItemDragEnd}
-            onClick={(e) => {
-              e.stopPropagation()
-              setSelectedId(img.id)
-            }}
+            onClick={(e) => handleItemClick(e, img)}
           >
             <Image
               src={img.url}
               alt="Token"
-              width={GRID_SIZE}
-              height={GRID_SIZE}
+              width={gridSize}
+              height={gridSize}
               objectFit="contain"
             />
           </div>
