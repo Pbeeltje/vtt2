@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createClient } from "@libsql/client";
 import { getUserFromCookie } from "@/lib/auth";
 
-// Ensure IMGUR_CLIENT_ID is set, with a fallback for debugging
 const IMGUR_CLIENT_ID = process.env.IMGUR_CLIENT_ID || "missing-client-id";
 
 const client = createClient({
@@ -70,7 +69,13 @@ export async function POST(req: Request) {
     if (!imgurResponse.ok) {
       const errorText = await imgurResponse.text();
       console.error("Imgur API error:", imgurResponse.status, errorText);
-      throw new Error(`Imgur upload failed: ${imgurResponse.status} - ${errorText}`);
+      try {
+        const errorData = JSON.parse(errorText);
+        const errorMessage = errorData.data?.error || "Unknown Imgur error";
+        return NextResponse.json({ error: errorMessage }, { status: imgurResponse.status });
+      } catch (parseError) {
+        return NextResponse.json({ error: "Imgur upload failed", details: errorText }, { status: imgurResponse.status });
+      }
     }
 
     const { data } = await imgurResponse.json();

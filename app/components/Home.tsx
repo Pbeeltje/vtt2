@@ -201,13 +201,25 @@ export default function Home() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("category", category);
-    const response = await fetch("/api/images", {
-      method: "POST",
-      body: formData,
-    });
-    if (response.ok) {
+    try {
+      const response = await fetch("/api/images", { method: "POST", body: formData });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to add image");
+      }
       const newImage = await response.json();
       setImages((prev) => [...prev, newImage]);
+      toast({
+        title: "Image Uploaded",
+        description: `${file.name} added to ${category}.`,
+      });
+    } catch (error) {
+      console.error("Error adding image:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add image.",
+        variant: "destructive",
+      });
     }
   };
   

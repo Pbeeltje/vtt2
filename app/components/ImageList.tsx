@@ -56,7 +56,7 @@ export default function ImageList({
         } catch (error) {
           toast({
             title: "Error",
-            description: "Failed to upload image.",
+            description: error instanceof Error ? error.message : "Failed to upload image.",
             variant: "destructive",
           });
         } finally {
