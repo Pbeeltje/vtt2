@@ -48,6 +48,8 @@ Directory Structure
 .gitignore
 app/api/characters/[id]/route.ts
 app/api/characters/route.ts
+app/api/images/[id]/route.ts
+app/api/images/route.ts
 app/api/imgur-upload/route.ts
 app/api/login/route.ts
 app/api/logout/route.ts
@@ -342,6 +344,116 @@ export async function POST(req: Request) {
     )
   }
 }
+
+================
+File: app/api/images/[id]/route.ts
+================
+import { NextResponse } from "next/server";
+import { createClient } from "@libsql/client";
+import { getUserFromCookie } from "@/lib/auth";
+
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || "",
+  authToken: process.env.TURSO_AUTH_TOKEN || "",
+});
+
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  const user = await getUserFromCookie();
+  if (!user || user.role !== "DM") {
+    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
+  }
+
+  try {
+    await client.execute({
+      sql: "DELETE FROM DMImage WHERE Id = ? AND UserId = ?",
+      args: [params.id, user.id],
+    });
+    return NextResponse.json({ message: "Image deleted" });
+  } catch (error) {
+    console.error("Error deleting image:", error);
+    return NextResponse.json({ error: "Failed to delete image" }, { status: 500 });
+  }
+}
+
+================
+File: app/api/images/route.ts
+================
+import { NextResponse } from "next/server";
+import { createClient } from "@libsql/client";
+import { getUserFromCookie } from "@/lib/auth";
+
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || "",
+  authToken: process.env.TURSO_AUTH_TOKEN || "",
+});
+
+export async function GET(req: Request) {
+  const user = await getUserFromCookie();
+  if (!user || user.role !== "DM") {
+    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
+  }
+
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM DMImage WHERE UserId = ?",
+      args: [user.id],
+    });
+    return NextResponse.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching images:", error);
+    return NextResponse.json({ error: "Failed to fetch images" }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+    const user = await getUserFromCookie();
+    if (!user || user.role !== "DM") {
+      return NextResponse.json({ error: "Not authorized" }, { status: 401 });
+    }
+  
+    const formData = await req.formData();
+    const file = formData.get("file") as File;
+    const category = formData.get("category") as string;
+  
+    if (!file || !category) {
+      return NextResponse.json({ error: "File and category required" }, { status: 400 });
+    }
+  
+    // Upload to Imgur
+    const imgurForm = new FormData();
+    imgurForm.append("image", file);
+    const imgurResponse = await fetch("https://api.imgur.com/3/image", {
+      method: "POST",
+      headers: { Authorization: `Client-ID ${process.env.IMGUR_CLIENT_ID}` },
+      body: imgurForm,
+    });
+    const { data } = await imgurResponse.json();
+    if (!imgurResponse.ok) throw new Error("Imgur upload failed");
+  
+    // Insert into database
+    const result = await client.execute({
+      sql: "INSERT INTO DMImage (Name, Link, Category, UserId) VALUES (?, ?, ?, ?)",
+      args: [file.name, data.link, category, user.id],
+    });
+  
+    console.log("Insert result:", result); // Debug the result object
+  
+    if (!result.lastInsertRowid) {
+      throw new Error("Failed to get last inserted row ID");
+    }
+  
+    const lastId = Number(result.lastInsertRowid); // Ensure it’s a number
+    const newImage = await client.execute({
+      sql: "SELECT * FROM DMImage WHERE Id = ?",
+      args: [lastId],
+    });
+  
+    if (newImage.rows.length === 0) {
+      throw new Error("Failed to retrieve newly inserted image");
+    }
+  
+    return NextResponse.json(newImage.rows[0]);
+  }
 
 ================
 File: app/api/imgur-upload/route.ts
@@ -1211,6 +1323,7 @@ import { getUserFromCookie } from "@/lib/auth"
 import type { User } from "../types/user"
 import type { Character } from "../types/character"
 import ErrorBoundary from "./ErrorBoundary"
+import type { DMImage } from "../types/image";
 
 export type MessageType = "user" | "system"
 
@@ -1226,27 +1339,33 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [characters, setCharacters] = useState<Character[]>([])
   const [chatBackgroundColor, setChatBackgroundColor] = useState("bg-white")
+  const [images, setImages] = useState<DMImage[]>([]);
 
   useEffect(() => {
     const checkUser = async () => {
       try {
-        const userData = await getUserFromCookie()
+        const userData = await getUserFromCookie();
         if (userData) {
-          setUser(userData)
-          void fetchCharacters()
+          setUser(userData);
+          // Fetch characters for all users
+          await fetchCharacters();
+          // Fetch images only for DMs
+          if (userData.role === "DM") {
+            await fetchImages();
+          }
         }
       } catch (error) {
-        console.error("Error checking user:", error)
+        console.error("Error checking user:", error);
         toast({
           title: "Error",
           description: "Failed to authenticate user. Please try logging in again.",
           variant: "destructive",
-        })
+        });
       }
-    }
-
-    void checkUser()
-  }, [])
+    };
+  
+    void checkUser();
+  }, []);
 
   const fetchCharacters = async () => {
     try {
@@ -1335,7 +1454,7 @@ export default function Home() {
       })
     }
   }
-
+  
   const handleUpdateCharacter = async (updatedCharacter: Character) => {
     try {
       const response = await fetch(`/api/characters/${updatedCharacter.CharacterId}`, {
@@ -1384,6 +1503,30 @@ export default function Home() {
     }
   }
 
+  const fetchImages = async () => {
+    const response = await fetch("/api/images", { credentials: "include" });
+    if (response.ok) setImages(await response.json());
+  };
+  
+  const handleAddImage = async (category: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("category", category);
+    const response = await fetch("/api/images", {
+      method: "POST",
+      body: formData,
+    });
+    if (response.ok) {
+      const newImage = await response.json();
+      setImages((prev) => [...prev, newImage]);
+    }
+  };
+  
+  const handleDeleteImage = async (image: DMImage) => {
+    const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE" });
+    if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id));
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -1422,6 +1565,9 @@ export default function Home() {
             onUpdateCharacter={handleUpdateCharacter}
             onDeleteCharacter={handleDeleteCharacter}
             onLogout={handleLogout}
+            images={images}
+            onAddImage={handleAddImage}
+            onDeleteImage={handleDeleteImage}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />
@@ -1433,40 +1579,74 @@ export default function Home() {
 ================
 File: app/components/ImageList.tsx
 ================
-"use client"
+"use client";
 
-import { useState } from "react"
-import Image from "next/image"
-import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Trash2 } from "lucide-react"
-import type { DMImage } from "../types/image"
+import { useState } from "react";
+import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Plus, Trash2, Upload } from "lucide-react";
+import { toast } from "@/components/ui/use-toast";
+import type { DMImage } from "../types/image";
 
 interface ImageListProps {
-  images: DMImage[]
-  categories: string[]
-  onAddImage: (category: string) => void
-  onUpdateImage: (updatedImage: DMImage) => void
-  onDeleteImage: (image: DMImage) => void
+  images: DMImage[];
+  categories: string[];
+  onAddImage: (category: string, file: File) => Promise<void>;
+  onDeleteImage: (image: DMImage) => Promise<void>;
 }
 
 export default function ImageList({
   images,
   onAddImage,
-  onUpdateImage,
   onDeleteImage,
 }: ImageListProps) {
-  const [selectedImage, setSelectedImage] = useState<Image | null>(null)
-  const [activeCategory, setActiveCategory] = useState<string>("Scene")
+  const [activeCategory, setActiveCategory] = useState<string>("Scene");
+  const [uploading, setUploading] = useState(false);
+  const categories = ["Scene", "Image", "Token"];
 
   const handleDeleteImage = (image: DMImage) => {
     if (window.confirm(`Are you sure you want to delete ${image.Name}?`)) {
-      onDeleteImage(image)
+      onDeleteImage(image);
     }
-  }
+  };
 
-  const categories = ["Scene", "Image", "Token"]
+  const handleUpload = async (category: string) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        if (file.size > 5 * 1024 * 1024) {
+          toast({
+            title: "Error",
+            description: "Image size exceeds 5MB limit.",
+            variant: "destructive",
+          });
+          return;
+        }
+        setUploading(true);
+        try {
+          await onAddImage(category, file);
+          toast({
+            title: "Image Uploaded",
+            description: `${file.name} added to ${category}.`,
+          });
+        } catch (error) {
+          toast({
+            title: "Error",
+            description: "Failed to upload image.",
+            variant: "destructive",
+          });
+        } finally {
+          setUploading(false);
+        }
+      }
+    };
+    input.click();
+  };
 
   return (
     <Tabs value={activeCategory} onValueChange={setActiveCategory}>
@@ -1492,8 +1672,8 @@ export default function ImageList({
                       <div className="w-12 h-12 bg-gray-200 rounded-full overflow-hidden">
                         {image.Link ? (
                           <Image
-                            src={image.Link || "/placeholder.svg"}
-                            alt={`${image.Name}`}
+                            src={image.Link}
+                            alt={image.Name}
                             width={48}
                             height={48}
                             objectFit="cover"
@@ -1504,34 +1684,38 @@ export default function ImageList({
                           </div>
                         )}
                       </div>
-                      <button className="text-left hover:underline" onClick={() => setSelectedImage(image)}>
-                        {image.Name}
-                      </button>
+                      <span>{image.Name}</span>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => handleDeleteImage(image)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDeleteImage(image)}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </li>
                 ))}
             </ul>
-            <Button variant="outline" size="sm" className="mt-4" onClick={() => onAddImage(category)}>
-              <Plus className="w-4 h-4 mr-2" /> Add {category}
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4"
+              onClick={() => handleUpload(category)}
+              disabled={uploading}
+            >
+              {uploading ? (
+                "Uploading..."
+              ) : (
+                <>
+                  <Plus className="w-4 h-4 mr-2" /> Add {category}
+                </>
+              )}
             </Button>
           </ScrollArea>
         </TabsContent>
       ))}
-      {/* {selectedImage && (
-        <CharacterPopup
-          character={selectedCharacter}
-          onClose={() => setSelectedCharacter(null)}
-          onUpdate={(updatedCharacter) => {
-            onUpdateCharacter(updatedCharacter)
-            setSelectedCharacter(null)
-          }}
-        />
-      )} */}
     </Tabs>
-  )
+  );
 }
 
 ================
@@ -1848,6 +2032,7 @@ interface ChatMessage {
 }
 
 import { Character } from "../types/character"
+import { DMImage } from "../types/image"
 
 interface RightSideMenuProps {
   messages: ChatMessage[]
@@ -1859,6 +2044,9 @@ interface RightSideMenuProps {
   onUpdateCharacter: (updatedCharacter: Character) => void
   onDeleteCharacter: (character: Character) => void
   onLogout: () => void
+  images: DMImage[];
+  onAddImage: (category: string, file: File) => Promise<void>;
+  onDeleteImage: (image: DMImage) => Promise<void>;
 }
 
 export default function RightSideMenu({
@@ -1871,6 +2059,9 @@ export default function RightSideMenu({
   onUpdateCharacter,
   onDeleteCharacter,
   onLogout,
+  images,
+  onAddImage,
+  onDeleteImage,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -2002,10 +2193,10 @@ export default function RightSideMenu({
           <div className="p-4">
             <h2 className="text-lg font-semibold mb-4">Maps</h2>
             <ImageList
+              images={images}
               categories={["Scene", "Image", "Token"]}
               onAddImage={onAddImage}
-              onUpdateImage={onUpdateImage}
-              onDeleteImage={onDeleteImage}>
+              onDeleteImage={onDeleteImage} />
           </div>
         )}
       </div>
@@ -2177,12 +2368,13 @@ export interface Character {
 ================
 File: app/types/image.ts
 ================
-export interface DMImage {
+export type DMImage = {
   Id: number;
   Name: string;
   Link: string;
-  Category: string;
-}
+  Category: "Scene" | "Image" | "Token";
+  UserId: number;
+};
 
 ================
 File: app/types/user.ts

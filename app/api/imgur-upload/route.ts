@@ -1,21 +1,30 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
 
-const IMGUR_CLIENT_ID = 'e2d5a22e7e01eb3';
+// Use environment variable with a fallback
+const IMGUR_CLIENT_ID = process.env.IMGUR_CLIENT_ID || "missing-client-id";
 
 export async function POST(request: Request) {
+  console.log("POST /api/imgur-upload started");
   const formData = await request.formData();
-  const file = formData.get('file') as File;
+  const file = formData.get("file") as File;
 
   if (!file) {
-    return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    console.log("No file provided");
+    return NextResponse.json({ error: "No file provided" }, { status: 400 });
+  }
+
+  if (!IMGUR_CLIENT_ID || IMGUR_CLIENT_ID === "missing-client-id") {
+    console.error("IMGUR_CLIENT_ID not configured");
+    return NextResponse.json({ error: "Imgur Client ID not configured" }, { status: 500 });
   }
 
   const body = new FormData();
-  body.append('image', file);
+  body.append("image", file);
 
   try {
-    const response = await fetch('https://api.imgur.com/3/image', {
-      method: 'POST',
+    console.log("Uploading to Imgur with Client-ID:", IMGUR_CLIENT_ID);
+    const response = await fetch("https://api.imgur.com/3/image", {
+      method: "POST",
       headers: {
         Authorization: `Client-ID ${IMGUR_CLIENT_ID}`,
       },
@@ -23,18 +32,19 @@ export async function POST(request: Request) {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`Imgur API error: ${errorData.data.error || response.statusText}`);
+      const errorText = await response.text();
+      console.error("Imgur upload error:", response.status, errorText);
+      throw new Error(`Imgur API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
+    console.log("Imgur upload success:", data);
     return NextResponse.json({ url: data.data.link });
   } catch (error) {
-    console.error('Error uploading to Imgur:', error);
-    return NextResponse.json({ 
-      error: 'Failed to upload image', 
-      details: error instanceof Error ? error.message : 'Unknown error' 
+    console.error("Error uploading to Imgur:", error);
+    return NextResponse.json({
+      error: "Failed to upload image",
+      details: error instanceof Error ? error.message : "Unknown error",
     }, { status: 500 });
   }
 }
-
