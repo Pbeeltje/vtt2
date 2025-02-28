@@ -8,7 +8,7 @@ interface MainContentProps {
   backgroundImage: string | null
   middleLayerImages: LayerImage[] | undefined
   topLayerImages: LayerImage[] | undefined
-  onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void // Callback to update parent state
+  onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void
 }
 
 export default function MainContent({
@@ -19,17 +19,48 @@ export default function MainContent({
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const GRID_SIZE = 50 // Grid cell size in pixels
-  const [selectedId, setSelectedId] = useState<string | null>(null) // Track selected image/token
-  const [draggingId, setDraggingId] = useState<string | null>(null) // Track which item is being dragged
-  const [resizingId, setResizingId] = useState<string | null>(null) // Track which image is being resized
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [resizingId, setResizingId] = useState<string | null>(null)
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null)
   const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+
+  // Generate a unique ID for each instance
+  const generateUniqueId = (baseId: string) => `${baseId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
   }
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const adjustImageSize = (width: number, height: number): { width: number; height: number } => {
+    let newWidth = width
+    let newHeight = height
+    const aspectRatio = width / height
+
+    if (width > 500 || height > 500) {
+      if (width > height) {
+        newWidth = 500
+        newHeight = Math.round(500 / aspectRatio)
+      } else {
+        newHeight = 500
+        newWidth = Math.round(500 * aspectRatio)
+      }
+    }
+
+    if (newWidth < 50 || newHeight < 50) {
+      if (newWidth < newHeight) {
+        newWidth = 50
+        newHeight = Math.round(50 / aspectRatio)
+      } else {
+        newHeight = 50
+        newWidth = Math.round(50 * aspectRatio)
+      }
+    }
+
+    return { width: newWidth, height: newHeight }
+  }
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     const imageId = e.dataTransfer.getData("imageId")
     const category = e.dataTransfer.getData("category")
@@ -40,15 +71,23 @@ export default function MainContent({
     const x = Math.floor((e.clientX - rect.left) / GRID_SIZE) * GRID_SIZE
     const y = Math.floor((e.clientY - rect.top) / GRID_SIZE) * GRID_SIZE
 
-    const image: LayerImage = { id: imageId, url: url || "", x, y }
+    const image = new window.Image()
+    image.src = url
+    await new Promise((resolve) => {
+      image.onload = resolve
+    })
+
+    const uniqueId = generateUniqueId(imageId) // Generate unique ID for each drop
+    const imageData: LayerImage = { id: uniqueId, url: url || "", x, y }
     if (category === "Image") {
-      image.width = GRID_SIZE * 2 // Default size for images
-      image.height = GRID_SIZE * 2
+      const { width, height } = adjustImageSize(image.width, image.height)
+      imageData.width = width
+      imageData.height = height
     } else if (category === "Token") {
-      image.width = GRID_SIZE // Tokens fixed to grid size
-      image.height = GRID_SIZE
+      imageData.width = GRID_SIZE
+      imageData.height = GRID_SIZE
     }
-    window.dispatchEvent(new CustomEvent("dropImage", { detail: { category, image, x, y } }))
+    window.dispatchEvent(new CustomEvent("dropImage", { detail: { category, image: imageData, x, y } }))
   }
 
   const handleItemDragStart = (e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => {
@@ -56,16 +95,19 @@ export default function MainContent({
     setSelectedId(item.id)
     const rect = e.currentTarget.getBoundingClientRect()
     setDragOffset({
-      x: e.clientX - rect.left - (isToken ? 0 : (item.width || GRID_SIZE) / 2),
-      y: e.clientY - rect.top - (isToken ? 0 : (item.height || GRID_SIZE) / 2),
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
     })
-    const dragImage = document.createElement("img")
+    // Set drag preview to current size
+    const dragImage = new window.Image()
     dragImage.src = item.url
-    e.dataTransfer.setDragImage(dragImage, 0, 0) // Hide default drag preview
+    dragImage.width = item.width || GRID_SIZE
+    dragImage.height = item.height || GRID_SIZE
+    e.dataTransfer.setDragImage(dragImage, (item.width || GRID_SIZE) / 2, (item.height || GRID_SIZE) / 2)
   }
 
   const handleItemDrag = (e: React.DragEvent<HTMLDivElement>) => {
-    if (!draggingId || !dragOffset) return
+    if (!draggingId || !dragOffset || e.clientX === 0 || e.clientY === 0) return
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return
 
@@ -84,6 +126,7 @@ export default function MainContent({
   }
 
   const handleResizeStart = (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
+    e.preventDefault()
     e.stopPropagation()
     setResizingId(item.id)
     setResizeStart({
@@ -141,6 +184,12 @@ export default function MainContent({
     }
   }
 
+  const handleGridClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === gridRef.current) {
+      setSelectedId(null) // Deselect if clicking empty grid area
+    }
+  }
+
   useEffect(() => {
     window.addEventListener("mousemove", handleResizeMove)
     window.addEventListener("mouseup", handleResizeEnd)
@@ -164,6 +213,7 @@ export default function MainContent({
         }}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
+        onClick={handleGridClick}
       >
         <div
           className="absolute inset-0 pointer-events-none"
@@ -181,7 +231,10 @@ export default function MainContent({
             onDragStart={(e) => handleItemDragStart(e, img, false)}
             onDrag={(e) => handleItemDrag(e)}
             onDragEnd={handleItemDragEnd}
-            onClick={() => setSelectedId(img.id)}
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedId(img.id)
+            }}
           >
             <Image
               src={img.url}
@@ -205,7 +258,10 @@ export default function MainContent({
             onDragStart={(e) => handleItemDragStart(e, img, true)}
             onDrag={(e) => handleItemDrag(e)}
             onDragEnd={handleItemDragEnd}
-            onClick={() => setSelectedId(img.id)}
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedId(img.id)
+            }}
           >
             <Image
               src={img.url}

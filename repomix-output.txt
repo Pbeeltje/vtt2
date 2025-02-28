@@ -72,6 +72,7 @@ app/layout.tsx
 app/page.tsx
 app/types/character.ts
 app/types/image.ts
+app/types/layerImage.ts
 app/types/user.ts
 components.json
 components/theme-provider.tsx
@@ -1364,6 +1365,7 @@ import type { User } from "../types/user"
 import type { Character } from "../types/character"
 import ErrorBoundary from "./ErrorBoundary"
 import type { DMImage } from "../types/image";
+import type { LayerImage } from "../types/layerImage";
 
 export type MessageType = "user" | "system"
 
@@ -1381,31 +1383,35 @@ export default function Home() {
   const [chatBackgroundColor, setChatBackgroundColor] = useState("bg-white")
   const [images, setImages] = useState<DMImage[]>([]);
 
+  const [backgroundImage, setBackgroundImage] = useState<string | null>(null)
+  const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
+  const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
+
   useEffect(() => {
     const checkUser = async () => {
       try {
-        const userData = await getUserFromCookie();
+        const userData = await getUserFromCookie()
         if (userData) {
-          setUser(userData);
-          // Fetch characters for all users
-          await fetchCharacters();
-          // Fetch images only for DMs
+          setUser(userData)
+          await fetchCharacters()
           if (userData.role === "DM") {
-            await fetchImages();
+            await fetchImages()
           }
         }
       } catch (error) {
-        console.error("Error checking user:", error);
-        toast({
-          title: "Error",
-          description: "Failed to authenticate user. Please try logging in again.",
-          variant: "destructive",
-        });
+        console.error("Error checking user:", error)
+        toast({ title: "Error", description: "Failed to authenticate user.", variant: "destructive" })
       }
-    };
-  
-    void checkUser();
-  }, []);
+    }
+    void checkUser()
+
+    const handleDropEvent = (e: Event) => {
+      const { category, image, x, y } = (e as CustomEvent).detail
+      handleDropImage(category, { Id: image.id, Link: image.url, Name: "", Category: category, UserId: user?.id ?? 0 }, x, y)
+    }
+    window.addEventListener("dropImage", handleDropEvent)
+    return () => window.removeEventListener("dropImage", handleDropEvent)
+  }, [])
 
   const fetchCharacters = async () => {
     try {
@@ -1579,6 +1585,28 @@ export default function Home() {
     if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id));
   };
 
+  const handleSetBackground = (url: string) => {
+    setBackgroundImage(url)
+  }
+
+  const handleDropImage = (category: string, image: DMImage, x: number, y: number) => {
+    const imageData: { id: string; url: string; x: number; y: number; width?: number; height?: number } = { id: image.Id.toString(), url: image.Link, x, y }
+    if (category === "Image") {
+      imageData.width = 100 // Default size for images
+      imageData.height = 100
+      setMiddleLayerImages((prev) => [...prev, imageData])
+    } else if (category === "Token") {
+      imageData.width = 50 // Fixed size for tokens
+      imageData.height = 50
+      setTopLayerImages((prev) => [...prev, imageData])
+    }
+  }
+
+  const handleUpdateImages = (middleLayer: LayerImage[], topLayer: LayerImage[]) => {
+    setMiddleLayerImages(middleLayer)
+    setTopLayerImages(topLayer)
+  }
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -1605,7 +1633,12 @@ export default function Home() {
       <div className="flex flex-col h-screen">
         <div className="flex flex-grow overflow-hidden">
           <div className="flex-grow overflow-hidden">
-            <MainContent />
+            <MainContent
+              backgroundImage={backgroundImage}
+              middleLayerImages={middleLayerImages}
+              topLayerImages={topLayerImages}
+              onUpdateImages={handleUpdateImages}
+            />
           </div>
           <RightSideMenu
             messages={messages}
@@ -1620,6 +1653,8 @@ export default function Home() {
             images={images}
             onAddImage={handleAddImage}
             onDeleteImage={handleDeleteImage}
+            onSetBackground={handleSetBackground}
+            onDropImage={handleDropImage}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />
@@ -1631,16 +1666,16 @@ export default function Home() {
 ================
 File: app/components/ImageList.tsx
 ================
-"use client";
+"use client"
 
-import { useState } from "react";
-import Image from "next/image";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Upload } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
-import type { DMImage } from "../types/image";
+import { useState } from "react"
+import Image from "next/image"
+import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Plus, Trash2 } from "lucide-react"
+import { toast } from "@/components/ui/use-toast"
+import type { DMImage } from "../types/image"
 
 interface ImageListProps {
   images: DMImage[]
@@ -1658,21 +1693,21 @@ export default function ImageList({
   onDragStart,
   onSceneClick,
 }: ImageListProps) {
-  const [activeCategory, setActiveCategory] = useState<string>("Scene");
-  const [uploading, setUploading] = useState(false);
-  const categories = ["Scene", "Image", "Token"];
+  const [activeCategory, setActiveCategory] = useState<string>("Scene")
+  const [uploading, setUploading] = useState(false)
+  const categories = ["Scene", "Image", "Token"]
 
   const handleDeleteImage = (image: DMImage) => {
     if (window.confirm(`Are you sure you want to delete ${image.Name}?`)) {
-      onDeleteImage(image);
+      onDeleteImage(image)
     }
-  };
+  }
 
   const handleImageClick = (image: DMImage) => {
     if (image.Category === "Scene" && onSceneClick) {
       onSceneClick(image.Link)
     }
-  };
+  }
 
   const handleUpload = async (category: string) => {
     const input = document.createElement("input");
@@ -1710,6 +1745,11 @@ export default function ImageList({
     input.click();
   };
 
+  const getNameClass = (name: string) => {
+    // Default Tailwind text size is text-base (16px), reduce to text-sm (14px) if long
+    return name.length > 10 ? "text-sm break-words" : "text-base"
+  };
+
   return (
     <Tabs value={activeCategory} onValueChange={setActiveCategory}>
       <TabsList className="grid w-full grid-cols-3">
@@ -1722,7 +1762,7 @@ export default function ImageList({
       {categories.map((category) => (
         <TabsContent key={category} value={category}>
           <ScrollArea className="h-[calc(100vh-250px)]">
-          <Button
+            <Button
               variant="outline"
               size="sm"
               className="mt-4"
@@ -1737,8 +1777,7 @@ export default function ImageList({
                 </>
               )}
             </Button>
-
-          <ul className="space-y-2 mt-4">
+            <ul className="space-y-2 mt-4">
               {images
                 .filter((img) => img.Category === category)
                 .map((image) => (
@@ -1749,7 +1788,7 @@ export default function ImageList({
                     onDragStart={(e) => onDragStart?.(e, image)}
                     onClick={() => handleImageClick(image)}
                   >
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 flex-grow">
                       <Image
                         src={image.Link || "/placeholder.svg"}
                         alt={image.Name}
@@ -1757,7 +1796,7 @@ export default function ImageList({
                         height={40}
                         objectFit="cover"
                       />
-                      <span>{image.Name}</span>
+                      <span className={`${getNameClass(image.Name)} max-w-[150px]`}>{image.Name}</span>
                     </div>
                     <Button
                       variant="ghost"
@@ -1776,7 +1815,7 @@ export default function ImageList({
         </TabsContent>
       ))}
     </Tabs>
-  );
+  )
 }
 
 ================
@@ -1888,18 +1927,30 @@ File: app/components/MainContent.tsx
 ================
 "use client"
 
-import { useRef, useEffect } from "react"
+import { useRef, useState, useEffect } from "react"
 import Image from "next/image"
+import type { LayerImage } from "../types/layerImage"
 
 interface MainContentProps {
   backgroundImage: string | null
-  middleLayerImages: { id: string; url: string; x: number; y: number }[]
-  topLayerImages: { id: string; url: string; x: number; y: number }[]
+  middleLayerImages: LayerImage[] | undefined
+  topLayerImages: LayerImage[] | undefined
+  onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void // Callback to update parent state
 }
 
-export default function MainContent({ backgroundImage, middleLayerImages, topLayerImages }: MainContentProps) {
+export default function MainContent({
+  backgroundImage,
+  middleLayerImages = [],
+  topLayerImages = [],
+  onUpdateImages,
+}: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const GRID_SIZE = 50 // Grid cell size in pixels
+  const [selectedId, setSelectedId] = useState<string | null>(null) // Track selected image/token
+  const [draggingId, setDraggingId] = useState<string | null>(null) // Track which item is being dragged
+  const [resizingId, setResizingId] = useState<string | null>(null) // Track which image is being resized
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null)
+  const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -1909,30 +1960,124 @@ export default function MainContent({ backgroundImage, middleLayerImages, topLay
     e.preventDefault()
     const imageId = e.dataTransfer.getData("imageId")
     const category = e.dataTransfer.getData("category")
+    const url = e.dataTransfer.getData("url")
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return
 
     const x = Math.floor((e.clientX - rect.left) / GRID_SIZE) * GRID_SIZE
     const y = Math.floor((e.clientY - rect.top) / GRID_SIZE) * GRID_SIZE
 
-    const image = { id: imageId, url: e.dataTransfer.getData("url") || "", x, y }
-    if (category === "Image" || category === "Token") {
-      window.dispatchEvent(
-        new CustomEvent("dropImage", { detail: { category, image, x, y } })
-      )
+    const image: LayerImage = { id: imageId, url: url || "", x, y }
+    if (category === "Image") {
+      image.width = GRID_SIZE * 2 // Default size for images
+      image.height = GRID_SIZE * 2
+    } else if (category === "Token") {
+      image.width = GRID_SIZE // Tokens fixed to grid size
+      image.height = GRID_SIZE
+    }
+    window.dispatchEvent(new CustomEvent("dropImage", { detail: { category, image, x, y } }))
+  }
+
+  const handleItemDragStart = (e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => {
+    setDraggingId(item.id)
+    setSelectedId(item.id)
+    const rect = e.currentTarget.getBoundingClientRect()
+    setDragOffset({
+      x: e.clientX - rect.left - (isToken ? 0 : (item.width || GRID_SIZE) / 2),
+      y: e.clientY - rect.top - (isToken ? 0 : (item.height || GRID_SIZE) / 2),
+    })
+    const dragImage = document.createElement("img")
+    dragImage.src = item.url
+    e.dataTransfer.setDragImage(dragImage, 0, 0) // Hide default drag preview
+  }
+
+  const handleItemDrag = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!draggingId || !dragOffset) return
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    const x = Math.floor((e.clientX - rect.left - dragOffset.x) / GRID_SIZE) * GRID_SIZE
+    const y = Math.floor((e.clientY - rect.top - dragOffset.y) / GRID_SIZE) * GRID_SIZE
+
+    updateItemPosition(draggingId, x, y)
+  }
+
+  const handleItemDragEnd = () => {
+    setDraggingId(null)
+    setDragOffset(null)
+    if (onUpdateImages) {
+      onUpdateImages(middleLayerImages, topLayerImages)
+    }
+  }
+
+  const handleResizeStart = (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
+    e.stopPropagation()
+    setResizingId(item.id)
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: item.width || GRID_SIZE,
+      height: item.height || GRID_SIZE,
+    })
+  }
+
+  const handleResizeMove = (e: MouseEvent) => {
+    if (!resizingId || !resizeStart) return
+    const dx = e.clientX - resizeStart.x
+    const dy = e.clientY - resizeStart.y
+    const newWidth = Math.max(GRID_SIZE, Math.floor((resizeStart.width + dx) / GRID_SIZE) * GRID_SIZE)
+    const newHeight = Math.max(GRID_SIZE, Math.floor((resizeStart.height + dy) / GRID_SIZE) * GRID_SIZE)
+
+    updateItemSize(resizingId, newWidth, newHeight)
+  }
+
+  const handleResizeEnd = () => {
+    setResizingId(null)
+    setResizeStart(null)
+    if (onUpdateImages) {
+      onUpdateImages(middleLayerImages, topLayerImages)
+    }
+  }
+
+  const updateItemPosition = (id: string, x: number, y: number) => {
+    const updateLayer = (layer: LayerImage[]) =>
+      layer.map((item) => (item.id === id ? { ...item, x, y } : item))
+    if (middleLayerImages.some((img) => img.id === id)) {
+      middleLayerImages = updateLayer(middleLayerImages)
+    } else if (topLayerImages.some((img) => img.id === id)) {
+      topLayerImages = updateLayer(topLayerImages)
+    }
+  }
+
+  const updateItemSize = (id: string, width: number, height: number) => {
+    const updateLayer = (layer: LayerImage[]) =>
+      layer.map((item) => (item.id === id ? { ...item, width, height } : item))
+    if (middleLayerImages.some((img) => img.id === id)) {
+      middleLayerImages = updateLayer(middleLayerImages)
+    }
+  }
+
+  const handleDelete = (e: KeyboardEvent) => {
+    if (e.key === "Delete" && selectedId) {
+      const newMiddleLayer = middleLayerImages.filter((img) => img.id !== selectedId)
+      const newTopLayer = topLayerImages.filter((img) => img.id !== selectedId)
+      if (onUpdateImages) {
+        onUpdateImages(newMiddleLayer, newTopLayer)
+      }
+      setSelectedId(null)
     }
   }
 
   useEffect(() => {
-    const handleDropEvent = (e: Event) => {
-      const { category, image, x, y } = (e as CustomEvent).detail
-      if (category === "Image" || category === "Token") {
-        // This will be handled in Home.tsx via onDropImage
-      }
+    window.addEventListener("mousemove", handleResizeMove)
+    window.addEventListener("mouseup", handleResizeEnd)
+    window.addEventListener("keydown", handleDelete)
+    return () => {
+      window.removeEventListener("mousemove", handleResizeMove)
+      window.removeEventListener("mouseup", handleResizeEnd)
+      window.removeEventListener("keydown", handleDelete)
     }
-    window.addEventListener("dropImage", handleDropEvent)
-    return () => window.removeEventListener("dropImage", handleDropEvent)
-  }, [])
+  }, [resizingId, resizeStart, selectedId, middleLayerImages, topLayerImages])
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
@@ -1947,7 +2092,6 @@ export default function MainContent({ backgroundImage, middleLayerImages, topLay
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
-        {/* Grid Overlay */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
@@ -1955,24 +2099,48 @@ export default function MainContent({ backgroundImage, middleLayerImages, topLay
             backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
           }}
         />
-        {/* Middle Layer (Images) */}
         {middleLayerImages.map((img) => (
           <div
             key={img.id}
-            className="absolute"
+            className={`absolute ${selectedId === img.id ? "border-2 border-blue-500" : ""}`}
             style={{ left: img.x, top: img.y, zIndex: 10 }}
+            draggable
+            onDragStart={(e) => handleItemDragStart(e, img, false)}
+            onDrag={(e) => handleItemDrag(e)}
+            onDragEnd={handleItemDragEnd}
+            onClick={() => setSelectedId(img.id)}
           >
-            <Image src={img.url} alt="Middle layer image" width={GRID_SIZE} height={GRID_SIZE} objectFit="contain" />
+            <Image
+              src={img.url}
+              alt="Middle layer image"
+              width={img.width || GRID_SIZE * 2}
+              height={img.height || GRID_SIZE * 2}
+              objectFit="contain"
+            />
+            <div
+              className="absolute bottom-0 right-0 w-4 h-4 bg-gray-500 cursor-se-resize"
+              onMouseDown={(e) => handleResizeStart(e, img)}
+            />
           </div>
         ))}
-        {/* Top Layer (Tokens) */}
         {topLayerImages.map((img) => (
           <div
             key={img.id}
-            className="absolute"
+            className={`absolute ${selectedId === img.id ? "border-2 border-blue-500" : ""}`}
             style={{ left: img.x, top: img.y, zIndex: 20 }}
+            draggable
+            onDragStart={(e) => handleItemDragStart(e, img, true)}
+            onDrag={(e) => handleItemDrag(e)}
+            onDragEnd={handleItemDragEnd}
+            onClick={() => setSelectedId(img.id)}
           >
-            <Image src={img.url} alt="Token" width={GRID_SIZE} height={GRID_SIZE} objectFit="contain" />
+            <Image
+              src={img.url}
+              alt="Token"
+              width={GRID_SIZE}
+              height={GRID_SIZE}
+              objectFit="contain"
+            />
           </div>
         ))}
       </div>
@@ -2127,6 +2295,7 @@ export default function RightSideMenu({
   const handleDragStart = (e: React.DragEvent<HTMLLIElement>, image: DMImage) => {
     e.dataTransfer.setData("imageId", image.Id.toString())
     e.dataTransfer.setData("category", image.Category)
+    e.dataTransfer.setData("url", image.Link) // Add this line
   }
 
   useEffect(() => {
@@ -2433,6 +2602,18 @@ export type DMImage = {
   Category: "Scene" | "Image" | "Token";
   UserId: number;
 };
+
+================
+File: app/types/layerImage.ts
+================
+export type LayerImage = {
+    id: string
+    url: string
+    x: number
+    y: number
+    width?: number // Optional for images, not used for tokens
+    height?: number // Optional for images, not used for tokens
+  }
 
 ================
 File: app/types/user.ts
