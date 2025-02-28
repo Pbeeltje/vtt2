@@ -10,16 +10,20 @@ import { toast } from "@/components/ui/use-toast";
 import type { DMImage } from "../types/image";
 
 interface ImageListProps {
-  images: DMImage[];
-  categories: string[];
-  onAddImage: (category: string, file: File) => Promise<void>;
-  onDeleteImage: (image: DMImage) => Promise<void>;
+  images: DMImage[]
+  categories: string[]
+  onAddImage: (category: string, file: File) => Promise<void>
+  onDeleteImage: (image: DMImage) => Promise<void>
+  onDragStart?: (e: React.DragEvent<HTMLLIElement>, image: DMImage) => void
+  onSceneClick?: (url: string) => void
 }
 
 export default function ImageList({
   images,
   onAddImage,
   onDeleteImage,
+  onDragStart,
+  onSceneClick,
 }: ImageListProps) {
   const [activeCategory, setActiveCategory] = useState<string>("Scene");
   const [uploading, setUploading] = useState(false);
@@ -28,6 +32,12 @@ export default function ImageList({
   const handleDeleteImage = (image: DMImage) => {
     if (window.confirm(`Are you sure you want to delete ${image.Name}?`)) {
       onDeleteImage(image);
+    }
+  };
+
+  const handleImageClick = (image: DMImage) => {
+    if (image.Category === "Scene" && onSceneClick) {
+      onSceneClick(image.Link)
     }
   };
 
@@ -78,44 +88,8 @@ export default function ImageList({
       </TabsList>
       {categories.map((category) => (
         <TabsContent key={category} value={category}>
-          <ScrollArea className="h-[calc(100vh-250px)] pr-4">
-            <ul className="space-y-2">
-              {images
-                .filter((image) => image.Category === category)
-                .map((image) => (
-                  <li
-                    key={image.Id}
-                    className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 bg-gray-200 rounded-full overflow-hidden">
-                        {image.Link ? (
-                          <Image
-                            src={image.Link}
-                            alt={image.Name}
-                            width={48}
-                            height={48}
-                            objectFit="cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                            No Image
-                          </div>
-                        )}
-                      </div>
-                      <span>{image.Name}</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDeleteImage(image)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </li>
-                ))}
-            </ul>
-            <Button
+          <ScrollArea className="h-[calc(100vh-250px)]">
+          <Button
               variant="outline"
               size="sm"
               className="mt-4"
@@ -130,6 +104,41 @@ export default function ImageList({
                 </>
               )}
             </Button>
+
+          <ul className="space-y-2 mt-4">
+              {images
+                .filter((img) => img.Category === category)
+                .map((image) => (
+                  <li
+                    key={image.Id}
+                    className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
+                    draggable={category !== "Scene"}
+                    onDragStart={(e) => onDragStart?.(e, image)}
+                    onClick={() => handleImageClick(image)}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <Image
+                        src={image.Link || "/placeholder.svg"}
+                        alt={image.Name}
+                        width={40}
+                        height={40}
+                        objectFit="cover"
+                      />
+                      <span>{image.Name}</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteImage(image)
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </li>
+                ))}
+            </ul>
           </ScrollArea>
         </TabsContent>
       ))}

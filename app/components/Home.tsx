@@ -30,31 +30,28 @@ export default function Home() {
   const [chatBackgroundColor, setChatBackgroundColor] = useState("bg-white")
   const [images, setImages] = useState<DMImage[]>([]);
 
+  const [backgroundImage, setBackgroundImage] = useState<string | null>(null)
+  const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number }[]>([])
+  const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number }[]>([])
+
   useEffect(() => {
     const checkUser = async () => {
       try {
-        const userData = await getUserFromCookie();
+        const userData = await getUserFromCookie()
         if (userData) {
-          setUser(userData);
-          // Fetch characters for all users
-          await fetchCharacters();
-          // Fetch images only for DMs
+          setUser(userData)
+          await fetchCharacters()
           if (userData.role === "DM") {
-            await fetchImages();
+            await fetchImages()
           }
         }
       } catch (error) {
-        console.error("Error checking user:", error);
-        toast({
-          title: "Error",
-          description: "Failed to authenticate user. Please try logging in again.",
-          variant: "destructive",
-        });
+        console.error("Error checking user:", error)
+        toast({ title: "Error", description: "Failed to authenticate user.", variant: "destructive" })
       }
-    };
-  
-    void checkUser();
-  }, []);
+    }
+    void checkUser()
+  }, [])
 
   const fetchCharacters = async () => {
     try {
@@ -228,6 +225,19 @@ export default function Home() {
     if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id));
   };
 
+  const handleSetBackground = (url: string) => {
+    setBackgroundImage(url)
+  }
+
+  const handleDropImage = (category: string, image: DMImage, x: number, y: number) => {
+    const imageData = { id: image.Id.toString(), url: image.Link, x, y }
+    if (category === "Image") {
+      setMiddleLayerImages((prev) => [...prev, imageData])
+    } else if (category === "Token") {
+      setTopLayerImages((prev) => [...prev, imageData])
+    }
+  }
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -254,7 +264,11 @@ export default function Home() {
       <div className="flex flex-col h-screen">
         <div className="flex flex-grow overflow-hidden">
           <div className="flex-grow overflow-hidden">
-            <MainContent />
+            <MainContent
+              backgroundImage={backgroundImage}
+              middleLayerImages={middleLayerImages}
+              topLayerImages={topLayerImages}
+            />
           </div>
           <RightSideMenu
             messages={messages}
@@ -269,6 +283,8 @@ export default function Home() {
             images={images}
             onAddImage={handleAddImage}
             onDeleteImage={handleDeleteImage}
+            onSetBackground={handleSetBackground}
+            onDropImage={handleDropImage}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />

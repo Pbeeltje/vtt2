@@ -35,6 +35,8 @@ interface RightSideMenuProps {
   images: DMImage[];
   onAddImage: (category: string, file: File) => Promise<void>;
   onDeleteImage: (image: DMImage) => Promise<void>;
+  onSetBackground: (url: string) => void
+  onDropImage: (category: string, image: DMImage, x: number, y: number) => void
 }
 
 export default function RightSideMenu({
@@ -50,6 +52,8 @@ export default function RightSideMenu({
   images,
   onAddImage,
   onDeleteImage,
+  onSetBackground,
+  onDropImage,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -60,6 +64,12 @@ export default function RightSideMenu({
       addMessage("user", inputMessage, user)
       setInputMessage("")
     }
+  }
+
+  const handleDragStart = (e: React.DragEvent<HTMLLIElement>, image: DMImage) => {
+    e.dataTransfer.setData("imageId", image.Id.toString())
+    e.dataTransfer.setData("category", image.Category)
+    e.dataTransfer.setData("url", image.Link) // Add this line
   }
 
   useEffect(() => {
@@ -177,14 +187,17 @@ export default function RightSideMenu({
             />
           </div>
         )}
-        {activeSection === "maps" && (
+         {activeSection === "maps" && (
           <div className="p-4">
             <h2 className="text-lg font-semibold mb-4">Maps</h2>
             <ImageList
               images={images}
               categories={["Scene", "Image", "Token"]}
               onAddImage={onAddImage}
-              onDeleteImage={onDeleteImage} />
+              onDeleteImage={onDeleteImage}
+              onDragStart={handleDragStart}
+              onSceneClick={onSetBackground}
+            />
           </div>
         )}
       </div>

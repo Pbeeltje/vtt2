@@ -1,109 +1,94 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useRef, useEffect } from "react"
 import Image from "next/image"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Upload } from "lucide-react"
 
-export default function MainContent() {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [uploadedImages, setUploadedImages] = useState<string[]>([])
-  const [imageData, setImageData] = useState<{ [key: string]: string }>({})
+interface MainContentProps {
+  backgroundImage: string | null
+  middleLayerImages: { id: string; url: string; x: number; y: number }[] | undefined
+  topLayerImages: { id: string; url: string; x: number; y: number }[] | undefined
+}
+
+export default function MainContent({ backgroundImage, middleLayerImages = [], topLayerImages = [] }: MainContentProps) {
+  const gridRef = useRef<HTMLDivElement>(null)
+  const GRID_SIZE = 50 // Grid cell size in pixels
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const imageId = e.dataTransfer.getData("imageId")
+    const category = e.dataTransfer.getData("category")
+    const url = e.dataTransfer.getData("url") // Ensure URL is set in dragStart
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    const x = Math.floor((e.clientX - rect.left) / GRID_SIZE) * GRID_SIZE
+    const y = Math.floor((e.clientY - rect.top) / GRID_SIZE) * GRID_SIZE
+
+    const image = { id: imageId, url: url || "", x, y }
+    if (category === "Image" || category === "Token") {
+      window.dispatchEvent(
+        new CustomEvent("dropImage", { detail: { category, image, x, y } })
+      )
+    }
+  }
 
   useEffect(() => {
-    // Load image data from localStorage on component mount
-    const savedImageData = localStorage.getItem("imageData")
-    if (savedImageData) {
-      setImageData(JSON.parse(savedImageData))
-    }
-  }, [])
-
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        const newImage = e.target?.result as string
-        setUploadedImages([...uploadedImages, newImage])
-        setSelectedImage(newImage)
+    const handleDropEvent = (e: Event) => {
+      const { category, image, x, y } = (e as CustomEvent).detail
+      if (category === "Image" || category === "Token") {
+        // Handled in Home.tsx via onDropImage
       }
-      reader.readAsDataURL(file)
     }
-  }
-
-  const handleImageSelect = (image: string) => {
-    setSelectedImage(image)
-  }
-
-  const handleImageDataChange = (image: string, data: string) => {
-    const newImageData = { ...imageData, [image]: data }
-    setImageData(newImageData)
-    localStorage.setItem("imageData", JSON.stringify(newImageData))
-  }
-
-  const processImageData = (data: string) => {
-    if (typeof data !== "string") {
-      console.error("Invalid image data:", data)
-      return []
-    }
-    return data
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-  }
+    window.addEventListener("dropImage", handleDropEvent)
+    return () => window.removeEventListener("dropImage", handleDropEvent)
+  }, [])
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <div className="flex-grow p-4">
-        {selectedImage ? (
-          <div className="relative w-full h-full">
-            <Image src={selectedImage || "/placeholder.svg"} alt="Selected image" layout="fill" objectFit="contain" />
+      <div
+        ref={gridRef}
+        className="flex-grow relative"
+        style={{
+          backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {/* Grid Overlay */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: `linear-gradient(to right, rgba(0,0,0,0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.1) 1px, transparent 1px)`,
+            backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
+          }}
+        />
+        {/* Middle Layer (Images) */}
+        {middleLayerImages.map((img) => (
+          <div
+            key={img.id}
+            className="absolute"
+            style={{ left: img.x, top: img.y, zIndex: 10 }}
+          >
+            <Image src={img.url} alt="Middle layer image" width={GRID_SIZE} height={GRID_SIZE} objectFit="contain" />
           </div>
-        ) : (
-          <div className="flex items-center justify-center h-full text-gray-400">No image selected</div>
-        )}
-      </div>
-      <div className="py-0 bg-gray-100 border-t flex items-center justify-between">
-        <Button variant="ghost" size="icon" onClick={() => document.getElementById("file-upload")?.click()}>
-          <Upload className="h-4 w-4" />
-          <span className="sr-only">Upload image</span>
-        </Button>
-        <input id="file-upload" type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-        <ScrollArea className="h-16 flex-grow mx-2">
-          <div className="flex space-x-2 p-2">
-            {uploadedImages.map((image, index) => (
-              <div key={index} className="flex flex-col items-center">
-                <Button variant="outline" size="icon" onClick={() => handleImageSelect(image)} className="p-0.5 mb-1">
-                  <Image
-                    src={image || "/placeholder.svg"}
-                    alt={`Uploaded image ${index + 1}`}
-                    width={24}
-                    height={24}
-                    objectFit="cover"
-                  />
-                </Button>
-                <Input
-                  type="text"
-                  placeholder="Image data"
-                  value={imageData[image] || ""}
-                  onChange={(e) => handleImageDataChange(image, e.target.value)}
-                  className="w-20 text-xs"
-                />
-                <div className="text-xs mt-1">
-                  {processImageData(imageData[image] || "").map((item, i) => (
-                    <span key={i} className="mr-1">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
+        ))}
+        {/* Top Layer (Tokens) */}
+        {topLayerImages.map((img) => (
+          <div
+            key={img.id}
+            className="absolute"
+            style={{ left: img.x, top: img.y, zIndex: 20 }}
+          >
+            <Image src={img.url} alt="Token" width={GRID_SIZE} height={GRID_SIZE} objectFit="contain" />
           </div>
-        </ScrollArea>
+        ))}
       </div>
     </div>
   )
 }
-
