@@ -13,6 +13,7 @@ import type { User } from "../types/user"
 import type { Character } from "../types/character"
 import ErrorBoundary from "./ErrorBoundary"
 import type { DMImage } from "../types/image";
+import type { LayerImage } from "../types/layerImage";
 
 export type MessageType = "user" | "system"
 
@@ -31,8 +32,8 @@ export default function Home() {
   const [images, setImages] = useState<DMImage[]>([]);
 
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null)
-  const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number }[]>([])
-  const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number }[]>([])
+  const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
+  const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
 
   useEffect(() => {
     const checkUser = async () => {
@@ -51,6 +52,13 @@ export default function Home() {
       }
     }
     void checkUser()
+
+    const handleDropEvent = (e: Event) => {
+      const { category, image, x, y } = (e as CustomEvent).detail
+      handleDropImage(category, { Id: image.id, Link: image.url, Name: "", Category: category, UserId: user?.id ?? 0 }, x, y)
+    }
+    window.addEventListener("dropImage", handleDropEvent)
+    return () => window.removeEventListener("dropImage", handleDropEvent)
   }, [])
 
   const fetchCharacters = async () => {
@@ -230,12 +238,21 @@ export default function Home() {
   }
 
   const handleDropImage = (category: string, image: DMImage, x: number, y: number) => {
-    const imageData = { id: image.Id.toString(), url: image.Link, x, y }
+    const imageData: { id: string; url: string; x: number; y: number; width?: number; height?: number } = { id: image.Id.toString(), url: image.Link, x, y }
     if (category === "Image") {
+      imageData.width = 100 // Default size for images
+      imageData.height = 100
       setMiddleLayerImages((prev) => [...prev, imageData])
     } else if (category === "Token") {
+      imageData.width = 50 // Fixed size for tokens
+      imageData.height = 50
       setTopLayerImages((prev) => [...prev, imageData])
     }
+  }
+
+  const handleUpdateImages = (middleLayer: LayerImage[], topLayer: LayerImage[]) => {
+    setMiddleLayerImages(middleLayer)
+    setTopLayerImages(topLayer)
   }
 
   if (!user) {
@@ -268,6 +285,7 @@ export default function Home() {
               backgroundImage={backgroundImage}
               middleLayerImages={middleLayerImages}
               topLayerImages={topLayerImages}
+              onUpdateImages={handleUpdateImages}
             />
           </div>
           <RightSideMenu

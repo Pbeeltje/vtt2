@@ -1,13 +1,13 @@
-"use client";
+"use client"
 
-import { useState } from "react";
-import Image from "next/image";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Upload } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
-import type { DMImage } from "../types/image";
+import { useState } from "react"
+import Image from "next/image"
+import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Plus, Trash2 } from "lucide-react"
+import { toast } from "@/components/ui/use-toast"
+import type { DMImage } from "../types/image"
 
 interface ImageListProps {
   images: DMImage[]
@@ -25,21 +25,21 @@ export default function ImageList({
   onDragStart,
   onSceneClick,
 }: ImageListProps) {
-  const [activeCategory, setActiveCategory] = useState<string>("Scene");
-  const [uploading, setUploading] = useState(false);
-  const categories = ["Scene", "Image", "Token"];
+  const [activeCategory, setActiveCategory] = useState<string>("Scene")
+  const [uploading, setUploading] = useState(false)
+  const categories = ["Scene", "Image", "Token"]
 
   const handleDeleteImage = (image: DMImage) => {
     if (window.confirm(`Are you sure you want to delete ${image.Name}?`)) {
-      onDeleteImage(image);
+      onDeleteImage(image)
     }
-  };
+  }
 
   const handleImageClick = (image: DMImage) => {
     if (image.Category === "Scene" && onSceneClick) {
       onSceneClick(image.Link)
     }
-  };
+  }
 
   const handleUpload = async (category: string) => {
     const input = document.createElement("input");
@@ -77,6 +77,11 @@ export default function ImageList({
     input.click();
   };
 
+  const getNameClass = (name: string) => {
+    // Default Tailwind text size is text-base (16px), reduce to text-sm (14px) if long
+    return name.length > 10 ? "text-sm break-words" : "text-base"
+  };
+
   return (
     <Tabs value={activeCategory} onValueChange={setActiveCategory}>
       <TabsList className="grid w-full grid-cols-3">
@@ -89,7 +94,7 @@ export default function ImageList({
       {categories.map((category) => (
         <TabsContent key={category} value={category}>
           <ScrollArea className="h-[calc(100vh-250px)]">
-          <Button
+            <Button
               variant="outline"
               size="sm"
               className="mt-4"
@@ -104,8 +109,7 @@ export default function ImageList({
                 </>
               )}
             </Button>
-
-          <ul className="space-y-2 mt-4">
+            <ul className="space-y-2 mt-4">
               {images
                 .filter((img) => img.Category === category)
                 .map((image) => (
@@ -116,7 +120,7 @@ export default function ImageList({
                     onDragStart={(e) => onDragStart?.(e, image)}
                     onClick={() => handleImageClick(image)}
                   >
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 flex-grow">
                       <Image
                         src={image.Link || "/placeholder.svg"}
                         alt={image.Name}
@@ -124,7 +128,7 @@ export default function ImageList({
                         height={40}
                         objectFit="cover"
                       />
-                      <span>{image.Name}</span>
+                      <span className={`${getNameClass(image.Name)} max-w-[150px]`}>{image.Name}</span>
                     </div>
                     <Button
                       variant="ghost"
@@ -143,5 +147,5 @@ export default function ImageList({
         </TabsContent>
       ))}
     </Tabs>
-  );
+  )
 }
