@@ -3,27 +3,28 @@ export interface Character {
   Name: string
   Description: string
   Path: string
-  Category: string
+  Category?: string // Capitalized (optional)
+  category?: string // Lowercase (optional, for safety)
+  UserId: number
   PortraitUrl?: string
   TokenUrl?: string
-  Age: number
-  Level: number
-  Guard: number
-  Armor: number
-  MaxGuard: number
-  Strength: number
-  MaxStrength: number
-  Dexternity: number
-  MaxDexternity: number
-  Mind: number
-  MaxMind: number
-  Charisma: number
-  MaxCharisma: number
-  Skill: number
-  MaxSkill: number
-  Mp: number
-  MaxMp: number
-  InventoryId: number
-  JobId: number | null
+  Age?: number
+  Level?: number
+  Armor?: number
+  Guard?: number
+  MaxGuard?: number
+  Strength?: number
+  MaxStrength?: number
+  Dexternity?: number
+  MaxDexternity?: number
+  Mind?: number
+  MaxMind?: number
+  Charisma?: number
+  MaxCharisma?: number
+  Skill?: number
+  MaxSkill?: number
+  Mp?: number
+  MaxMp?: number
+  InventoryId?: number | null
+  JobId?: number | null
 }
-

@@ -32,9 +32,9 @@ interface RightSideMenuProps {
   onUpdateCharacter: (updatedCharacter: Character) => void
   onDeleteCharacter: (character: Character) => void
   onLogout: () => void
-  images: DMImage[];
-  onAddImage: (category: string, file: File) => Promise<void>;
-  onDeleteImage: (image: DMImage) => Promise<void>;
+  images: DMImage[]
+  onAddImage: (category: string, file: File) => Promise<void>
+  onDeleteImage: (image: DMImage) => Promise<void>
   onSetBackground: (url: string) => void
   onDropImage: (category: string, image: DMImage, x: number, y: number) => void
 }
@@ -59,6 +59,9 @@ export default function RightSideMenu({
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const [activeSection, setActiveSection] = useState<"chat" | "characters" | "maps">("chat")
 
+  console.log("RightSideMenu rendering, activeSection:", activeSection) // Log render and tab state
+  console.log("RightSideMenu characters:", characters) // Log characters prop
+
   const handleSendMessage = () => {
     if (inputMessage.trim()) {
       addMessage("user", inputMessage, user)
@@ -69,14 +72,14 @@ export default function RightSideMenu({
   const handleDragStart = (e: React.DragEvent<HTMLLIElement>, image: DMImage) => {
     e.dataTransfer.setData("imageId", image.Id.toString())
     e.dataTransfer.setData("category", image.Category)
-    e.dataTransfer.setData("url", image.Link) // Add this line
+    e.dataTransfer.setData("url", image.Link)
   }
 
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
     }
-  }, [chatContainerRef]) // Removed unnecessary dependency: messages
+  }, [messages])
 
   const handleLogout = async () => {
     try {
@@ -100,7 +103,10 @@ export default function RightSideMenu({
     <div className="w-64 flex flex-col bg-gray-100 border-l h-full">
       <Tabs
         value={activeSection}
-        onValueChange={(value) => setActiveSection(value as typeof activeSection)}
+        onValueChange={(value) => {
+          console.log("Tab changed to:", value) // Log tab switch
+          setActiveSection(value as typeof activeSection)
+        }}
         className="w-full"
       >
         <TabsList className="grid w-full grid-cols-4">
@@ -187,7 +193,7 @@ export default function RightSideMenu({
             />
           </div>
         )}
-         {activeSection === "maps" && (
+        {activeSection === "maps" && (
           <div className="p-4">
             <h2 className="text-lg font-semibold mb-4">Maps</h2>
             <ImageList
@@ -204,4 +210,3 @@ export default function RightSideMenu({
     </div>
   )
 }
-

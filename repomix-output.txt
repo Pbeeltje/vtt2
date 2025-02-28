@@ -195,7 +195,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Character ID is required' }, { status: 400 })
   }
 
-  const allowedFields = ['Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'Armor', 'MaxGuard', 'Strength', 'MaxStrength', 'Dexternity', 'MaxDexternity', 'Mind', 'MaxMind', 'Charisma', 'MaxCharisma', 'Skill', 'MaxSkill', 'Mp', 'MaxMp', 'PortraitUrl']
+  const allowedFields = ['Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'Armor', 'MaxGuard', 'Strength', 'MaxStrength', 'Dexternity', 'MaxDexternity', 'Mind', 'MaxMind', 'Charisma', 'MaxCharisma', 'Skill', 'MaxSkill', 'Mp', 'MaxMp', 'PortraitUrl', 'TokenUrl']
   const updateFields = Object.keys(updatedCharacter).filter(key => allowedFields.includes(key))
 
   try {
@@ -2013,20 +2013,17 @@ export default function MainContent({
           ? { ...item, x: Math.floor((item.x + dx) / gridSize) * gridSize, y: Math.floor((item.y + dy) / gridSize) * gridSize }
           : item
       )
-    if (middleLayerImages.some((img) => img.id === id)) {
-      middleLayerImages = updateLayer(middleLayerImages)
-    } else if (topLayerImages.some((img) => img.id === id)) {
-      topLayerImages = updateLayer(topLayerImages)
-    }
+    const newMiddleLayer = updateLayer(middleLayerImages)
+    const newTopLayer = updateLayer(topLayerImages)
+    return { middleLayer: newMiddleLayer, topLayer: newTopLayer }
   }, [draggingIds, gridSize, middleLayerImages, topLayerImages])
 
   const updateItemSize = useCallback((id: string, width: number, height: number) => {
     const updateLayer = (layer: LayerImage[]) =>
       layer.map((item) => (item.id === id ? { ...item, width, height } : item))
-    if (middleLayerImages.some((img) => img.id === id)) {
-      middleLayerImages = updateLayer(middleLayerImages)
-    }
-  }, [middleLayerImages])
+    const newMiddleLayer = updateLayer(middleLayerImages)
+    return { middleLayer: newMiddleLayer, topLayer: topLayerImages }
+  }, [middleLayerImages, topLayerImages])
 
   const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -2063,12 +2060,16 @@ export default function MainContent({
   }, [])
 
   const handleItemDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => {
+    let dragIds = selectedIds
     if (selectedIds.length === 0) {
-      setSelectedIds([item.id]) // Auto-select if nothing selected
+      // If nothing is selected, select this item and start dragging it immediately
+      setSelectedIds([item.id])
+      dragIds = [item.id]
     } else if (!selectedIds.includes(item.id)) {
-      return // Only drag selected items
+      // If something is selected but not this item, don’t drag
+      return
     }
-    setDraggingIds(selectedIds)
+    setDraggingIds(dragIds)
     const rect = e.currentTarget.getBoundingClientRect()
     setDragOffset({
       x: e.clientX - rect.left,
@@ -2101,8 +2102,9 @@ export default function MainContent({
     const dx = newX - referenceItem.x
     const dy = newY - referenceItem.y
 
-    draggingIds.forEach((id) => updateItemPosition(id, dx, dy))
-  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition])
+    const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy)
+    onUpdateImages?.(middleLayer, topLayer)
+  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages])
 
   const handleItemDragEnd = useCallback(() => {
     setDraggingIds(null)
@@ -2129,8 +2131,9 @@ export default function MainContent({
     const newWidth = Math.max(gridSize, Math.floor((resizeStart.width + dx) / gridSize) * gridSize)
     const newHeight = Math.max(gridSize, Math.floor((resizeStart.height + dy) / gridSize) * gridSize)
 
-    updateItemSize(resizingId, newWidth, newHeight)
-  }, [resizingId, resizeStart, gridSize, updateItemSize])
+    const { middleLayer, topLayer } = updateItemSize(resizingId, newWidth, newHeight)
+    onUpdateImages?.(middleLayer, topLayer)
+  }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages])
 
   const handleResizeEnd = useCallback(() => {
     setResizingId(null)
@@ -2197,8 +2200,8 @@ export default function MainContent({
         default:
           return
       }
-      updateItemPosition(id, dx, dy)
-      onUpdateImages?.(middleLayerImages, topLayerImages)
+      const { middleLayer, topLayer } = updateItemPosition(id, dx, dy)
+      onUpdateImages?.(middleLayer, topLayer)
     }
   }, [selectedIds, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages])
 
@@ -2268,7 +2271,7 @@ export default function MainContent({
             key={img.id}
             className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
             style={{ left: img.x, top: img.y, zIndex: 10 }}
-            draggable={true} // Always draggable for auto-selection
+            draggable={true}
             onDragStart={(e) => handleItemDragStart(e, img, false)}
             onDrag={(e) => handleItemDrag(e)}
             onDragEnd={handleItemDragEnd}
@@ -2292,7 +2295,7 @@ export default function MainContent({
             key={img.id}
             className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
             style={{ left: img.x, top: img.y, zIndex: 20 }}
-            draggable={true} // Always draggable for auto-selection
+            draggable={true}
             onDragStart={(e) => handleItemDragStart(e, img, true)}
             onDrag={(e) => handleItemDrag(e)}
             onDragEnd={handleItemDragEnd}
@@ -2735,6 +2738,7 @@ export interface Character {
   Path: string
   Category: string
   PortraitUrl?: string
+  TokenUrl?: string
   Age: number
   Level: number
   Guard: number

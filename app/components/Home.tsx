@@ -12,8 +12,8 @@ import { getUserFromCookie } from "@/lib/auth"
 import type { User } from "../types/user"
 import type { Character } from "../types/character"
 import ErrorBoundary from "./ErrorBoundary"
-import type { DMImage } from "../types/image";
-import type { LayerImage } from "../types/layerImage";
+import type { DMImage } from "../types/image"
+import type { LayerImage } from "../types/layerImage"
 
 export type MessageType = "user" | "system"
 
@@ -29,11 +29,11 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [characters, setCharacters] = useState<Character[]>([])
   const [chatBackgroundColor, setChatBackgroundColor] = useState("bg-white")
-  const [images, setImages] = useState<DMImage[]>([]);
-
+  const [images, setImages] = useState<DMImage[]>([])
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null)
   const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
   const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
+  const [isLoading, setIsLoading] = useState(true) // Add loading state
 
   useEffect(() => {
     const checkUser = async () => {
@@ -49,6 +49,8 @@ export default function Home() {
       } catch (error) {
         console.error("Error checking user:", error)
         toast({ title: "Error", description: "Failed to authenticate user.", variant: "destructive" })
+      } finally {
+        setIsLoading(false) // Set loading false after fetch
       }
     }
     void checkUser()
@@ -63,40 +65,28 @@ export default function Home() {
 
   const fetchCharacters = async () => {
     try {
-      const response = await fetch(`/api/characters`, {
-        credentials: "include",
-      })
-
+      const response = await fetch(`/api/characters`, { credentials: "include" })
       if (response.status === 401) {
         setUser(null)
-        toast({
-          title: "Authentication Error",
-          description: "Please log in again.",
-          variant: "destructive",
-        })
+        toast({ title: "Authentication Error", description: "Please log in again.", variant: "destructive" })
         return
       }
-
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
-
       const data = await response.json()
-      console.log("Fetched characters:", data) // Add this line for debugging
+      console.log("Fetched characters:", data)
       setCharacters(data)
+      console.log("Characters state updated:", data)
     } catch (error) {
       console.error("Error fetching characters:", error)
-      toast({
-        title: "Error",
-        description: "Failed to fetch characters. Please try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Failed to fetch characters. Please try again.", variant: "destructive" })
     }
   }
 
   const handleLogin = async (username: string, role: string) => {
     setUser({ id: 0, username, role })
-    void fetchCharacters()
+    await fetchCharacters() // Await to ensure characters are set before render
   }
 
   const handleLogout = () => {
@@ -127,111 +117,78 @@ export default function Home() {
     try {
       const response = await fetch("/api/characters", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category }),
       })
-
-      if (!response.ok) {
-        throw new Error("Failed to add character")
-      }
-
+      if (!response.ok) throw new Error("Failed to add character")
       const newCharacter = await response.json()
       setCharacters((prevCharacters) => [...prevCharacters, newCharacter])
     } catch (error) {
       console.error("Error adding character:", error)
-      toast({
-        title: "Error",
-        description: "Failed to add character. Please try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Failed to add character. Please try again.", variant: "destructive" })
     }
   }
-  
+
   const handleUpdateCharacter = async (updatedCharacter: Character) => {
     try {
       const response = await fetch(`/api/characters/${updatedCharacter.CharacterId}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedCharacter),
       })
-
-      if (!response.ok) {
-        throw new Error("Failed to update character")
-      }
-
+      if (!response.ok) throw new Error("Failed to update character")
       setCharacters((prevCharacters) =>
-        prevCharacters.map((char) => (char.CharacterId === updatedCharacter.CharacterId ? updatedCharacter : char)),
+        prevCharacters.map((char) => (char.CharacterId === updatedCharacter.CharacterId ? updatedCharacter : char))
       )
     } catch (error) {
       console.error("Error updating character:", error)
-      toast({
-        title: "Error",
-        description: "Failed to update character. Please try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Failed to update character. Please try again.", variant: "destructive" })
     }
   }
 
   const handleDeleteCharacter = async (character: Character) => {
     try {
-      const response = await fetch(`/api/characters/${character.CharacterId}`, {
-        method: "DELETE",
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to delete character")
-      }
-
+      const response = await fetch(`/api/characters/${character.CharacterId}`, { method: "DELETE" })
+      if (!response.ok) throw new Error("Failed to delete character")
       setCharacters((prevCharacters) => prevCharacters.filter((char) => char.CharacterId !== character.CharacterId))
     } catch (error) {
       console.error("Error deleting character:", error)
+      toast({ title: "Error", description: "Failed to delete character. Please try again.", variant: "destructive" })
+    }
+  }
+
+  const fetchImages = async () => {
+    const response = await fetch("/api/images", { credentials: "include" })
+    if (response.ok) setImages(await response.json())
+  }
+
+  const handleAddImage = async (category: string, file: File) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    formData.append("category", category)
+    try {
+      const response = await fetch("/api/images", { method: "POST", body: formData })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to add image")
+      }
+      const newImage = await response.json()
+      setImages((prev) => [...prev, newImage])
+      toast({ title: "Image Uploaded", description: `${file.name} added to ${category}.` })
+    } catch (error) {
+      console.error("Error adding image:", error)
       toast({
         title: "Error",
-        description: "Failed to delete character. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to add image.",
         variant: "destructive",
       })
     }
   }
 
-  const fetchImages = async () => {
-    const response = await fetch("/api/images", { credentials: "include" });
-    if (response.ok) setImages(await response.json());
-  };
-  
-  const handleAddImage = async (category: string, file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("category", category);
-    try {
-      const response = await fetch("/api/images", { method: "POST", body: formData });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to add image");
-      }
-      const newImage = await response.json();
-      setImages((prev) => [...prev, newImage]);
-      toast({
-        title: "Image Uploaded",
-        description: `${file.name} added to ${category}.`,
-      });
-    } catch (error) {
-      console.error("Error adding image:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add image.",
-        variant: "destructive",
-      });
-    }
-  };
-  
   const handleDeleteImage = async (image: DMImage) => {
-    const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE" });
-    if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id));
-  };
+    const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE" })
+    if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id))
+  }
 
   const handleSetBackground = (url: string) => {
     setBackgroundImage(url)
@@ -240,11 +197,11 @@ export default function Home() {
   const handleDropImage = (category: string, image: DMImage, x: number, y: number) => {
     const imageData: { id: string; url: string; x: number; y: number; width?: number; height?: number } = { id: image.Id.toString(), url: image.Link, x, y }
     if (category === "Image") {
-      imageData.width = 100 // Default size for images
+      imageData.width = 100
       imageData.height = 100
       setMiddleLayerImages((prev) => [...prev, imageData])
     } else if (category === "Token") {
-      imageData.width = 50 // Fixed size for tokens
+      imageData.width = 50
       imageData.height = 50
       setTopLayerImages((prev) => [...prev, imageData])
     }
@@ -274,6 +231,10 @@ export default function Home() {
         </div>
       </div>
     )
+  }
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>
   }
 
   return (
@@ -310,4 +271,3 @@ export default function Home() {
     </ErrorBoundary>
   )
 }
-

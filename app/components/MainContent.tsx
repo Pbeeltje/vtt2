@@ -133,12 +133,16 @@ export default function MainContent({
   }, [])
 
   const handleItemDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => {
+    let dragIds = selectedIds
     if (selectedIds.length === 0) {
+      // If nothing is selected, select this item and start dragging it immediately
       setSelectedIds([item.id])
+      dragIds = [item.id]
     } else if (!selectedIds.includes(item.id)) {
+      // If something is selected but not this item, don’t drag
       return
     }
-    setDraggingIds(selectedIds)
+    setDraggingIds(dragIds)
     const rect = e.currentTarget.getBoundingClientRect()
     setDragOffset({
       x: e.clientX - rect.left,
@@ -172,7 +176,7 @@ export default function MainContent({
     const dy = newY - referenceItem.y
 
     const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy)
-    onUpdateImages?.(middleLayer, topLayer) // Update parent state during drag
+    onUpdateImages?.(middleLayer, topLayer)
   }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages])
 
   const handleItemDragEnd = useCallback(() => {
@@ -201,7 +205,7 @@ export default function MainContent({
     const newHeight = Math.max(gridSize, Math.floor((resizeStart.height + dy) / gridSize) * gridSize)
 
     const { middleLayer, topLayer } = updateItemSize(resizingId, newWidth, newHeight)
-    onUpdateImages?.(middleLayer, topLayer) // Update parent state during resize
+    onUpdateImages?.(middleLayer, topLayer)
   }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages])
 
   const handleResizeEnd = useCallback(() => {
