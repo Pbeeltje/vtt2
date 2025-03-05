@@ -18,10 +18,12 @@ import type { LayerImage } from "../types/layerImage"
 export type MessageType = "user" | "system"
 
 export interface ChatMessage {
+  MessageId?: number // Add from DB
   type: MessageType
   content: string
   timestamp: string
   username: string
+  UserId?: number // Add from DB
 }
 
 export default function Home() {
@@ -33,7 +35,7 @@ export default function Home() {
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null)
   const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
   const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
-  const [isLoading, setIsLoading] = useState(true) // Add loading state
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     const checkUser = async () => {
@@ -41,7 +43,7 @@ export default function Home() {
         const userData = await getUserFromCookie()
         if (userData) {
           setUser(userData)
-          await fetchCharacters()
+          await Promise.all([fetchCharacters(), fetchChatMessages()])
           if (userData.role === "DM") {
             await fetchImages()
           }
@@ -50,7 +52,7 @@ export default function Home() {
         console.error("Error checking user:", error)
         toast({ title: "Error", description: "Failed to authenticate user.", variant: "destructive" })
       } finally {
-        setIsLoading(false) // Set loading false after fetch
+        setIsLoading(false)
       }
     }
     void checkUser()
@@ -71,37 +73,73 @@ export default function Home() {
         toast({ title: "Authentication Error", description: "Please log in again.", variant: "destructive" })
         return
       }
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
       const data = await response.json()
       console.log("Fetched characters:", data)
       setCharacters(data)
-      console.log("Characters state updated:", data)
     } catch (error) {
       console.error("Error fetching characters:", error)
-      toast({ title: "Error", description: "Failed to fetch characters. Please try again.", variant: "destructive" })
+      toast({ title: "Error", description: "Failed to fetch characters.", variant: "destructive" })
+    }
+  }
+
+  const fetchChatMessages = async () => {
+    try {
+      const response = await fetch("/api/chat", { credentials: "include" })
+      if (response.status === 401) {
+        setUser(null)
+        toast({ title: "Authentication Error", description: "Please log in again.", variant: "destructive" })
+        return
+      }
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+      const data = await response.json()
+      console.log("Fetched chat messages:", data)
+      setMessages(data.map((msg: any) => ({
+        MessageId: msg.MessageId,
+        type: msg.Type as MessageType,
+        content: msg.Content,
+        timestamp: msg.Timestamp,
+        username: msg.Username,
+        UserId: msg.UserId,
+      })))
+    } catch (error) {
+      console.error("Error fetching chat messages:", error)
+      toast({ title: "Error", description: "Failed to fetch chat messages.", variant: "destructive" })
     }
   }
 
   const handleLogin = async (username: string, role: string) => {
     setUser({ id: 0, username, role })
-    await fetchCharacters() // Await to ensure characters are set before render
+    await Promise.all([fetchCharacters(), fetchChatMessages()])
   }
 
   const handleLogout = () => {
     setUser(null)
     setCharacters([])
+    setMessages([])
   }
 
-  const addMessage = (type: MessageType, content: string, username: string) => {
-    const newMessage: ChatMessage = {
-      type,
-      content,
-      timestamp: new Date().toISOString(),
-      username,
+  const addMessage = async (type: MessageType, content: string, username: string) => {
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, content }),
+      })
+      if (!response.ok) throw new Error("Failed to save message")
+      const newMessage = await response.json()
+      setMessages((prev) => [...prev, {
+        MessageId: newMessage.MessageId,
+        type: newMessage.Type,
+        content: newMessage.Content,
+        timestamp: newMessage.Timestamp,
+        username: newMessage.Username,
+        UserId: newMessage.UserId,
+      }])
+    } catch (error) {
+      console.error("Error adding message:", error)
+      toast({ title: "Error", description: "Failed to save message.", variant: "destructive" })
     }
-    setMessages((prevMessages) => [...prevMessages, newMessage])
   }
 
   const handleDiceRoll = (sides: number, result: number) => {
