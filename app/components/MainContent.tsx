@@ -31,6 +31,14 @@ export default function MainContent({
   const [userRole, setUserRole] = useState<string | null>(null)
   const [gridColor, setGridColor] = useState("rgba(0,0,0,0.1)")
   const [showColorMenu, setShowColorMenu] = useState(false)
+  const [statusModal, setStatusModal] = useState<{
+    isOpen: boolean;
+    type: 'guard' | 'strength' | 'mp';
+    currentValue: number;
+    maxValue: number;
+    characterId: number;
+    character: any;
+  } | null>(null)
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -299,6 +307,47 @@ export default function MainContent({
     setShowColorMenu(false)
   }, [])
 
+  const handleStatusUpdate = (value: number) => {
+    if (!statusModal) return;
+    
+    const { type, characterId, character } = statusModal;
+    const updatedCharacter = {
+      ...character,
+      [type === 'guard' ? 'Guard' : type === 'strength' ? 'Strength' : 'Mp']: value,
+      Path: character.Path || (type === 'mp' ? "Magic User" : "Warrior"),
+      Guard: character.Guard || 0,
+      MaxGuard: character.MaxGuard || 0,
+      Strength: character.Strength || 0,
+      MaxStrength: character.MaxStrength || 0,
+      Mp: character.Mp || 0,
+      MaxMp: character.MaxMp || 0
+    };
+
+    // Update the character in the topLayerImages
+    const updatedTopLayer = topLayerImages.map(item => 
+      item.id === characterId.toString()
+        ? { ...item, character: updatedCharacter }
+        : item
+    );
+    onUpdateImages?.(middleLayerImages, updatedTopLayer);
+    
+    // Update the character in the database
+    fetch(`/api/characters/${characterId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        [type === 'guard' ? 'Guard' : type === 'strength' ? 'Strength' : 'Mp']: value,
+        CharacterId: characterId
+      }),
+    }).catch(error => {
+      console.error('Error updating character:', error);
+    });
+
+    setStatusModal(null);
+  };
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       handleDelete(e)
@@ -408,43 +457,14 @@ export default function MainContent({
                   <div className="status-circle guard-circle relative bg-white rounded-full p-1">
                     <div 
                       className="w-8 h-8 rounded-full border-2 border-green-500 flex items-center justify-center text-sm cursor-pointer hover:bg-green-50"
-                      onClick={() => {
-                        const newValue = prompt(`Enter new Guard value (max: ${character.MaxGuard}):`, character.Guard.toString())
-                        if (newValue !== null) {
-                          const value = Math.max(0, parseInt(newValue) || 0)
-                          const updatedCharacter = {
-                            ...character,
-                            Guard: value,
-                            Path: character.Path || "Warrior",
-                            MaxGuard: character.MaxGuard || 0,
-                            Strength: character.Strength || 0,
-                            MaxStrength: character.MaxStrength || 0,
-                            Mp: character.Mp || 0,
-                            MaxMp: character.MaxMp || 0
-                          }
-                          // Update the character in the topLayerImages
-                          const updatedTopLayer = topLayerImages.map(item => 
-                            item.id === img.id 
-                              ? { ...item, character: updatedCharacter }
-                              : item
-                          )
-                          onUpdateImages?.(middleLayerImages, updatedTopLayer)
-                          
-                          // Update the character in the database
-                          fetch(`/api/characters/${img.characterId}`, {
-                            method: 'PUT',
-                            headers: {
-                              'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                              Guard: value,
-                              CharacterId: img.characterId
-                            }),
-                          }).catch(error => {
-                            console.error('Error updating character:', error)
-                          })
-                        }
-                      }}
+                      onClick={() => setStatusModal({
+                        isOpen: true,
+                        type: 'guard',
+                        currentValue: character.Guard,
+                        maxValue: character.MaxGuard,
+                        characterId: img.characterId!,
+                        character
+                      })}
                     >
                       {character.Guard}/{character.MaxGuard}
                     </div>
@@ -456,43 +476,14 @@ export default function MainContent({
                   <div className="status-circle strength-circle relative bg-white rounded-full p-1">
                     <div 
                       className="w-8 h-8 rounded-full border-2 border-red-500 flex items-center justify-center text-sm cursor-pointer hover:bg-red-50"
-                      onClick={() => {
-                        const newValue = prompt(`Enter new Strength value (max: ${character.MaxStrength}):`, character.Strength.toString())
-                        if (newValue !== null) {
-                          const value = Math.max(0, parseInt(newValue) || 0)
-                          const updatedCharacter = {
-                            ...character,
-                            Strength: value,
-                            Path: character.Path || "Warrior",
-                            Guard: character.Guard || 0,
-                            MaxGuard: character.MaxGuard || 0,
-                            MaxStrength: character.MaxStrength || 0,
-                            Mp: character.Mp || 0,
-                            MaxMp: character.MaxMp || 0
-                          }
-                          // Update the character in the topLayerImages
-                          const updatedTopLayer = topLayerImages.map(item => 
-                            item.id === img.id 
-                              ? { ...item, character: updatedCharacter }
-                              : item
-                          )
-                          onUpdateImages?.(middleLayerImages, updatedTopLayer)
-                          
-                          // Update the character in the database
-                          fetch(`/api/characters/${img.characterId}`, {
-                            method: 'PUT',
-                            headers: {
-                              'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                              Strength: value,
-                              CharacterId: img.characterId
-                            }),
-                          }).catch(error => {
-                            console.error('Error updating character:', error)
-                          })
-                        }
-                      }}
+                      onClick={() => setStatusModal({
+                        isOpen: true,
+                        type: 'strength',
+                        currentValue: character.Strength,
+                        maxValue: character.MaxStrength,
+                        characterId: img.characterId!,
+                        character
+                      })}
                     >
                       {character.Strength}/{character.MaxStrength}
                     </div>
@@ -505,43 +496,14 @@ export default function MainContent({
                     <div className="status-circle mp-circle relative bg-white rounded-full p-1">
                       <div 
                         className="w-8 h-8 rounded-full border-2 border-blue-500 flex items-center justify-center text-sm cursor-pointer hover:bg-blue-50"
-                        onClick={() => {
-                          const newValue = prompt(`Enter new MP value (max: ${character.MaxMp}):`, character.Mp.toString())
-                          if (newValue !== null) {
-                            const value = Math.max(0, parseInt(newValue) || 0)
-                            const updatedCharacter = {
-                              ...character,
-                              Mp: value,
-                              Path: character.Path || "Magic User",
-                              Guard: character.Guard || 0,
-                              MaxGuard: character.MaxGuard || 0,
-                              Strength: character.Strength || 0,
-                              MaxStrength: character.MaxStrength || 0,
-                              MaxMp: character.MaxMp || 0
-                            }
-                            // Update the character in the topLayerImages
-                            const updatedTopLayer = topLayerImages.map(item => 
-                              item.id === img.id 
-                                ? { ...item, character: updatedCharacter }
-                                : item
-                            )
-                            onUpdateImages?.(middleLayerImages, updatedTopLayer)
-                            
-                            // Update the character in the database
-                            fetch(`/api/characters/${img.characterId}`, {
-                              method: 'PUT',
-                              headers: {
-                                'Content-Type': 'application/json',
-                              },
-                              body: JSON.stringify({
-                                Mp: value,
-                                CharacterId: img.characterId
-                              }),
-                            }).catch(error => {
-                              console.error('Error updating character:', error)
-                            })
-                          }
-                        }}
+                        onClick={() => setStatusModal({
+                          isOpen: true,
+                          type: 'mp',
+                          currentValue: character.Mp,
+                          maxValue: character.MaxMp,
+                          characterId: img.characterId!,
+                          character
+                        })}
                       >
                         {character.Mp}/{character.MaxMp}
                       </div>
@@ -556,6 +518,35 @@ export default function MainContent({
           </div>
         ))}
       </div>
+      {statusModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]"
+          onClick={() => setStatusModal(null)}
+        >
+          <div 
+            className="bg-white p-6 rounded-lg shadow-lg z-[101]"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-4">
+              Update {statusModal.type === 'guard' ? 'Guard' : statusModal.type === 'strength' ? 'Strength' : 'MP'}
+            </h3>
+            <div className="flex items-center space-x-2">
+              <input
+                type="number"
+                min="0"
+                value={statusModal.currentValue}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value) || 0;
+                  handleStatusUpdate(value);
+                }}
+                className="w-24 px-2 py-1 border rounded"
+                autoFocus
+              />
+              <span>/ {statusModal.maxValue}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

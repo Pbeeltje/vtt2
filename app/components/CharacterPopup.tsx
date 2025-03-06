@@ -220,8 +220,14 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]" onClick={(e) => e.stopPropagation()}>
-      <div className="bg-white p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto relative z-[101]">
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]" 
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto relative z-[101]"
+        onClick={e => e.stopPropagation()}
+      >
         <Button
           variant="ghost"
           size="icon"
