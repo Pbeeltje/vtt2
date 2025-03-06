@@ -36,6 +36,10 @@ export default function Home() {
   const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number; characterId?: number; character?: any }[]>([])
   const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number; characterId?: number; character?: any }[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [scenes, setScenes] = useState<DMImage[]>([])
+  const [selectedScene, setSelectedScene] = useState<DMImage | null>(null)
+  const [gridSize, setGridSize] = useState(50)
+  const [gridColor, setGridColor] = useState("rgba(0,0,0,0.1)")
 
   useEffect(() => {
     const checkUser = async () => {
@@ -43,7 +47,7 @@ export default function Home() {
         const userData = await getUserFromCookie()
         if (userData) {
           setUser(userData)
-          await Promise.all([fetchCharacters(), fetchChatMessages()])
+          await Promise.all([fetchCharacters(), fetchChatMessages(), fetchScenes()])
           if (userData.role === "DM") {
             await fetchImages()
           }
@@ -96,6 +100,14 @@ export default function Home() {
     } catch (error) {
       console.error("Error fetching chat messages:", error)
       toast({ title: "Error", description: "Failed to fetch chat messages.", variant: "destructive" })
+    }
+  }
+
+  const fetchScenes = async () => {
+    const response = await fetch("/api/scenes", { credentials: "include" })
+    if (response.ok) {
+      const scenes = await response.json()
+      setScenes(scenes)
     }
   }
 
@@ -244,8 +256,24 @@ export default function Home() {
     if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id))
   }
 
-  const handleSetBackground = (url: string) => {
+  const handleSetBackground = async (url: string) => {
     setBackgroundImage(url)
+    
+    // Find the scene image
+    const sceneImage = images.find(img => img.Link === url)
+    if (sceneImage?.SceneData) {
+      try {
+        const sceneData = JSON.parse(sceneImage.SceneData)
+        setGridSize(sceneData.gridSize || 50)
+        setGridColor(sceneData.gridColor || "rgba(0,0,0,0.1)")
+        setMiddleLayerImages(sceneData.elements?.middleLayer || [])
+        setTopLayerImages(sceneData.elements?.topLayer || [])
+        toast({ title: "Success", description: "Scene loaded successfully." })
+      } catch (error) {
+        console.error("Error loading scene:", error)
+        toast({ title: "Error", description: "Failed to load scene data.", variant: "destructive" })
+      }
+    }
   }
 
   const handleDropImage = (category: string, image: DMImage, x: number, y: number) => {
@@ -302,6 +330,93 @@ export default function Home() {
     }
   }
 
+  const handleSaveScene = async () => {
+    if (!backgroundImage) {
+      toast({ title: "Error", description: "Please set a background image first.", variant: "destructive" })
+      return
+    }
+
+    const sceneImage = images.find(img => img.Link === backgroundImage)
+    if (!sceneImage) {
+      toast({ title: "Error", description: "Background image not found.", variant: "destructive" })
+      return
+    }
+
+    const sceneData = {
+      gridSize,
+      gridColor,
+      elements: {
+        middleLayer: middleLayerImages,
+        topLayer: topLayerImages
+      }
+    }
+
+    try {
+      const response = await fetch("/api/scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sceneId: sceneImage.Id,
+          sceneData
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to save scene")
+      }
+
+      await fetchScenes()
+      toast({ title: "Success", description: "Scene saved successfully." })
+    } catch (error) {
+      console.error("Error saving scene:", error)
+      toast({ title: "Error", description: "Failed to save scene.", variant: "destructive" })
+    }
+  }
+
+  const handleLoadScene = async (scene: DMImage) => {
+    try {
+      const sceneData = JSON.parse(scene.SceneData || "{}")
+      
+      setGridSize(sceneData.gridSize || 50)
+      setGridColor(sceneData.gridColor || "rgba(0,0,0,0.1)")
+      setMiddleLayerImages(sceneData.elements?.middleLayer || [])
+      setTopLayerImages(sceneData.elements?.topLayer || [])
+      setBackgroundImage(scene.Link)
+      
+      toast({ title: "Success", description: "Scene loaded successfully." })
+    } catch (error) {
+      console.error("Error loading scene:", error)
+      toast({ title: "Error", description: "Failed to load scene.", variant: "destructive" })
+    }
+  }
+
+  const handleDeleteSceneData = async (image: DMImage) => {
+    try {
+      const response = await fetch("/api/scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sceneId: image.Id,
+          sceneData: null
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to delete scene data")
+      }
+
+      // Update the image in the local state to remove SceneData
+      setImages(prev => prev.map(img => 
+        img.Id === image.Id ? { ...img, SceneData: undefined } : img
+      ))
+
+      toast({ title: "Success", description: "Scene data deleted successfully." })
+    } catch (error) {
+      console.error("Error deleting scene data:", error)
+      toast({ title: "Error", description: "Failed to delete scene data.", variant: "destructive" })
+    }
+  }
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -337,7 +452,10 @@ export default function Home() {
               middleLayerImages={middleLayerImages}
               topLayerImages={topLayerImages}
               onUpdateImages={handleUpdateImages}
-              onUpdateCharacter={handleUpdateCharacter}
+              gridSize={gridSize}
+              gridColor={gridColor}
+              onGridSizeChange={setGridSize}
+              onGridColorChange={setGridColor}
             />
           </div>
           <RightSideMenu
@@ -355,6 +473,10 @@ export default function Home() {
             onDeleteImage={handleDeleteImage}
             onSetBackground={handleSetBackground}
             onDropImage={handleDropImage}
+            scenes={scenes}
+            onSaveScene={handleSaveScene}
+            onLoadScene={handleLoadScene}
+            onDeleteSceneData={handleDeleteSceneData}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />

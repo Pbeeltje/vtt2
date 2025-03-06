@@ -12,6 +12,10 @@ interface MainContentProps {
   topLayerImages: LayerImage[] | undefined
   onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void
   onUpdateCharacter?: (character: any) => void
+  gridSize: number
+  gridColor: string
+  onGridSizeChange: (size: number) => void
+  onGridColorChange: (color: string) => void
 }
 
 export default function MainContent({
@@ -20,9 +24,12 @@ export default function MainContent({
   topLayerImages = [],
   onUpdateImages,
   onUpdateCharacter,
+  gridSize,
+  gridColor,
+  onGridSizeChange,
+  onGridColorChange,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
-  const [gridSize, setGridSize] = useState(50)
   const IMAGE_MAX_SIZE = 1200
   const IMAGE_MIN_SIZE = 50
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -31,7 +38,6 @@ export default function MainContent({
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null)
   const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
-  const [gridColor, setGridColor] = useState("rgba(0,0,0,0.1)")
   const [showColorMenu, setShowColorMenu] = useState(false)
   const [statusModal, setStatusModal] = useState<{
     isOpen: boolean;
@@ -268,12 +274,12 @@ export default function MainContent({
     if (e.shiftKey && userRole === "DM") {
       e.preventDefault()
       const newSize = Math.min(200, Math.max(20, gridSize + (e.deltaY < 0 ? 5 : -5)))
-      setGridSize(newSize)
+      onGridSizeChange(newSize)
       const newMiddleLayer = snapToGrid(middleLayerImages, newSize)
       const newTopLayer = snapToGrid(topLayerImages, newSize)
       onUpdateImages?.(newMiddleLayer, newTopLayer)
     }
-  }, [userRole, gridSize, middleLayerImages, topLayerImages, onUpdateImages, snapToGrid])
+  }, [userRole, gridSize, middleLayerImages, topLayerImages, onUpdateImages, snapToGrid, onGridSizeChange])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (selectedIds.length === 1) {
@@ -305,9 +311,9 @@ export default function MainContent({
   }, [selectedIds, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages])
 
   const handleColorChange = useCallback((color: string) => {
-    setGridColor(color === "hidden" ? "transparent" : color === "gray" ? "rgba(0,0,0,0.1)" : color)
+    onGridColorChange(color === "hidden" ? "transparent" : color === "gray" ? "rgba(0,0,0,0.1)" : color)
     setShowColorMenu(false)
-  }, [])
+  }, [onGridColorChange])
 
   const handleStatusUpdate = (value: number) => {
     if (!statusModal) return;
