@@ -27,7 +27,11 @@ import { DMImage } from "../types/image"
 interface RightSideMenuProps {
   messages: ChatMessage[]
   addMessage: (type: MessageType, content: string, username: string) => void
-  user: string
+  user: {
+    id: number;
+    username: string;
+    role: string;
+  }
   chatBackgroundColor: string
   characters: Character[]
   onAddCharacter: (category: string) => void
@@ -37,6 +41,7 @@ interface RightSideMenuProps {
   images: DMImage[]
   onAddImage: (category: string, file: File) => Promise<void>
   onDeleteImage: (image: DMImage) => Promise<void>
+  onRenameImage: (image: DMImage, newName: string) => Promise<void>
   onSetBackground: (url: string) => void
   onDropImage: (category: string, image: DMImage, x: number, y: number) => void
   scenes: DMImage[]
@@ -58,6 +63,7 @@ export default function RightSideMenu({
   images,
   onAddImage,
   onDeleteImage,
+  onRenameImage,
   onSetBackground,
   onDropImage,
   scenes,
@@ -69,12 +75,9 @@ export default function RightSideMenu({
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const [activeSection, setActiveSection] = useState<"chat" | "characters" | "maps">("chat")
 
-  console.log("RightSideMenu rendering, activeSection:", activeSection) // Log render and tab state
-  console.log("RightSideMenu characters:", characters) // Log characters prop
-
   const handleSendMessage = () => {
     if (inputMessage.trim()) {
-      addMessage("user", inputMessage, user)
+      addMessage("user", inputMessage, user.username)
       setInputMessage("")
     }
   }
@@ -83,6 +86,10 @@ export default function RightSideMenu({
     e.dataTransfer.setData("imageId", image.Id.toString())
     e.dataTransfer.setData("category", image.Category)
     e.dataTransfer.setData("url", image.Link)
+    if (image.CharacterId) {
+      e.dataTransfer.setData("characterId", image.CharacterId.toString())
+      e.dataTransfer.setData("character", JSON.stringify(image))
+    }
   }
 
   useEffect(() => {
@@ -179,6 +186,8 @@ export default function RightSideMenu({
                 onAddCharacter={onAddCharacter}
                 onUpdateCharacter={onUpdateCharacter}
                 onDeleteCharacter={onDeleteCharacter}
+                currentUser={user.id}
+                isDM={user.role === "DM"}
               />
             </div>
           </TabsContent>
@@ -204,6 +213,7 @@ export default function RightSideMenu({
                 onDragStart={handleDragStart}
                 onSceneClick={onSetBackground}
                 onDeleteSceneData={onDeleteSceneData}
+                onRenameImage={onRenameImage}
                 characters={characters}
               />
             </div>

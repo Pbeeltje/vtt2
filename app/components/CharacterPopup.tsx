@@ -318,7 +318,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                           alt={`Portrait of ${editedCharacter.Name}`}
                           width={128}
                           height={128}
-                          objectFit="cover"
+                          style={{ objectFit: 'cover' }}
                         />
                       )
                     ) : (
@@ -358,7 +358,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                           alt={`Token of ${editedCharacter.Name}`}
                           width={64}
                           height={64}
-                          objectFit="cover"
+                          style={{ objectFit: 'cover' }}
                         />
                       )
                     ) : (

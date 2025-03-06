@@ -41,25 +41,54 @@ export default function Home() {
   const [gridSize, setGridSize] = useState(50)
   const [gridColor, setGridColor] = useState("rgba(0,0,0,0.1)")
 
+  const fetchPublicScene = async (sceneId: string) => {
+    try {
+      const sceneResponse = await fetch(`/api/public/scenes/${sceneId}`)
+      if (sceneResponse.ok) {
+        const scene = await sceneResponse.json()
+        // Get the minimum required images for the scene
+        const imagesResponse = await fetch(`/api/public/images/${sceneId}`)
+        if (imagesResponse.ok) {
+          const sceneImages = await imagesResponse.json()
+          setImages(sceneImages)
+          await handleLoadScene(scene)
+        }
+      }
+    } catch (error) {
+      console.error("Error loading public scene:", error)
+    }
+  }
+
   useEffect(() => {
-    const checkUser = async () => {
+    const initializeApp = async () => {
       try {
+        setIsLoading(true)
+        
+        // First, try to load the last scene without authentication
+        const lastSceneId = localStorage.getItem('lastSceneId')
+        if (lastSceneId) {
+          await fetchPublicScene(lastSceneId)
+        }
+
+        // Then check user authentication
         const userData = await getUserFromCookie()
         if (userData) {
           setUser(userData)
           await Promise.all([fetchCharacters(), fetchChatMessages(), fetchScenes()])
+          
+          // If user is DM, fetch all images
           if (userData.role === "DM") {
             await fetchImages()
           }
         }
       } catch (error) {
-        console.error("Error checking user:", error)
-        toast({ title: "Error", description: "Failed to authenticate user.", variant: "destructive" })
+        console.error("Error initializing app:", error)
+        toast({ title: "Error", description: "Failed to initialize application.", variant: "destructive" })
       } finally {
         setIsLoading(false)
       }
     }
-    void checkUser()
+    void initializeApp()
   }, [])
 
   const fetchCharacters = async () => {
@@ -223,8 +252,9 @@ export default function Home() {
     }
   }
 
-  const fetchImages = async () => {
-    const response = await fetch("/api/images", { credentials: "include" })
+  const fetchImages = async (sceneOnly: boolean = false) => {
+    const url = sceneOnly ? "/api/images?sceneOnly=true" : "/api/images"
+    const response = await fetch(url, { credentials: "include" })
     if (response.ok) setImages(await response.json())
   }
 
@@ -254,6 +284,22 @@ export default function Home() {
   const handleDeleteImage = async (image: DMImage) => {
     const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE" })
     if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id))
+  }
+
+  const handleRenameImage = async (image: DMImage, newName: string) => {
+    try {
+      const response = await fetch(`/api/images/${image.Id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      })
+      if (!response.ok) throw new Error("Failed to rename image")
+      const updatedImage = await response.json()
+      setImages((prev) => prev.map((i) => (i.Id === image.Id ? updatedImage : i)))
+    } catch (error) {
+      console.error("Error renaming image:", error)
+      throw error
+    }
   }
 
   const handleSetBackground = async (url: string) => {
@@ -295,14 +341,32 @@ export default function Home() {
       if (character) {
         imageData.characterId = character.CharacterId
         imageData.character = {
+          Name: character.Name,
           Path: character.Path,
-          Guard: character.Guard,
-          MaxGuard: character.MaxGuard,
-          Strength: character.Strength,
-          MaxStrength: character.MaxStrength,
-          Mp: character.Mp,
-          MaxMp: character.MaxMp
+          Guard: character.Guard ?? 0,
+          MaxGuard: character.MaxGuard ?? 0,
+          Strength: character.Strength ?? 0,
+          MaxStrength: character.MaxStrength ?? 0,
+          Mp: character.Mp ?? 0,
+          MaxMp: character.MaxMp ?? 0
         }
+        // Update the image in the images state with character information
+        setImages(prev => prev.map(img => 
+          img.Id === image.Id ? {
+            ...img,
+            CharacterId: character.CharacterId,
+            Character: {
+              Name: character.Name,
+              Path: character.Path,
+              Guard: character.Guard ?? 0,
+              MaxGuard: character.MaxGuard ?? 0,
+              Strength: character.Strength ?? 0,
+              MaxStrength: character.MaxStrength ?? 0,
+              Mp: character.Mp ?? 0,
+              MaxMp: character.MaxMp ?? 0
+            }
+          } as DMImage : img
+        ))
       }
       setTopLayerImages((prev) => [...prev, imageData])
     }
@@ -382,6 +446,30 @@ export default function Home() {
       setMiddleLayerImages(sceneData.elements?.middleLayer || [])
       setTopLayerImages(sceneData.elements?.topLayer || [])
       setBackgroundImage(scene.Link)
+      localStorage.setItem('lastSceneId', scene.Id.toString())
+
+      // Only update character information if we have characters loaded (authenticated)
+      if (characters.length > 0) {
+        const updatedImages = images.map(img => {
+          if (img.Category === "Token") {
+            const tokenInScene = sceneData.elements?.topLayer?.find(
+              (token: any) => token.id === img.Id.toString()
+            )
+            if (tokenInScene?.characterId && tokenInScene?.character) {
+              return {
+                ...img,
+                CharacterId: tokenInScene.characterId,
+                Character: {
+                  ...tokenInScene.character,
+                  Name: characters.find(c => c.CharacterId === tokenInScene.characterId)?.Name || img.Name
+                }
+              }
+            }
+          }
+          return img
+        })
+        setImages(updatedImages)
+      }
       
       toast({ title: "Success", description: "Scene loaded successfully." })
     } catch (error) {
@@ -419,20 +507,34 @@ export default function Home() {
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100">
-        <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
-          <Tabs defaultValue="login">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="register">Register</TabsTrigger>
-            </TabsList>
-            <TabsContent value="login">
-              <LoginForm onLogin={handleLogin} />
-            </TabsContent>
-            <TabsContent value="register">
-              <RegisterForm onRegister={handleLogin} />
-            </TabsContent>
-          </Tabs>
+      <div className="flex flex-col h-screen">
+        <div className="flex-grow">
+          <MainContent
+            backgroundImage={backgroundImage}
+            middleLayerImages={middleLayerImages}
+            topLayerImages={topLayerImages}
+            onUpdateImages={handleUpdateImages}
+            gridSize={gridSize}
+            gridColor={gridColor}
+            onGridSizeChange={setGridSize}
+            onGridColorChange={setGridColor}
+          />
+        </div>
+        <div className="absolute top-4 right-4">
+          <div className="bg-white p-8 rounded-lg shadow-md max-w-md">
+            <Tabs defaultValue="login">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="login">Login</TabsTrigger>
+                <TabsTrigger value="register">Register</TabsTrigger>
+              </TabsList>
+              <TabsContent value="login">
+                <LoginForm onLogin={handleLogin} />
+              </TabsContent>
+              <TabsContent value="register">
+                <RegisterForm onRegister={handleLogin} />
+              </TabsContent>
+            </Tabs>
+          </div>
         </div>
       </div>
     )
@@ -461,7 +563,7 @@ export default function Home() {
           <RightSideMenu
             messages={messages}
             addMessage={addMessage}
-            user={user.username}
+            user={user}
             chatBackgroundColor={chatBackgroundColor}
             characters={characters}
             onAddCharacter={handleAddCharacter}
@@ -471,6 +573,7 @@ export default function Home() {
             images={images}
             onAddImage={handleAddImage}
             onDeleteImage={handleDeleteImage}
+            onRenameImage={handleRenameImage}
             onSetBackground={handleSetBackground}
             onDropImage={handleDropImage}
             scenes={scenes}

@@ -147,9 +147,18 @@ export default function MainContent({
         try {
           const parsedCharacter = JSON.parse(characterData)
           imageData.characterId = parseInt(characterId)
-          imageData.character = parsedCharacter
+          imageData.character = {
+            Name: parsedCharacter.Name,
+            Path: parsedCharacter.Path,
+            Guard: parsedCharacter.Guard ?? 0,
+            MaxGuard: parsedCharacter.MaxGuard ?? 0,
+            Strength: parsedCharacter.Strength ?? 0,
+            MaxStrength: parsedCharacter.MaxStrength ?? 0,
+            Mp: parsedCharacter.Mp ?? 0,
+            MaxMp: parsedCharacter.MaxMp ?? 0
+          }
         } catch (error) {
-          // Silently handle parsing error
+          console.error('MainContent - Error parsing character data:', error);
         }
       }
     }
@@ -322,6 +331,7 @@ export default function MainContent({
 
     // Create the updated character with the new value first
     const updatedCharacter = {
+      Name: character.Name,
       Path: character.Path || (type === 'mp' ? "Magic User" : "Warrior"),
       Guard: type === 'guard' ? value : character.Guard || 0,
       MaxGuard: character.MaxGuard || 0,
@@ -439,7 +449,7 @@ export default function MainContent({
               alt="Middle layer image"
               width={img.width || gridSize * 2}
               height={img.height || gridSize * 2}
-              objectFit="contain"
+              style={{ objectFit: 'contain' }}
             />
             <div
               className="absolute bottom-0 right-0 w-4 h-4 bg-gray-500 cursor-se-resize"
@@ -458,14 +468,33 @@ export default function MainContent({
             onDragEnd={handleItemDragEnd}
             onClick={(e) => handleItemClick(e, img)}
           >
-            <Image
-              src={img.url}
-              alt="Token"
-              width={gridSize}
-              height={gridSize}
-              objectFit="contain"
-              className="token-image"
-            />
+            <div className="relative">
+              <Image
+                src={img.url}
+                alt="Token"
+                width={gridSize}
+                height={gridSize}
+                style={{ objectFit: 'contain' }}
+                className="token-image"
+              />
+              {selectedIds.includes(img.id) && img.character && (
+                <div 
+                  className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap"
+                  style={{ zIndex: 20 }}
+                >
+                  <span className="text-sm font-semibold text-black" style={{ 
+                    textShadow: `
+                      -1px -1px 0 white,
+                      1px -1px 0 white,
+                      -1px 1px 0 white,
+                      1px 1px 0 white
+                    `
+                  }}>
+                    {img.character.Name}
+                  </span>
+                </div>
+              )}
+            </div>
             {(() => {
               if (!selectedIds.includes(img.id) || !img.character) return null;
               

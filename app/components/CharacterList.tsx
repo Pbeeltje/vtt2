@@ -12,11 +12,13 @@ import type { Character } from "../types/character"
 const CATEGORIES = ["Party", "NPC", "Monster"] as const
 
 interface CharacterListProps {
-  characters: Character[]
   categories: string[]
+  characters: Character[]
   onAddCharacter: (category: string) => void
   onUpdateCharacter: (updatedCharacter: Character) => void
   onDeleteCharacter: (character: Character) => void
+  currentUser: number
+  isDM: boolean
 }
 
 // Memoized character list item component
@@ -24,21 +26,26 @@ const CharacterListItem = memo(({
   character, 
   onDragStart, 
   onSelect, 
-  onDelete 
+  onDelete,
+  currentUser,
+  isDM
 }: { 
   character: Character
   onDragStart: (e: React.DragEvent<HTMLLIElement>, character: Character) => void
   onSelect: (character: Character) => void
   onDelete: (character: Character) => void
+  currentUser: number
+  isDM: boolean
 }) => {
   const imageUrl = character.TokenUrl || character.PortraitUrl || "/placeholder.svg"
   const imageAlt = `${character.TokenUrl ? 'Token' : 'Portrait'} of ${character.Name}`
+  const canDrag = isDM || (character.Category === "Party" && character.UserId === currentUser)
 
   return (
     <li
       className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
-      draggable={true}
-      onDragStart={(e) => onDragStart(e, character)}
+      draggable={canDrag}
+      onDragStart={(e) => canDrag && onDragStart(e, character)}
     >
       <div className="flex items-center space-x-3">
         <div className="w-12 h-12 bg-gray-200 rounded-full overflow-hidden">
@@ -75,6 +82,8 @@ export default function CharacterList({
   onAddCharacter,
   onUpdateCharacter,
   onDeleteCharacter,
+  currentUser,
+  isDM
 }: CharacterListProps) {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null)
   const [activeCategory, setActiveCategory] = useState<string>("Party")
@@ -91,13 +100,14 @@ export default function CharacterList({
     e.dataTransfer.setData("url", character.TokenUrl || character.PortraitUrl || "/placeholder.png")
     e.dataTransfer.setData("characterId", character.CharacterId.toString())
     e.dataTransfer.setData("character", JSON.stringify({
+      Name: character.Name,
       Path: character.Path,
-      Guard: character.Guard,
-      MaxGuard: character.MaxGuard,
-      Strength: character.Strength,
-      MaxStrength: character.MaxStrength,
-      Mp: character.Mp,
-      MaxMp: character.MaxMp
+      Guard: character.Guard ?? 0,
+      MaxGuard: character.MaxGuard ?? 0,
+      Strength: character.Strength ?? 0,
+      MaxStrength: character.MaxStrength ?? 0,
+      Mp: character.Mp ?? 0,
+      MaxMp: character.MaxMp ?? 0
     }))
   }, [])
 
@@ -142,6 +152,8 @@ export default function CharacterList({
                     onDragStart={handleDragStart}
                     onSelect={handleSelectCharacter}
                     onDelete={handleDeleteCharacter}
+                    currentUser={currentUser}
+                    isDM={isDM}
                   />
                 ))}
                 {filteredCharacters.length === 0 && (

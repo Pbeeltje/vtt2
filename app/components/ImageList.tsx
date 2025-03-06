@@ -5,7 +5,7 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, Pencil } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import type { DMImage } from "../types/image"
 import type { Character } from "../types/character"
@@ -18,6 +18,7 @@ interface ImageListProps {
   onDragStart?: (e: React.DragEvent<HTMLLIElement>, image: DMImage) => void
   onSceneClick?: (url: string) => void
   onDeleteSceneData?: (image: DMImage) => Promise<void>
+  onRenameImage?: (image: DMImage, newName: string) => Promise<void>
   characters?: Character[]
 }
 
@@ -28,10 +29,12 @@ export default function ImageList({
   onDragStart,
   onSceneClick,
   onDeleteSceneData,
+  onRenameImage,
   characters = [],
 }: ImageListProps) {
   const [activeCategory, setActiveCategory] = useState<string>("Scene")
   const [uploading, setUploading] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<DMImage | null>(null)
   const categories = ["Scene", "Image", "Token"]
 
   const handleDeleteImage = (image: DMImage) => {
@@ -41,8 +44,11 @@ export default function ImageList({
   }
 
   const handleImageClick = (image: DMImage) => {
-    if (image.Category === "Scene" && onSceneClick) {
-      onSceneClick(image.Link)
+    if (image.Category === "Scene") {
+      onSceneClick?.(image.Link);
+    } else {
+      const newSelectedImage = selectedImage?.Id === image.Id ? null : image;
+      setSelectedImage(newSelectedImage);
     }
   }
 
@@ -81,6 +87,25 @@ export default function ImageList({
     };
     input.click();
   };
+
+  const handleRenameImage = async (image: DMImage) => {
+    const newName = window.prompt("Enter new name:", image.Name)
+    if (newName && newName !== image.Name && onRenameImage) {
+      try {
+        await onRenameImage(image, newName)
+        toast({
+          title: "Success",
+          description: "Image renamed successfully.",
+        })
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to rename image.",
+          variant: "destructive",
+        })
+      }
+    }
+  }
 
   const getNameClass = (name: string) => {
     // Default Tailwind text size is text-base (16px), reduce to text-sm (14px) if long
@@ -126,42 +151,28 @@ export default function ImageList({
                     onClick={() => handleImageClick(image)}
                   >
                     <div className="flex items-center space-x-2 flex-grow">
-                      <Image
-                        src={image.Link || "/placeholder.svg"}
-                        alt={image.Category === "Token" && image.CharacterId 
-                          ? characters.find(c => c.CharacterId === image.CharacterId)?.Name || image.Name
-                          : image.Name}
-                        width={40}
-                        height={40}
-                        objectFit="cover"
-                      />
-                      <span className={`${getNameClass(image.Name)} max-w-[150px]`}>{image.Name}</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      {image.Category === "Scene" && image.SceneData && onDeleteSceneData && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteSceneData(image);
-                          }}
-                          className="text-blue-500 hover:text-blue-700"
-                          title="Delete Scene Contents"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
+                      <div 
+                        className="flex flex-col items-center"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteImage(image);
+                          handleImageClick(image);
                         }}
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                        <Image
+                          src={image.Link || "/placeholder.svg"}
+                          alt={image.Name}
+                          width={40}
+                          height={40}
+                          style={{ objectFit: 'cover' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleImageClick(image);
+                          }}
+                        />
+                        {selectedImage?.Id === image.Id && image.Category === "Token" && image.Character && (
+                          <span className="text-xs text-gray-600 mt-1">{image.Character.Name}</span>
+                        )}
+                      </div>
                     </div>
                   </li>
                 ))}
