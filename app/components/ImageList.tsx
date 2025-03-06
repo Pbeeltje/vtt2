@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Trash2 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import type { DMImage } from "../types/image"
+import type { Character } from "../types/character"
 
 interface ImageListProps {
   images: DMImage[]
@@ -16,6 +17,8 @@ interface ImageListProps {
   onDeleteImage: (image: DMImage) => Promise<void>
   onDragStart?: (e: React.DragEvent<HTMLLIElement>, image: DMImage) => void
   onSceneClick?: (url: string) => void
+  onDeleteSceneData?: (image: DMImage) => Promise<void>
+  characters?: Character[]
 }
 
 export default function ImageList({
@@ -24,6 +27,8 @@ export default function ImageList({
   onDeleteImage,
   onDragStart,
   onSceneClick,
+  onDeleteSceneData,
+  characters = [],
 }: ImageListProps) {
   const [activeCategory, setActiveCategory] = useState<string>("Scene")
   const [uploading, setUploading] = useState(false)
@@ -123,23 +128,41 @@ export default function ImageList({
                     <div className="flex items-center space-x-2 flex-grow">
                       <Image
                         src={image.Link || "/placeholder.svg"}
-                        alt={image.Name}
+                        alt={image.Category === "Token" && image.CharacterId 
+                          ? characters.find(c => c.CharacterId === image.CharacterId)?.Name || image.Name
+                          : image.Name}
                         width={40}
                         height={40}
                         objectFit="cover"
                       />
                       <span className={`${getNameClass(image.Name)} max-w-[150px]`}>{image.Name}</span>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteImage(image)
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center space-x-1">
+                      {image.Category === "Scene" && image.SceneData && onDeleteSceneData && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteSceneData(image);
+                          }}
+                          className="text-blue-500 hover:text-blue-700"
+                          title="Delete Scene Contents"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteImage(image);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </li>
                 ))}
             </ul>
