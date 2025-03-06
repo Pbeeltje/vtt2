@@ -23,7 +23,9 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
   const [editingName, setEditingName] = useState(false)
   const [editingDescription, setEditingDescription] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadingToken, setUploadingToken] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const tokenFileInputRef = useRef<HTMLInputElement>(null)
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -32,6 +34,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    console.log("Submitting character with Path:", editedCharacter.Path)
     try {
       const response = await fetch(`/api/characters/${character.CharacterId}`, {
         method: 'PUT',
@@ -45,6 +48,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
         throw new Error(errorData.error || 'Failed to update character')
       }
       const updatedCharacter = await response.json()
+      console.log("Character updated successfully:", updatedCharacter)
       onUpdate(updatedCharacter)
       toast({
         title: "Character Updated",
@@ -109,6 +113,55 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
     }
   };
 
+  const handleTokenFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Check file size (5MB = 5 * 1024 * 1024 bytes)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "Error",
+          description: "Image size exceeds 5MB limit. Please choose a smaller file.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setUploadingToken(true);
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch('/api/imgur-upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(`Failed to upload image: ${errorData.error || response.statusText}`);
+        }
+
+        const { url } = await response.json();
+        
+        setEditedCharacter(prev => ({ ...prev, TokenUrl: url }));
+
+        toast({
+          title: "Token Uploaded",
+          description: "Your character's token has been uploaded successfully. Don't forget to save your changes!",
+        });
+      } catch (error) {
+        console.error('Error uploading token:', error);
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to upload token. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setUploadingToken(false);
+      }
+    }
+  };
+
   const renderField = (label: string, name: string, type: string = "text", maxField?: string) => (
     <div className="space-y-1">
       <Label htmlFor={name}>{label}</Label>
@@ -144,18 +197,19 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
   const renderPathField = () => (
     <div className="space-y-1">
       <Label htmlFor="Path">Path</Label>
-      <Select
-        value={editedCharacter.Path}
-        onValueChange={(value) => setEditedCharacter(prev => ({ ...prev, Path: value }))}
+      <select
+        id="Path"
+        name="Path"
+        value={editedCharacter.Path || "Warrior"}
+        onChange={(e) => {
+          console.log("Path changed to:", e.target.value);
+          setEditedCharacter(prev => ({ ...prev, Path: e.target.value }));
+        }}
+        className="w-full max-w-xs h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
       >
-        <SelectTrigger className="w-full max-w-xs">
-          <SelectValue placeholder="Select a path" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="Warrior">Warrior</SelectItem>
-          <SelectItem value="Magic User">Magic User</SelectItem>
-        </SelectContent>
-      </Select>
+        <option value="Warrior">Warrior</option>
+        <option value="Magic User">Magic User</option>
+      </select>
     </div>
   )
 
@@ -166,8 +220,8 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center" onClick={(e) => e.stopPropagation()}>
-      <div className="bg-white p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto relative z-[101]">
         <Button
           variant="ghost"
           size="icon"
@@ -283,6 +337,46 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                     disabled={uploading}
                   >
                     {uploading ? 'Uploading...' : 'Upload Portrait'}
+                    <Upload className="ml-2 h-4 w-4" />
+                  </Button>
+
+                  <div className="w-16 h-16 bg-gray-200 rounded-lg overflow-hidden mt-4">
+                    {editedCharacter.TokenUrl ? (
+                      uploadingToken ? (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                          Uploading...
+                        </div>
+                      ) : (
+                        <Image
+                          src={editedCharacter.TokenUrl}
+                          alt={`Token of ${editedCharacter.Name}`}
+                          width={64}
+                          height={64}
+                          objectFit="cover"
+                        />
+                      )
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                        No Token
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleTokenFileChange}
+                    className="hidden"
+                    ref={tokenFileInputRef}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => tokenFileInputRef.current?.click()}
+                    disabled={uploadingToken}
+                  >
+                    {uploadingToken ? 'Uploading...' : 'Upload Token'}
                     <Upload className="ml-2 h-4 w-4" />
                   </Button>
                 </div>

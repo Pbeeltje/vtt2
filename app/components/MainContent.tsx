@@ -103,6 +103,9 @@ export default function MainContent({
     const imageId = e.dataTransfer.getData("imageId")
     const category = e.dataTransfer.getData("category")
     const url = e.dataTransfer.getData("url")
+    const characterId = e.dataTransfer.getData("characterId")
+    const characterData = e.dataTransfer.getData("character")
+    
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return
 
@@ -124,9 +127,22 @@ export default function MainContent({
     } else if (category === "Token") {
       imageData.width = gridSize
       imageData.height = gridSize
+      if (characterId && characterData) {
+        try {
+          const parsedCharacter = JSON.parse(characterData)
+          imageData.characterId = parseInt(characterId)
+          imageData.character = parsedCharacter
+        } catch (error) {
+          console.error("Error parsing character data:", error)
+        }
+      }
     }
-    window.dispatchEvent(new CustomEvent("dropImage", { detail: { category, image: imageData, x, y } }))
-  }, [gridSize, adjustImageSize, generateUniqueId])
+    if (category === "Image") {
+      onUpdateImages?.([...middleLayerImages, imageData], topLayerImages)
+    } else if (category === "Token") {
+      onUpdateImages?.(middleLayerImages, [...topLayerImages, imageData])
+    }
+  }, [gridSize, adjustImageSize, generateUniqueId, middleLayerImages, topLayerImages, onUpdateImages])
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -139,7 +155,7 @@ export default function MainContent({
       setSelectedIds([item.id])
       dragIds = [item.id]
     } else if (!selectedIds.includes(item.id)) {
-      // If something is selected but not this item, don’t drag
+      // If something is selected but not this item, don't drag
       return
     }
     setDraggingIds(dragIds)
@@ -380,7 +396,163 @@ export default function MainContent({
               width={gridSize}
               height={gridSize}
               objectFit="contain"
+              className="token-image"
             />
+            {(() => {
+              if (!selectedIds.includes(img.id) || !img.character) return null;
+              
+              const character = img.character;
+              return (
+                <div className="status-circles-container absolute -top-12 left-0 right-0 flex justify-center space-x-3" style={{ zIndex: 50 }}>
+                  {/* Guard Circle */}
+                  <div className="status-circle guard-circle relative bg-white rounded-full p-1">
+                    <div 
+                      className="w-8 h-8 rounded-full border-2 border-green-500 flex items-center justify-center text-sm cursor-pointer hover:bg-green-50"
+                      onClick={() => {
+                        const newValue = prompt(`Enter new Guard value (max: ${character.MaxGuard}):`, character.Guard.toString())
+                        if (newValue !== null) {
+                          const value = Math.max(0, parseInt(newValue) || 0)
+                          const updatedCharacter = {
+                            ...character,
+                            Guard: value,
+                            Path: character.Path || "Warrior",
+                            MaxGuard: character.MaxGuard || 0,
+                            Strength: character.Strength || 0,
+                            MaxStrength: character.MaxStrength || 0,
+                            Mp: character.Mp || 0,
+                            MaxMp: character.MaxMp || 0
+                          }
+                          // Update the character in the topLayerImages
+                          const updatedTopLayer = topLayerImages.map(item => 
+                            item.id === img.id 
+                              ? { ...item, character: updatedCharacter }
+                              : item
+                          )
+                          onUpdateImages?.(middleLayerImages, updatedTopLayer)
+                          
+                          // Update the character in the database
+                          fetch(`/api/characters/${img.characterId}`, {
+                            method: 'PUT',
+                            headers: {
+                              'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                              Guard: value,
+                              CharacterId: img.characterId
+                            }),
+                          }).catch(error => {
+                            console.error('Error updating character:', error)
+                          })
+                        }
+                      }}
+                    >
+                      {character.Guard}/{character.MaxGuard}
+                    </div>
+                    <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                      Gd
+                    </div>
+                  </div>
+                  {/* Strength Circle */}
+                  <div className="status-circle strength-circle relative bg-white rounded-full p-1">
+                    <div 
+                      className="w-8 h-8 rounded-full border-2 border-red-500 flex items-center justify-center text-sm cursor-pointer hover:bg-red-50"
+                      onClick={() => {
+                        const newValue = prompt(`Enter new Strength value (max: ${character.MaxStrength}):`, character.Strength.toString())
+                        if (newValue !== null) {
+                          const value = Math.max(0, parseInt(newValue) || 0)
+                          const updatedCharacter = {
+                            ...character,
+                            Strength: value,
+                            Path: character.Path || "Warrior",
+                            Guard: character.Guard || 0,
+                            MaxGuard: character.MaxGuard || 0,
+                            MaxStrength: character.MaxStrength || 0,
+                            Mp: character.Mp || 0,
+                            MaxMp: character.MaxMp || 0
+                          }
+                          // Update the character in the topLayerImages
+                          const updatedTopLayer = topLayerImages.map(item => 
+                            item.id === img.id 
+                              ? { ...item, character: updatedCharacter }
+                              : item
+                          )
+                          onUpdateImages?.(middleLayerImages, updatedTopLayer)
+                          
+                          // Update the character in the database
+                          fetch(`/api/characters/${img.characterId}`, {
+                            method: 'PUT',
+                            headers: {
+                              'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                              Strength: value,
+                              CharacterId: img.characterId
+                            }),
+                          }).catch(error => {
+                            console.error('Error updating character:', error)
+                          })
+                        }
+                      }}
+                    >
+                      {character.Strength}/{character.MaxStrength}
+                    </div>
+                    <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                      Str
+                    </div>
+                  </div>
+                  {/* MP Circle (only for Magic Users) */}
+                  {character.Path === "Magic User" && (
+                    <div className="status-circle mp-circle relative bg-white rounded-full p-1">
+                      <div 
+                        className="w-8 h-8 rounded-full border-2 border-blue-500 flex items-center justify-center text-sm cursor-pointer hover:bg-blue-50"
+                        onClick={() => {
+                          const newValue = prompt(`Enter new MP value (max: ${character.MaxMp}):`, character.Mp.toString())
+                          if (newValue !== null) {
+                            const value = Math.max(0, parseInt(newValue) || 0)
+                            const updatedCharacter = {
+                              ...character,
+                              Mp: value,
+                              Path: character.Path || "Magic User",
+                              Guard: character.Guard || 0,
+                              MaxGuard: character.MaxGuard || 0,
+                              Strength: character.Strength || 0,
+                              MaxStrength: character.MaxStrength || 0,
+                              MaxMp: character.MaxMp || 0
+                            }
+                            // Update the character in the topLayerImages
+                            const updatedTopLayer = topLayerImages.map(item => 
+                              item.id === img.id 
+                                ? { ...item, character: updatedCharacter }
+                                : item
+                            )
+                            onUpdateImages?.(middleLayerImages, updatedTopLayer)
+                            
+                            // Update the character in the database
+                            fetch(`/api/characters/${img.characterId}`, {
+                              method: 'PUT',
+                              headers: {
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({
+                                Mp: value,
+                                CharacterId: img.characterId
+                              }),
+                            }).catch(error => {
+                              console.error('Error updating character:', error)
+                            })
+                          }
+                        }}
+                      >
+                        {character.Mp}/{character.MaxMp}
+                      </div>
+                      <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                        Mp
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         ))}
       </div>

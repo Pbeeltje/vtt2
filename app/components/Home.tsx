@@ -33,8 +33,8 @@ export default function Home() {
   const [chatBackgroundColor, setChatBackgroundColor] = useState("bg-white")
   const [images, setImages] = useState<DMImage[]>([])
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null)
-  const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
-  const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
+  const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number; characterId?: number; character?: any }[]>([])
+  const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number; characterId?: number; character?: any }[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -56,13 +56,6 @@ export default function Home() {
       }
     }
     void checkUser()
-
-    const handleDropEvent = (e: Event) => {
-      const { category, image, x, y } = (e as CustomEvent).detail
-      handleDropImage(category, { Id: image.id, Link: image.url, Name: "", Category: category, UserId: user?.id ?? 0 }, x, y)
-    }
-    window.addEventListener("dropImage", handleDropEvent)
-    return () => window.removeEventListener("dropImage", handleDropEvent)
   }, [])
 
   const fetchCharacters = async () => {
@@ -75,7 +68,6 @@ export default function Home() {
       }
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
       const data = await response.json()
-      console.log("Fetched characters:", data)
       setCharacters(data)
     } catch (error) {
       console.error("Error fetching characters:", error)
@@ -93,7 +85,6 @@ export default function Home() {
       }
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
       const data = await response.json()
-      console.log("Fetched chat messages:", data)
       setMessages(data.map((msg: any) => ({
         MessageId: msg.MessageId,
         type: msg.Type as MessageType,
@@ -233,7 +224,12 @@ export default function Home() {
   }
 
   const handleDropImage = (category: string, image: DMImage, x: number, y: number) => {
-    const imageData: { id: string; url: string; x: number; y: number; width?: number; height?: number } = { id: image.Id.toString(), url: image.Link, x, y }
+    const imageData: { id: string; url: string; x: number; y: number; width?: number; height?: number; characterId?: number; character?: any } = { 
+      id: image.Id.toString(), 
+      url: image.Link, 
+      x, 
+      y 
+    }
     if (category === "Image") {
       imageData.width = 100
       imageData.height = 100
@@ -241,6 +237,20 @@ export default function Home() {
     } else if (category === "Token") {
       imageData.width = 50
       imageData.height = 50
+      // Check if this is a character token
+      const character = characters.find(c => c.TokenUrl === image.Link || c.PortraitUrl === image.Link)
+      if (character) {
+        imageData.characterId = character.CharacterId
+        imageData.character = {
+          Path: character.Path,
+          Guard: character.Guard,
+          MaxGuard: character.MaxGuard,
+          Strength: character.Strength,
+          MaxStrength: character.MaxStrength,
+          Mp: character.Mp,
+          MaxMp: character.MaxMp
+        }
+      }
       setTopLayerImages((prev) => [...prev, imageData])
     }
   }

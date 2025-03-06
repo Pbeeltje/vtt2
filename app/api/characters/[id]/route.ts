@@ -9,6 +9,8 @@ const client = createClient({
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   const id = params.id
   const updatedCharacter = await request.json()
+  console.log("Received character update:", updatedCharacter)
+  console.log("Path value:", updatedCharacter.Path)
 
   if (!id) {
     return NextResponse.json({ error: 'Character ID is required' }, { status: 400 })
@@ -16,12 +18,15 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
   const allowedFields = ['Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'Armor', 'MaxGuard', 'Strength', 'MaxStrength', 'Dexternity', 'MaxDexternity', 'Mind', 'MaxMind', 'Charisma', 'MaxCharisma', 'Skill', 'MaxSkill', 'Mp', 'MaxMp', 'PortraitUrl', 'TokenUrl']
   const updateFields = Object.keys(updatedCharacter).filter(key => allowedFields.includes(key))
+  console.log("Fields to update:", updateFields)
 
   try {
     const setClause = updateFields
       .map(key => `${key} = ?`)
       .join(', ')
     const values = updateFields.map(key => updatedCharacter[key])
+    console.log("SQL update:", `UPDATE Character SET ${setClause} WHERE CharacterId = ?`)
+    console.log("Values:", values)
 
     await client.execute({
       sql: `UPDATE Character SET ${setClause} WHERE CharacterId = ?`,
@@ -37,6 +42,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       throw new Error('Character not found after update')
     }
 
+    console.log("Updated character data:", updatedData.rows[0])
     return NextResponse.json(updatedData.rows[0])
   } catch (error) {
     console.error('Error updating character:', error)
