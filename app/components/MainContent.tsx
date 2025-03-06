@@ -11,6 +11,7 @@ interface MainContentProps {
   middleLayerImages: LayerImage[] | undefined
   topLayerImages: LayerImage[] | undefined
   onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void
+  onUpdateCharacter?: (character: any) => void
 }
 
 export default function MainContent({
@@ -18,6 +19,7 @@ export default function MainContent({
   middleLayerImages = [],
   topLayerImages = [],
   onUpdateImages,
+  onUpdateCharacter,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const [gridSize, setGridSize] = useState(50)
@@ -141,7 +143,7 @@ export default function MainContent({
           imageData.characterId = parseInt(characterId)
           imageData.character = parsedCharacter
         } catch (error) {
-          console.error("Error parsing character data:", error)
+          // Silently handle parsing error
         }
       }
     }
@@ -311,27 +313,34 @@ export default function MainContent({
     if (!statusModal) return;
     
     const { type, characterId, character } = statusModal;
+
+    // Create the updated character with the new value first
     const updatedCharacter = {
-      ...character,
-      [type === 'guard' ? 'Guard' : type === 'strength' ? 'Strength' : 'Mp']: value,
       Path: character.Path || (type === 'mp' ? "Magic User" : "Warrior"),
-      Guard: character.Guard || 0,
+      Guard: type === 'guard' ? value : character.Guard || 0,
       MaxGuard: character.MaxGuard || 0,
-      Strength: character.Strength || 0,
+      Strength: type === 'strength' ? value : character.Strength || 0,
       MaxStrength: character.MaxStrength || 0,
-      Mp: character.Mp || 0,
+      Mp: type === 'mp' ? value : character.Mp || 0,
       MaxMp: character.MaxMp || 0
     };
 
-    // Update the character in the topLayerImages
-    const updatedTopLayer = topLayerImages.map(item => 
-      item.id === characterId.toString()
-        ? { ...item, character: updatedCharacter }
-        : item
-    );
+    // Immediately update the UI
+    const updatedTopLayer = topLayerImages.map(item => {
+      if (item.characterId === characterId) {
+        return {
+          ...item,
+          character: updatedCharacter
+        };
+      }
+      return item;
+    });
+
+    // Force a state update with the new data
     onUpdateImages?.(middleLayerImages, updatedTopLayer);
-    
-    // Update the character in the database
+    setStatusModal(null);
+
+    // Update the database asynchronously
     fetch(`/api/characters/${characterId}`, {
       method: 'PUT',
       headers: {
@@ -341,11 +350,15 @@ export default function MainContent({
         [type === 'guard' ? 'Guard' : type === 'strength' ? 'Strength' : 'Mp']: value,
         CharacterId: characterId
       }),
-    }).catch(error => {
-      console.error('Error updating character:', error);
+    }).catch(() => {
+      // If the database update fails, revert the UI change
+      const revertedTopLayer = topLayerImages.map(item => 
+        item.characterId === characterId
+          ? { ...item, character }
+          : item
+      );
+      onUpdateImages?.(middleLayerImages, revertedTopLayer);
     });
-
-    setStatusModal(null);
   };
 
   useEffect(() => {
@@ -530,19 +543,29 @@ export default function MainContent({
             <h3 className="text-lg font-semibold mb-4">
               Update {statusModal.type === 'guard' ? 'Guard' : statusModal.type === 'strength' ? 'Strength' : 'MP'}
             </h3>
-            <div className="flex items-center space-x-2">
-              <input
-                type="number"
-                min="0"
-                value={statusModal.currentValue}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value) || 0;
-                  handleStatusUpdate(value);
-                }}
-                className="w-24 px-2 py-1 border rounded"
-                autoFocus
-              />
-              <span>/ {statusModal.maxValue}</span>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  min="0"
+                  value={statusModal.currentValue === 0 ? '' : statusModal.currentValue}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? '' : parseInt(e.target.value);
+                    setStatusModal(prev => prev ? { ...prev, currentValue: value === '' ? 0 : value } : null);
+                  }}
+                  className="w-24 px-2 py-1 border rounded"
+                  autoFocus
+                />
+                <span>/ {statusModal.maxValue}</span>
+              </div>
+              <div className="flex justify-end">
+                <Button 
+                  onClick={() => handleStatusUpdate(statusModal.currentValue)}
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
+                >
+                  Save
+                </Button>
+              </div>
             </div>
           </div>
         </div>

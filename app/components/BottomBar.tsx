@@ -1,16 +1,38 @@
 "use client"
 
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import EncounterButton from "./EncounterButton"
 
-export default function BottomBar({ onDiceRoll, onPhaseChange }) {
+interface BottomBarProps {
+  onDiceRoll: (sides: number, result: number, numberOfDice: number, individualRolls: number[]) => void
+  onPhaseChange: (phase: string, color: string) => void
+}
+
+export default function BottomBar({ onDiceRoll, onPhaseChange }: BottomBarProps) {
+  const [numberOfDice, setNumberOfDice] = useState(1)
+
   const rollDice = (sides: number) => {
-    const result = Math.floor(Math.random() * sides) + 1
-    onDiceRoll(sides, result)
+    let total = 0
+    const individualRolls: number[] = []
+    for (let i = 0; i < numberOfDice; i++) {
+      const roll = Math.floor(Math.random() * sides) + 1
+      individualRolls.push(roll)
+      total += roll
+    }
+    onDiceRoll(sides, total, numberOfDice, individualRolls)
+    setNumberOfDice(1) // Reset to 1 after rolling
   }
 
   return (
     <div className="bg-gray-200 p-2 flex justify-center space-x-2 items-center w-full">
+      <input
+        type="number"
+        min="1"
+        value={numberOfDice}
+        onChange={(e) => setNumberOfDice(Math.max(1, parseInt(e.target.value) || 1))}
+        className="w-12 h-8 text-center border rounded"
+      />
       <Button onClick={() => rollDice(4)} variant="outline" size="icon">
         d4
       </Button>

@@ -111,6 +111,20 @@ export default function Home() {
   }
 
   const addMessage = async (type: MessageType, content: string, username: string) => {
+    // Create a temporary message with a temporary ID
+    const tempMessage: ChatMessage = {
+      MessageId: -Date.now(), // Temporary negative ID
+      type,
+      content,
+      timestamp: new Date().toISOString(),
+      username,
+      UserId: user?.id
+    }
+
+    // Add the message to the UI immediately
+    setMessages((prev) => [...prev, tempMessage])
+
+    // Send to database asynchronously
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -119,22 +133,33 @@ export default function Home() {
       })
       if (!response.ok) throw new Error("Failed to save message")
       const newMessage = await response.json()
-      setMessages((prev) => [...prev, {
-        MessageId: newMessage.MessageId,
-        type: newMessage.Type,
-        content: newMessage.Content,
-        timestamp: newMessage.Timestamp,
-        username: newMessage.Username,
-        UserId: newMessage.UserId,
-      }])
+      
+      // Update the message with the real database ID
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.MessageId === tempMessage.MessageId 
+            ? {
+                MessageId: newMessage.MessageId,
+                type: newMessage.Type,
+                content: newMessage.Content,
+                timestamp: newMessage.Timestamp,
+                username: newMessage.Username,
+                UserId: newMessage.UserId,
+              }
+            : msg
+        )
+      )
     } catch (error) {
-      console.error("Error adding message:", error)
+      console.error("Error saving message:", error)
+      // Remove the temporary message if saving failed
+      setMessages((prev) => prev.filter((msg) => msg.MessageId !== tempMessage.MessageId))
       toast({ title: "Error", description: "Failed to save message.", variant: "destructive" })
     }
   }
 
-  const handleDiceRoll = (sides: number, result: number) => {
-    addMessage("system", `Rolled a d${sides}: ${result}`, "System")
+  const handleDiceRoll = (sides: number, result: number, numberOfDice: number, individualRolls: number[]) => {
+    const rollsText = numberOfDice > 1 ? ` (${individualRolls.join(", ")})` : ""
+    addMessage("user", `${numberOfDice}d${sides}: <strong>${result}</strong>${rollsText}`, user?.username || "Unknown")
   }
 
   const handlePhaseChange = (phase: string, color: string) => {
@@ -258,6 +283,23 @@ export default function Home() {
   const handleUpdateImages = (middleLayer: LayerImage[], topLayer: LayerImage[]) => {
     setMiddleLayerImages(middleLayer)
     setTopLayerImages(topLayer)
+
+    // Update characters state if any character data has changed
+    const updatedCharacters = characters.map(char => {
+      const updatedToken = topLayer.find(img => img.characterId === char.CharacterId)
+      if (updatedToken?.character) {
+        return {
+          ...char,
+          ...updatedToken.character
+        }
+      }
+      return char
+    })
+
+    // Only update if there are actual changes
+    if (JSON.stringify(updatedCharacters) !== JSON.stringify(characters)) {
+      setCharacters(updatedCharacters)
+    }
   }
 
   if (!user) {
@@ -295,6 +337,7 @@ export default function Home() {
               middleLayerImages={middleLayerImages}
               topLayerImages={topLayerImages}
               onUpdateImages={handleUpdateImages}
+              onUpdateCharacter={handleUpdateCharacter}
             />
           </div>
           <RightSideMenu
