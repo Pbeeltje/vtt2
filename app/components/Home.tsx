@@ -34,19 +34,20 @@ export default function Home() {
   const [characters, setCharacters] = useState<Character[]>([])
   const [chatBackgroundColor, setChatBackgroundColor] = useState("bg-white")
   const [images, setImages] = useState<DMImage[]>([])
-  const [backgroundImage, setBackgroundImage] = useState<string | null>(null)
-  const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number; characterId?: number; character?: any }[]>([])
-  const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number; characterId?: number; character?: any }[]>([])
+  const [backgroundImage, setBackgroundImage] = useState<string>("")
+  const [middleLayerImages, setMiddleLayerImages] = useState<any[]>([])
+  const [topLayerImages, setTopLayerImages] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [scenes, setScenes] = useState<DMImage[]>([])
   const [selectedScene, setSelectedScene] = useState<DMImage | null>(null)
-  const [gridSize, setGridSize] = useState(50)
-  const [gridColor, setGridColor] = useState("rgba(0,0,0,0.1)")
+  const [gridSize, setGridSize] = useState<number>(50)
+  const [gridColor, setGridColor] = useState<string>("rgba(0,0,0,0.1)")
   const [isInitialized, setIsInitialized] = useState(false)
   const [currentTool, setCurrentTool] = useState<'brush' | 'cursor'>('cursor')
   const [currentColor, setCurrentColor] = useState('#000000')
   const [drawings, setDrawings] = useState<DrawingObject[]>([])
   const [selectedDrawing, setSelectedDrawing] = useState<DrawingObject | null>(null)
+  const [sceneScale, setSceneScale] = useState<number>(1)
 
   const findMostRecentScene = (scenes: DMImage[]): DMImage | null => {
     let mostRecentScene = null;
@@ -365,6 +366,7 @@ export default function Home() {
         setGridColor(sceneData.gridColor || "rgba(0,0,0,0.1)")
         setMiddleLayerImages(sceneData.elements?.middleLayer || [])
         setTopLayerImages(sceneData.elements?.topLayer || [])
+        setSceneScale(sceneData.scale || 1)
 
         // Load drawings for the new scene
         const drawingsResponse = await fetch(`/api/drawings?sceneId=${sceneImage.Id}`)
@@ -377,7 +379,26 @@ export default function Home() {
       } catch (error) {
         console.error("Error loading scene:", error)
         toast({ title: "Error", description: "Failed to load scene data.", variant: "destructive" })
+        // Clear all layers if there's an error parsing scene data
+        setMiddleLayerImages([])
+        setTopLayerImages([])
       }
+    } else {
+      // Reset to defaults for a new scene or a scene with no data
+      setGridSize(50)
+      setGridColor("rgba(0,0,0,0.1)")
+      // Explicitly clear all tokens and images
+      setMiddleLayerImages([])
+      setTopLayerImages([])
+      setSceneScale(1)
+      // Clear drawings for scenes with no scene data
+      setDrawings([])
+      
+      // Notify the user that this is a new scene with no saved data
+      toast({ 
+        title: "New Scene", 
+        description: "Loaded a scene with no saved data. All tokens and images have been cleared." 
+      })
     }
   }
 
@@ -455,7 +476,7 @@ export default function Home() {
 
   const handleSaveScene = async () => {
     if (!backgroundImage) {
-      toast({ title: "Error", description: "Please set a background image first.", variant: "destructive" })
+      toast({ title: "Error", description: "No background image selected.", variant: "destructive" })
       return
     }
 
@@ -469,6 +490,7 @@ export default function Home() {
       savedAt: new Date().toISOString(),
       gridSize,
       gridColor,
+      scale: sceneScale,
       elements: {
         middleLayer: middleLayerImages,
         topLayer: topLayerImages
@@ -488,7 +510,6 @@ export default function Home() {
       if (!response.ok) {
         throw new Error("Failed to save scene")
       }
-
       await fetchScenes()
       toast({ title: "Success", description: "Scene saved successfully." })
     } catch (error) {
@@ -498,45 +519,28 @@ export default function Home() {
   }
 
   const handleLoadScene = async (scene: DMImage) => {
+    if (!scene.SceneData) {
+      toast({ title: "Error", description: "No scene data found.", variant: "destructive" })
+      return
+    }
+
     try {
       const sceneData = JSON.parse(scene.SceneData || "{}")
-      
+      setBackgroundImage(scene.Link)
       setGridSize(sceneData.gridSize || 50)
       setGridColor(sceneData.gridColor || "rgba(0,0,0,0.1)")
       setMiddleLayerImages(sceneData.elements?.middleLayer || [])
       setTopLayerImages(sceneData.elements?.topLayer || [])
-      setBackgroundImage(scene.Link)
+      setSceneScale(sceneData.scale || 1)
 
-      // Load drawings for this scene
+      // Load drawings for the scene
       const drawingsResponse = await fetch(`/api/drawings?sceneId=${scene.Id}`)
       if (drawingsResponse.ok) {
         const sceneDrawings = await drawingsResponse.json()
         setDrawings(sceneDrawings)
+      } else {
+        setDrawings([])
       }
-
-      // Only update character information if we have characters loaded (authenticated)
-      if (characters.length > 0) {
-        const updatedImages = images.map(img => {
-          if (img.Category === "Token") {
-            const tokenInScene = sceneData.elements?.topLayer?.find(
-              (token: any) => token.id === img.Id.toString()
-            )
-            if (tokenInScene?.characterId && tokenInScene?.character) {
-              return {
-                ...img,
-                CharacterId: tokenInScene.characterId,
-                Character: {
-                  ...tokenInScene.character,
-                  Name: characters.find(c => c.CharacterId === tokenInScene.characterId)?.Name || img.Name
-                }
-              }
-            }
-          }
-          return img
-        })
-        setImages(updatedImages)
-      }
-      
       toast({ title: "Success", description: "Scene loaded successfully." })
     } catch (error) {
       console.error("Error loading scene:", error)
@@ -561,7 +565,9 @@ export default function Home() {
 
       // Update the image in the local state to remove SceneData
       setImages(prev => prev.map(img => 
-        img.Id === image.Id ? { ...img, SceneData: undefined } : img
+        img.Id === image.Id 
+          ? { ...img, SceneData: undefined } 
+          : img
       ))
 
       toast({ title: "Success", description: "Scene data deleted successfully." })
@@ -644,6 +650,56 @@ export default function Home() {
     }
   }
 
+  const handleUpdateSceneScale = async (image: DMImage, scale: number) => {
+    if (!image.SceneData) {
+      toast({ title: "Error", description: "No scene data found.", variant: "destructive" })
+      return
+    }
+
+    try {
+      // Parse existing scene data
+      const sceneData = JSON.parse(image.SceneData)
+      
+      // Update the scale
+      const updatedSceneData = {
+        ...sceneData,
+        scale: scale
+      }
+
+      // Save the updated scene data
+      const response = await fetch("/api/scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sceneId: image.Id,
+          sceneData: updatedSceneData
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update scene scale")
+      }
+
+      // Update the image in the local state
+      setImages(
+        images.map(img => 
+          img.Id === image.Id 
+            ? { ...img, SceneData: JSON.stringify(updatedSceneData) } 
+            : img
+        )
+      )
+
+      // If this is the current background, update the scale
+      if (image.Link === backgroundImage) {
+        setSceneScale(scale)
+      }
+    } catch (error) {
+      console.error("Error updating scene scale:", error)
+      toast({ title: "Error", description: "Failed to update scene scale.", variant: "destructive" })
+      throw error
+    }
+  }
+
   if (isLoading || !isInitialized) {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>
   }
@@ -665,6 +721,7 @@ export default function Home() {
             onToolChange={() => {}}
             currentColor="#000000"
             onColorChange={() => {}}
+            sceneScale={sceneScale}
           />
         </div>
         <div className="absolute top-4 right-4 z-50">
@@ -705,6 +762,7 @@ export default function Home() {
               onToolChange={setCurrentTool}
               currentColor={currentColor}
               onColorChange={setCurrentColor}
+              sceneScale={sceneScale}
             />
           </div>
           <RightSideMenu
@@ -727,6 +785,7 @@ export default function Home() {
             onSaveScene={handleSaveScene}
             onLoadScene={handleLoadScene}
             onDeleteSceneData={handleDeleteSceneData}
+            onUpdateSceneScale={handleUpdateSceneScale}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />

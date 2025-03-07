@@ -21,6 +21,7 @@ interface MainContentProps {
   onToolChange: (tool: 'brush' | 'cursor') => void
   currentColor: string
   onColorChange: (color: string) => void
+  sceneScale: number
 }
 
 export default function MainContent({
@@ -37,6 +38,7 @@ export default function MainContent({
   onToolChange,
   currentColor,
   onColorChange,
+  sceneScale = 1,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const IMAGE_MAX_SIZE = 1200
@@ -71,12 +73,15 @@ export default function MainContent({
       const img = new window.Image()
       img.src = backgroundImage
       img.onload = () => {
-        setImageDimensions({ width: img.width, height: img.height })
+        // Apply scale to image dimensions
+        const scaledWidth = Math.round(img.width * sceneScale);
+        const scaledHeight = Math.round(img.height * sceneScale);
+        setImageDimensions({ width: scaledWidth, height: scaledHeight })
       }
     } else {
       setImageDimensions(null)
     }
-  }, [backgroundImage])
+  }, [backgroundImage, sceneScale])
 
   const generateUniqueId = useCallback((baseId: string) => `${baseId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, [])
 

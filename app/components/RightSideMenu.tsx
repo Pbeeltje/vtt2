@@ -48,6 +48,7 @@ interface RightSideMenuProps {
   onSaveScene: () => void
   onLoadScene: (scene: DMImage) => void
   onDeleteSceneData: (image: DMImage) => Promise<void>
+  onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
 }
 
 export default function RightSideMenu({
@@ -70,6 +71,7 @@ export default function RightSideMenu({
   onSaveScene,
   onLoadScene,
   onDeleteSceneData,
+  onUpdateSceneScale,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -117,9 +119,9 @@ export default function RightSideMenu({
   }
 
   return (
-    <div className="w-80 bg-white border-l flex flex-col">
-      <div className="p-4 border-b">
-        <Tabs value={activeSection} onValueChange={(value: "chat" | "characters" | "maps") => setActiveSection(value)} className="w-full">
+    <div className="w-96 bg-white border-l flex flex-col">
+      <div className="p-4 border-b w-full">
+        <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value)} className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="chat">
               <MessageSquare className="h-4 w-4" />
@@ -131,8 +133,8 @@ export default function RightSideMenu({
               <Map className="h-4 w-4" />
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="chat">
-            <div className="flex flex-col h-[calc(100vh-8rem)]">
+          <TabsContent value="chat" className="w-full">
+            <div className="flex flex-col h-[calc(100vh-8rem)] w-full">
               <h2 className="text-lg font-semibold p-4 pb-2">Chat</h2>
               <div ref={chatContainerRef} className={`flex-grow px-4 ${chatBackgroundColor} overflow-y-auto`}>
                 <div className="space-y-2 pb-4">
@@ -185,8 +187,8 @@ export default function RightSideMenu({
               </div>
             </div>
           </TabsContent>
-          <TabsContent value="characters">
-            <div className="p-4">
+          <TabsContent value="characters" className="w-full">
+            <div className="p-4 w-full">
               <h2 className="text-lg font-semibold mb-4">Characters</h2>
               <CharacterList
                 categories={["Party", "NPC", "Monster"]}
@@ -199,8 +201,8 @@ export default function RightSideMenu({
               />
             </div>
           </TabsContent>
-          <TabsContent value="maps">
-            <div className="p-4">
+          <TabsContent value="maps" className="w-full">
+            <div className="p-4 w-full">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Background Images</h3>
                 <div className="space-x-2">
@@ -223,6 +225,7 @@ export default function RightSideMenu({
                   onSceneClick={onSetBackground}
                   onDeleteSceneData={onDeleteSceneData}
                   onRenameImage={onRenameImage}
+                  onUpdateSceneScale={onUpdateSceneScale}
                   characters={characters}
                 />
               </div>
