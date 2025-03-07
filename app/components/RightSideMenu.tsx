@@ -119,7 +119,7 @@ export default function RightSideMenu({
   return (
     <div className="w-80 bg-white border-l flex flex-col">
       <div className="p-4 border-b">
-        <Tabs defaultValue="chat" className="w-full">
+        <Tabs value={activeSection} onValueChange={(value: "chat" | "characters" | "maps") => setActiveSection(value)} className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="chat">
               <MessageSquare className="h-4 w-4" />
@@ -200,8 +200,8 @@ export default function RightSideMenu({
             </div>
           </TabsContent>
           <TabsContent value="maps">
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
+            <div className="p-4">
+              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Background Images</h3>
                 <div className="space-x-2">
                   <Button onClick={onSaveScene} size="sm" variant="ghost" title="Save Scene">
@@ -213,17 +213,19 @@ export default function RightSideMenu({
                   </Button>
                 </div>
               </div>
-              <ImageList
-                images={images}
-                categories={["Scene", "Image", "Token"]}
-                onAddImage={onAddImage}
-                onDeleteImage={onDeleteImage}
-                onDragStart={handleDragStart}
-                onSceneClick={onSetBackground}
-                onDeleteSceneData={onDeleteSceneData}
-                onRenameImage={onRenameImage}
-                characters={characters}
-              />
+              <div className="mt-4">
+                <ImageList
+                  images={images}
+                  categories={["Scene", "Image", "Token"]}
+                  onAddImage={onAddImage}
+                  onDeleteImage={onDeleteImage}
+                  onDragStart={handleDragStart}
+                  onSceneClick={onSetBackground}
+                  onDeleteSceneData={onDeleteSceneData}
+                  onRenameImage={onRenameImage}
+                  characters={characters}
+                />
+              </div>
             </div>
           </TabsContent>
         </Tabs>
