@@ -5,6 +5,7 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { getUserFromCookie } from "@/lib/auth"
 import type { LayerImage } from "../types/layerImage"
+import DrawingToolbar from "./DrawingToolbar"
 
 interface MainContentProps {
   backgroundImage: string | null
@@ -16,6 +17,10 @@ interface MainContentProps {
   gridColor: string
   onGridSizeChange: (size: number) => void
   onGridColorChange: (color: string) => void
+  currentTool: 'brush' | 'cursor'
+  onToolChange: (tool: 'brush' | 'cursor') => void
+  currentColor: string
+  onColorChange: (color: string) => void
 }
 
 export default function MainContent({
@@ -28,6 +33,10 @@ export default function MainContent({
   gridColor,
   onGridSizeChange,
   onGridColorChange,
+  currentTool,
+  onToolChange,
+  currentColor,
+  onColorChange,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const IMAGE_MAX_SIZE = 1200
@@ -47,6 +56,7 @@ export default function MainContent({
     characterId: number;
     character: any;
   } | null>(null)
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -55,6 +65,18 @@ export default function MainContent({
     }
     fetchUser()
   }, [])
+
+  useEffect(() => {
+    if (backgroundImage) {
+      const img = new window.Image()
+      img.src = backgroundImage
+      img.onload = () => {
+        setImageDimensions({ width: img.width, height: img.height })
+      }
+    } else {
+      setImageDimensions(null)
+    }
+  }, [backgroundImage])
 
   const generateUniqueId = useCallback((baseId: string) => `${baseId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, [])
 
@@ -137,9 +159,9 @@ export default function MainContent({
     const uniqueId = generateUniqueId(imageId)
     const imageData: LayerImage = { id: uniqueId, url: url || "", x, y }
     if (category === "Image") {
-      const { width, height } = adjustImageSize(image.width, image.height)
-      imageData.width = width
-      imageData.height = height
+      // Keep original size for scene images
+      imageData.width = image.width
+      imageData.height = image.height
     } else if (category === "Token") {
       imageData.width = gridSize
       imageData.height = gridSize
@@ -272,12 +294,14 @@ export default function MainContent({
 
   const handleItemClick = useCallback((e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
     e.stopPropagation()
+    if (currentTool === 'brush') return;
+    
     if (e.shiftKey) {
       setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id])
     } else {
       setSelectedIds([item.id])
     }
-  }, [])
+  }, [currentTool])
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     if (e.shiftKey && userRole === "DM") {
@@ -394,177 +418,177 @@ export default function MainContent({
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <div
-        ref={gridRef}
-        className="flex-grow relative"
-        style={{
-          backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        onClick={handleGridClick}
-        onWheel={handleWheel}
-      >
-        {userRole === "DM" && (
-          <div className="absolute top-2 left-2 z-30">
-            <div
-              className="w-6 h-6 rounded-full cursor-pointer border border-black"
-              style={{ backgroundColor: gridColor === "transparent" ? "gray" : gridColor }}
-              onClick={() => setShowColorMenu(!showColorMenu)}
-            />
-            {showColorMenu && (
-              <div className="absolute top-8 left-0 bg-white border rounded p-1.5 flex flex-col gap-1.5 scale-75 origin-top-left">
-                <Button onClick={() => handleColorChange("white")} className="bg-white text-black h-6 text-xs">White</Button>
-                <Button onClick={() => handleColorChange("black")} className="bg-black text-white h-6 text-xs">Black</Button>
-                <Button onClick={() => handleColorChange("red")} className="bg-red-500 text-white h-6 text-xs">Red</Button>
-                <Button onClick={() => handleColorChange("green")} className="bg-green-500 text-white h-6 text-xs">Green</Button>
-                <Button onClick={() => handleColorChange("gray")} className="bg-gray-500 text-white h-6 text-xs">Gray</Button>
-                <Button onClick={() => handleColorChange("hidden")} className="bg-gray-700 text-white h-6 text-xs">Hidden</Button>
-              </div>
-            )}
-          </div>
-        )}
+      <div className="flex-grow relative overflow-auto">
         <div
-          className="absolute inset-0 pointer-events-none"
+          ref={gridRef}
+          className="relative inline-block"
           style={{
-            backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
-            backgroundSize: `${gridSize}px ${gridSize}px`,
+            backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
+            backgroundSize: "contain",
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "center",
+            width: imageDimensions?.width || "100%",
+            height: imageDimensions?.height || "100%",
           }}
-        />
-        {middleLayerImages.map((img) => (
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          onClick={handleGridClick}
+          onWheel={handleWheel}
+        >
+          {userRole === "DM" && (
+            <div className="absolute top-2 left-2 z-30">
+              <DrawingToolbar
+                currentTool={currentTool}
+                onToolChange={onToolChange}
+                currentColor={currentColor}
+                onColorChange={onColorChange}
+                gridColor={gridColor}
+                onGridColorChange={onGridColorChange}
+              />
+            </div>
+          )}
           <div
-            key={img.id}
-            className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-            style={{ left: img.x, top: img.y, zIndex: 10 }}
-            draggable={true}
-            onDragStart={(e) => handleItemDragStart(e, img, false)}
-            onDrag={(e) => handleItemDrag(e)}
-            onDragEnd={handleItemDragEnd}
-            onClick={(e) => handleItemClick(e, img)}
-          >
-            <Image
-              src={img.url}
-              alt="Middle layer image"
-              width={img.width || gridSize * 2}
-              height={img.height || gridSize * 2}
-              style={{ objectFit: 'contain' }}
-            />
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
+              backgroundSize: `${gridSize}px ${gridSize}px`,
+              width: "100%",
+              height: "100%",
+            }}
+          />
+          {middleLayerImages.map((img) => (
             <div
-              className="absolute bottom-0 right-0 w-4 h-4 bg-gray-500 cursor-se-resize"
-              onMouseDown={(e) => handleResizeStart(e, img)}
-            />
-          </div>
-        ))}
-        {topLayerImages.map((img) => (
-          <div
-            key={img.id}
-            className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-            style={{ left: img.x, top: img.y, zIndex: 20 }}
-            draggable={true}
-            onDragStart={(e) => handleItemDragStart(e, img, true)}
-            onDrag={(e) => handleItemDrag(e)}
-            onDragEnd={handleItemDragEnd}
-            onClick={(e) => handleItemClick(e, img)}
-          >
-            <div className="relative">
+              key={img.id}
+              className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
+              style={{ left: img.x, top: img.y, zIndex: 10 }}
+              draggable={true}
+              onDragStart={(e) => handleItemDragStart(e, img, false)}
+              onDrag={(e) => handleItemDrag(e)}
+              onDragEnd={handleItemDragEnd}
+              onClick={(e) => handleItemClick(e, img)}
+            >
               <Image
                 src={img.url}
-                alt="Token"
-                width={gridSize}
-                height={gridSize}
+                alt="Middle layer image"
+                width={img.width || gridSize * 2}
+                height={img.height || gridSize * 2}
                 style={{ objectFit: 'contain' }}
-                className="token-image"
               />
-              {selectedIds.includes(img.id) && img.character && (
-                <div 
-                  className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap"
-                  style={{ zIndex: 20 }}
-                >
-                  <span className="text-sm font-semibold text-black" style={{ 
-                    textShadow: `
-                      -1px -1px 0 white,
-                      1px -1px 0 white,
-                      -1px 1px 0 white,
-                      1px 1px 0 white
-                    `
-                  }}>
-                    {img.character.Name}
-                  </span>
-                </div>
-              )}
+              <div
+                className="absolute bottom-0 right-0 w-4 h-4 bg-gray-500 cursor-se-resize"
+                onMouseDown={(e) => handleResizeStart(e, img)}
+              />
             </div>
-            {(() => {
-              if (!selectedIds.includes(img.id) || !img.character) return null;
-              
-              const character = img.character;
-              return (
-                <div className="status-circles-container absolute -top-12 left-0 right-0 flex justify-center space-x-3" style={{ zIndex: 50 }}>
-                  {/* Guard Circle */}
-                  <div className="status-circle guard-circle relative bg-white rounded-full p-1">
-                    <div 
-                      className="w-8 h-8 rounded-full border-2 border-green-500 flex items-center justify-center text-sm cursor-pointer hover:bg-green-50"
-                      onClick={() => setStatusModal({
-                        isOpen: true,
-                        type: 'guard',
-                        currentValue: character.Guard,
-                        maxValue: character.MaxGuard,
-                        characterId: img.characterId!,
-                        character
-                      })}
-                    >
-                      {character.Guard}/{character.MaxGuard}
-                    </div>
-                    <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
-                      Gd
-                    </div>
+          ))}
+          {topLayerImages.map((img) => (
+            <div
+              key={img.id}
+              className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
+              style={{ left: img.x, top: img.y, zIndex: 20 }}
+              draggable={true}
+              onDragStart={(e) => handleItemDragStart(e, img, true)}
+              onDrag={(e) => handleItemDrag(e)}
+              onDragEnd={handleItemDragEnd}
+              onClick={(e) => handleItemClick(e, img)}
+            >
+              <div className="relative">
+                <Image
+                  src={img.url}
+                  alt="Token"
+                  width={gridSize}
+                  height={gridSize}
+                  style={{ objectFit: 'contain' }}
+                  className="token-image"
+                />
+                {selectedIds.includes(img.id) && img.character && (
+                  <div 
+                    className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap"
+                    style={{ zIndex: 20 }}
+                  >
+                    <span className="text-sm font-semibold text-black" style={{ 
+                      textShadow: `
+                        -1px -1px 0 white,
+                        1px -1px 0 white,
+                        -1px 1px 0 white,
+                        1px 1px 0 white
+                      `
+                    }}>
+                      {img.character.Name}
+                    </span>
                   </div>
-                  {/* Strength Circle */}
-                  <div className="status-circle strength-circle relative bg-white rounded-full p-1">
-                    <div 
-                      className="w-8 h-8 rounded-full border-2 border-red-500 flex items-center justify-center text-sm cursor-pointer hover:bg-red-50"
-                      onClick={() => setStatusModal({
-                        isOpen: true,
-                        type: 'strength',
-                        currentValue: character.Strength,
-                        maxValue: character.MaxStrength,
-                        characterId: img.characterId!,
-                        character
-                      })}
-                    >
-                      {character.Strength}/{character.MaxStrength}
-                    </div>
-                    <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
-                      Str
-                    </div>
-                  </div>
-                  {/* MP Circle (only for Magic Users) */}
-                  {character.Path === "Magic User" && (
-                    <div className="status-circle mp-circle relative bg-white rounded-full p-1">
+                )}
+              </div>
+              {(() => {
+                if (!selectedIds.includes(img.id) || !img.character) return null;
+                
+                const character = img.character;
+                return (
+                  <div className="status-circles-container absolute -top-12 left-0 right-0 flex justify-center space-x-3" style={{ zIndex: 50 }}>
+                    {/* Guard Circle */}
+                    <div className="status-circle guard-circle relative bg-white rounded-full p-1">
                       <div 
-                        className="w-8 h-8 rounded-full border-2 border-blue-500 flex items-center justify-center text-sm cursor-pointer hover:bg-blue-50"
+                        className="w-8 h-8 rounded-full border-2 border-green-500 flex items-center justify-center text-sm cursor-pointer hover:bg-green-50"
                         onClick={() => setStatusModal({
                           isOpen: true,
-                          type: 'mp',
-                          currentValue: character.Mp,
-                          maxValue: character.MaxMp,
+                          type: 'guard',
+                          currentValue: character.Guard,
+                          maxValue: character.MaxGuard,
                           characterId: img.characterId!,
                           character
                         })}
                       >
-                        {character.Mp}/{character.MaxMp}
+                        {character.Guard}/{character.MaxGuard}
                       </div>
                       <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
-                        Mp
+                        Gd
                       </div>
                     </div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-        ))}
+                    {/* Strength Circle */}
+                    <div className="status-circle strength-circle relative bg-white rounded-full p-1">
+                      <div 
+                        className="w-8 h-8 rounded-full border-2 border-red-500 flex items-center justify-center text-sm cursor-pointer hover:bg-red-50"
+                        onClick={() => setStatusModal({
+                          isOpen: true,
+                          type: 'strength',
+                          currentValue: character.Strength,
+                          maxValue: character.MaxStrength,
+                          characterId: img.characterId!,
+                          character
+                        })}
+                      >
+                        {character.Strength}/{character.MaxStrength}
+                      </div>
+                      <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                        Str
+                      </div>
+                    </div>
+                    {/* MP Circle (only for Magic Users) */}
+                    {character.Path === "Magic User" && (
+                      <div className="status-circle mp-circle relative bg-white rounded-full p-1">
+                        <div 
+                          className="w-8 h-8 rounded-full border-2 border-blue-500 flex items-center justify-center text-sm cursor-pointer hover:bg-blue-50"
+                          onClick={() => setStatusModal({
+                            isOpen: true,
+                            type: 'mp',
+                            currentValue: character.Mp,
+                            maxValue: character.MaxMp,
+                            characterId: img.characterId!,
+                            character
+                          })}
+                        >
+                          {character.Mp}/{character.MaxMp}
+                        </div>
+                        <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                          Mp
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          ))}
+        </div>
       </div>
       {statusModal && (
         <div 

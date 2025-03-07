@@ -14,6 +14,8 @@ import type { Character } from "../types/character"
 import ErrorBoundary from "./ErrorBoundary"
 import type { DMImage } from "../types/image"
 import type { LayerImage } from "../types/layerImage"
+import DrawingLayer, { DrawingObject } from './DrawingLayer'
+import DrawingToolbar from './DrawingToolbar'
 
 export type MessageType = "user" | "system"
 
@@ -40,16 +42,50 @@ export default function Home() {
   const [selectedScene, setSelectedScene] = useState<DMImage | null>(null)
   const [gridSize, setGridSize] = useState(50)
   const [gridColor, setGridColor] = useState("rgba(0,0,0,0.1)")
+  const [isInitialized, setIsInitialized] = useState(false)
+  const [currentTool, setCurrentTool] = useState<'brush' | 'cursor'>('cursor')
+  const [currentColor, setCurrentColor] = useState('#000000')
+  const [drawings, setDrawings] = useState<DrawingObject[]>([])
+  const [selectedDrawing, setSelectedDrawing] = useState<DrawingObject | null>(null)
+
+  const findMostRecentScene = (scenes: DMImage[]): DMImage | null => {
+    let mostRecentScene = null;
+    let mostRecentDate = null;
+
+    for (const scene of scenes) {
+      if (!scene.SceneData) continue;
+      try {
+        const sceneData = JSON.parse(scene.SceneData);
+        if (sceneData.savedAt && (!mostRecentDate || new Date(sceneData.savedAt) > new Date(mostRecentDate))) {
+          mostRecentDate = sceneData.savedAt;
+          mostRecentScene = scene;
+        }
+      } catch (error) {
+        console.error("Error parsing scene data:", error);
+      }
+    }
+
+    return mostRecentScene;
+  }
 
   const fetchPublicScene = async (sceneId: string) => {
     try {
+      console.log('Fetching scene data from:', `/api/public/scenes/${sceneId}`)
       const sceneResponse = await fetch(`/api/public/scenes/${sceneId}`)
+      console.log('Scene response status:', sceneResponse.status)
+      
       if (sceneResponse.ok) {
         const scene = await sceneResponse.json()
+        console.log('Received scene data:', scene)
+        
         // Get the minimum required images for the scene
+        console.log('Fetching scene images from:', `/api/public/images/${sceneId}`)
         const imagesResponse = await fetch(`/api/public/images/${sceneId}`)
+        console.log('Images response status:', imagesResponse.status)
+        
         if (imagesResponse.ok) {
           const sceneImages = await imagesResponse.json()
+          console.log('Received scene images:', sceneImages)
           setImages(sceneImages)
           await handleLoadScene(scene)
         }
@@ -64,10 +100,22 @@ export default function Home() {
       try {
         setIsLoading(true)
         
-        // First, try to load the last scene without authentication
-        const lastSceneId = localStorage.getItem('lastSceneId')
-        if (lastSceneId) {
-          await fetchPublicScene(lastSceneId)
+        // First, try to load scenes without authentication
+        const scenesResponse = await fetch('/api/public/scenes')
+        if (scenesResponse.ok) {
+          const allScenes = await scenesResponse.json()
+          const mostRecentScene = findMostRecentScene(allScenes)
+          
+          if (mostRecentScene) {
+            await handleLoadScene(mostRecentScene)
+          }
+        }
+
+        // Load existing drawings
+        const drawingsResponse = await fetch('/api/drawings')
+        if (drawingsResponse.ok) {
+          const existingDrawings = await drawingsResponse.json()
+          setDrawings(existingDrawings)
         }
 
         // Then check user authentication
@@ -86,6 +134,7 @@ export default function Home() {
         toast({ title: "Error", description: "Failed to initialize application.", variant: "destructive" })
       } finally {
         setIsLoading(false)
+        setIsInitialized(true)
       }
     }
     void initializeApp()
@@ -304,6 +353,8 @@ export default function Home() {
 
   const handleSetBackground = async (url: string) => {
     setBackgroundImage(url)
+    // Clear existing drawings when changing scenes
+    setDrawings([])
     
     // Find the scene image
     const sceneImage = images.find(img => img.Link === url)
@@ -314,6 +365,14 @@ export default function Home() {
         setGridColor(sceneData.gridColor || "rgba(0,0,0,0.1)")
         setMiddleLayerImages(sceneData.elements?.middleLayer || [])
         setTopLayerImages(sceneData.elements?.topLayer || [])
+
+        // Load drawings for the new scene
+        const drawingsResponse = await fetch(`/api/drawings?sceneId=${sceneImage.Id}`)
+        if (drawingsResponse.ok) {
+          const sceneDrawings = await drawingsResponse.json()
+          setDrawings(sceneDrawings)
+        }
+
         toast({ title: "Success", description: "Scene loaded successfully." })
       } catch (error) {
         console.error("Error loading scene:", error)
@@ -407,6 +466,7 @@ export default function Home() {
     }
 
     const sceneData = {
+      savedAt: new Date().toISOString(),
       gridSize,
       gridColor,
       elements: {
@@ -446,7 +506,13 @@ export default function Home() {
       setMiddleLayerImages(sceneData.elements?.middleLayer || [])
       setTopLayerImages(sceneData.elements?.topLayer || [])
       setBackgroundImage(scene.Link)
-      localStorage.setItem('lastSceneId', scene.Id.toString())
+
+      // Load drawings for this scene
+      const drawingsResponse = await fetch(`/api/drawings?sceneId=${scene.Id}`)
+      if (drawingsResponse.ok) {
+        const sceneDrawings = await drawingsResponse.json()
+        setDrawings(sceneDrawings)
+      }
 
       // Only update character information if we have characters loaded (authenticated)
       if (characters.length > 0) {
@@ -505,6 +571,83 @@ export default function Home() {
     }
   }
 
+  const handleDrawingComplete = async (drawing: DrawingObject) => {
+    // Find current scene ID
+    const sceneImage = images.find(img => img.Link === backgroundImage)
+    if (!sceneImage) {
+      toast({ 
+        title: "Error", 
+        description: "No scene is currently active.", 
+        variant: "destructive" 
+      })
+      return
+    }
+
+    try {
+      const response = await fetch('/api/drawings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...drawing,
+          createdBy: user?.id || 0,
+          sceneId: sceneImage.Id
+        })
+      })
+
+      if (response.ok) {
+        const savedDrawing = await response.json()
+        setDrawings(prev => [...prev, { ...drawing, id: savedDrawing.id }])
+      } else {
+        toast({ 
+          title: "Error", 
+          description: "Failed to save drawing.", 
+          variant: "destructive" 
+        })
+      }
+    } catch (error) {
+      console.error('Error saving drawing:', error)
+      toast({ 
+        title: "Error", 
+        description: "Failed to save drawing.", 
+        variant: "destructive" 
+      })
+    }
+  }
+
+  const handleDrawingSelect = (drawing: DrawingObject | null) => {
+    setSelectedDrawing(drawing);
+  };
+
+  const handleDrawingDelete = async (drawing: DrawingObject) => {
+    try {
+      const response = await fetch(`/api/drawings?id=${drawing.id}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        setDrawings(prev => prev.filter(d => d.id !== drawing.id))
+        setSelectedDrawing(null)
+      } else {
+        toast({ 
+          title: "Error", 
+          description: "Failed to delete drawing.", 
+          variant: "destructive" 
+        })
+      }
+    } catch (error) {
+      console.error('Error deleting drawing:', error)
+      toast({ 
+        title: "Error", 
+        description: "Failed to delete drawing.", 
+        variant: "destructive" 
+      })
+    }
+  }
+
+  if (isLoading || !isInitialized) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>
+  }
+
   if (!user) {
     return (
       <div className="flex flex-col h-screen">
@@ -518,10 +661,14 @@ export default function Home() {
             gridColor={gridColor}
             onGridSizeChange={setGridSize}
             onGridColorChange={setGridColor}
+            currentTool="cursor"
+            onToolChange={() => {}}
+            currentColor="#000000"
+            onColorChange={() => {}}
           />
         </div>
-        <div className="absolute top-4 right-4">
-          <div className="bg-white p-8 rounded-lg shadow-md max-w-md">
+        <div className="absolute top-4 right-4 z-50">
+          <div className="bg-white/90 backdrop-blur p-8 rounded-lg shadow-md max-w-md">
             <Tabs defaultValue="login">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="login">Login</TabsTrigger>
@@ -540,10 +687,6 @@ export default function Home() {
     )
   }
 
-  if (isLoading) {
-    return <div className="flex items-center justify-center min-h-screen">Loading...</div>
-  }
-
   return (
     <ErrorBoundary>
       <div className="flex flex-col h-screen">
@@ -558,6 +701,10 @@ export default function Home() {
               gridColor={gridColor}
               onGridSizeChange={setGridSize}
               onGridColorChange={setGridColor}
+              currentTool={currentTool}
+              onToolChange={setCurrentTool}
+              currentColor={currentColor}
+              onColorChange={setCurrentColor}
             />
           </div>
           <RightSideMenu
@@ -583,6 +730,18 @@ export default function Home() {
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />
+      </div>
+      <div className="relative w-full h-full">
+        <DrawingLayer
+          isDrawingMode={currentTool === 'brush'}
+          currentColor={currentColor}
+          currentTool={currentTool}
+          drawings={drawings}
+          onDrawingComplete={handleDrawingComplete}
+          onDrawingSelect={handleDrawingSelect}
+          onDrawingDelete={handleDrawingDelete}
+          selectedDrawing={selectedDrawing}
+        />
       </div>
     </ErrorBoundary>
   )

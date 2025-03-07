@@ -145,34 +145,72 @@ export default function ImageList({
                 .map((image) => (
                   <li
                     key={image.Id}
-                    className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
-                    draggable={category !== "Scene"}
-                    onDragStart={(e) => onDragStart?.(e, image)}
+                    className="flex items-center gap-2 p-2 bg-white rounded-lg shadow hover:bg-gray-50 cursor-pointer w-full"
+                    draggable={image.Category !== "Scene"}
+                    onDragStart={image.Category !== "Scene" ? (e) => onDragStart?.(e, image) : undefined}
                     onClick={() => handleImageClick(image)}
                   >
-                    <div className="flex items-center space-x-2 flex-grow">
-                      <div 
-                        className="flex flex-col items-center"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleImageClick(image);
-                        }}
-                      >
+                    <div className="flex items-center gap-2 flex-1 min-w-0 overflow-hidden">
+                      <div className="flex-shrink-0">
                         <Image
                           src={image.Link || "/placeholder.svg"}
                           alt={image.Name}
                           width={40}
                           height={40}
+                          className="rounded object-cover"
                           style={{ objectFit: 'cover' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleImageClick(image);
-                          }}
                         />
+                      </div>
+                      <div className="flex flex-col min-w-0 flex-1 overflow-hidden">
+                        <span className={`truncate ${getNameClass(image.Name)}`}>
+                          {image.Name}
+                        </span>
                         {selectedImage?.Id === image.Id && image.Category === "Token" && image.Character && (
-                          <span className="text-xs text-gray-600 mt-1">{image.Character.Name}</span>
+                          <span className="text-xs text-gray-600 truncate">{image.Character.Name}</span>
                         )}
                       </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {image.Category === "Scene" && image.SceneData && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm("Are you sure you want to clear this scene's data?")) {
+                              onDeleteSceneData?.(image);
+                            }
+                          }}
+                          className="text-blue-500 hover:text-blue-700 h-7 w-7"
+                          title="Clear Scene Data"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRenameImage(image);
+                        }}
+                        title="Rename"
+                        className="h-7 w-7"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteImage(image);
+                        }}
+                        title="Delete Image"
+                        className="text-gray-700 hover:text-gray-900 h-7 w-7"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </div>
                   </li>
                 ))}

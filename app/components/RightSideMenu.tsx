@@ -136,30 +136,38 @@ export default function RightSideMenu({
               <h2 className="text-lg font-semibold p-4 pb-2">Chat</h2>
               <div ref={chatContainerRef} className={`flex-grow px-4 ${chatBackgroundColor} overflow-y-auto`}>
                 <div className="space-y-2 pb-4">
-                  {messages.map((message, index) => (
-                    <div key={index} className="text-sm">
-                      {message.type === "user" ? (
-                        <span className="font-semibold">
-                          {message.username} (
-                          {new Date(message.timestamp).toLocaleTimeString("en-GB", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                          ):
-                        </span>
-                      ) : (
-                        <span className="font-semibold text-green-600">
-                          System (
-                          {new Date(message.timestamp).toLocaleTimeString("en-GB", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                          ):
-                        </span>
-                      )}{" "}
-                      <span dangerouslySetInnerHTML={{ __html: message.content }} />
-                    </div>
-                  ))}
+                  {messages.map((message, index) => {
+                    const currentDate = new Date(message.timestamp).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric"
+                    });
+                    const prevMessage = index > 0 ? messages[index - 1] : null;
+                    const prevDate = prevMessage ? new Date(prevMessage.timestamp).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric"
+                    }) : null;
+                    const showDateSeparator = prevDate && currentDate !== prevDate;
+
+                    return (
+                      <div key={index}>
+                        {showDateSeparator && (
+                          <div className="text-center text-sm text-gray-500 my-2">
+                            {currentDate}
+                          </div>
+                        )}
+                        <div className="text-sm">
+                          {message.type === "user" ? (
+                            <span className="font-semibold">{message.username}:</span>
+                          ) : (
+                            <span className="font-semibold text-green-600">System:</span>
+                          )}{" "}
+                          <span dangerouslySetInnerHTML={{ __html: message.content }} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <div className="p-2 border-t">
