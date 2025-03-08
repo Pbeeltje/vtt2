@@ -41,6 +41,7 @@ export default function MainContent({
   sceneScale = 1,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const IMAGE_MAX_SIZE = 1200
   const IMAGE_MIN_SIZE = 50
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -59,6 +60,8 @@ export default function MainContent({
     character: any;
   } | null>(null)
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null)
+  const [isPanning, setIsPanning] = useState(false)
+  const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -406,6 +409,33 @@ export default function MainContent({
     });
   };
 
+  const handleNavigationDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Only enable panning if we're not clicking on a token or image
+    if (e.target === e.currentTarget && currentTool !== 'brush') {
+      setIsPanning(true)
+      setPanStart({ x: e.clientX, y: e.clientY })
+    }
+  }, [currentTool])
+
+  const handleNavigationDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (isPanning && panStart && containerRef.current) {
+      const dx = e.clientX - panStart.x
+      const dy = e.clientY - panStart.y
+      
+      // Update scroll position
+      containerRef.current.scrollLeft -= dx
+      containerRef.current.scrollTop -= dy
+      
+      // Update start position for next drag event
+      setPanStart({ x: e.clientX, y: e.clientY })
+    }
+  }, [isPanning, panStart])
+
+  const handleNavigationDragEnd = useCallback(() => {
+    setIsPanning(false)
+    setPanStart(null)
+  }, [])
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       handleDelete(e)
@@ -414,16 +444,28 @@ export default function MainContent({
     window.addEventListener("mousemove", handleResizeMove)
     window.addEventListener("mouseup", handleResizeEnd)
     window.addEventListener("keydown", handleGlobalKeyDown)
+    
+    // Add global mouse up handler for navigation
+    const handleGlobalMouseUp = () => {
+      handleNavigationDragEnd()
+    }
+    window.addEventListener("mouseup", handleGlobalMouseUp)
+    
     return () => {
       window.removeEventListener("mousemove", handleResizeMove)
       window.removeEventListener("mouseup", handleResizeEnd)
       window.removeEventListener("keydown", handleGlobalKeyDown)
+      window.removeEventListener("mouseup", handleGlobalMouseUp)
     }
-  }, [handleResizeMove, handleResizeEnd, handleDelete, handleKeyDown])
+  }, [handleResizeMove, handleResizeEnd, handleDelete, handleKeyDown, handleNavigationDragEnd])
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <div className="flex-grow relative overflow-auto">
+      <div 
+        ref={containerRef}
+        className="flex-grow relative overflow-auto"
+        style={{ cursor: isPanning ? 'grabbing' : 'default' }}
+      >
         <div
           ref={gridRef}
           className="relative inline-block"
@@ -439,6 +481,9 @@ export default function MainContent({
           onDrop={handleDrop}
           onClick={handleGridClick}
           onWheel={handleWheel}
+          onMouseDown={handleNavigationDragStart}
+          onMouseMove={handleNavigationDrag}
+          onMouseUp={handleNavigationDragEnd}
         >
           {userRole === "DM" && (
             <div className="absolute top-2 left-2 z-30">
