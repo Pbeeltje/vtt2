@@ -4,14 +4,10 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { MessageSquare, Users, Map, Settings, LogOut, Trash2, Save, Upload } from "lucide-react"
 import CharacterList from "./CharacterList"
 import ImageList from "./ImageList"
 import { toast } from "@/components/ui/use-toast"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import Image from "next/image"
-
 type MessageType = "user" | "system"
 
 interface ChatMessage {
@@ -66,10 +62,7 @@ export default function RightSideMenu({
   onDeleteImage,
   onRenameImage,
   onSetBackground,
-  onDropImage,
-  scenes,
   onSaveScene,
-  onLoadScene,
   onDeleteSceneData,
   onUpdateSceneScale,
 }: RightSideMenuProps) {
@@ -119,9 +112,9 @@ export default function RightSideMenu({
   }
 
   return (
-    <div className="w-96 bg-white border-l flex flex-col">
+    <div className={`${activeSection === "chat" ? "w-[520px]" : "w-96"} bg-white border-l flex flex-col`}>
       <div className="p-4 border-b w-full">
-        <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value)} className="w-full">
+        <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as "chat" | "characters" | "maps")} className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="chat">
               <MessageSquare className="h-4 w-4" />
