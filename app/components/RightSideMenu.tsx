@@ -45,6 +45,7 @@ interface RightSideMenuProps {
   onLoadScene: (scene: DMImage) => void
   onDeleteSceneData: (image: DMImage) => Promise<void>
   onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
+  setImages: (images: DMImage[]) => void
 }
 
 export default function RightSideMenu({
@@ -65,10 +66,32 @@ export default function RightSideMenu({
   onSaveScene,
   onDeleteSceneData,
   onUpdateSceneScale,
+  setImages,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const [activeSection, setActiveSection] = useState<"chat" | "characters" | "maps">("chat")
+
+  // Add effect to refresh images when switching to maps tab
+  useEffect(() => {
+    if (activeSection === "maps") {
+      // Simple direct refresh of images when switching to maps tab
+      const refreshImages = async () => {
+        try {
+          const response = await fetch("/api/images", { credentials: "include" });
+          if (response.ok) {
+            const updatedImages = await response.json();
+            // Directly update the images state in the parent component
+            setImages(updatedImages);
+            console.log("Images refreshed when switching to maps tab");
+          }
+        } catch (error) {
+          console.error("Error refreshing images:", error);
+        }
+      };
+      refreshImages();
+    }
+  }, [activeSection, setImages]);
 
   const handleSendMessage = () => {
     if (inputMessage.trim()) {
@@ -112,7 +135,7 @@ export default function RightSideMenu({
   }
 
   return (
-    <div className={`${activeSection === "chat" ? "w-[520px]" : "w-96"} bg-white border-l flex flex-col`}>
+    <div className="w-96 bg-white border-l flex flex-col">
       <div className="p-4 border-b w-full">
         <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as "chat" | "characters" | "maps")} className="w-full">
           <TabsList className="grid w-full grid-cols-3">

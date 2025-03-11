@@ -48,6 +48,7 @@ export default function Home() {
   const [drawings, setDrawings] = useState<DrawingObject[]>([])
   const [selectedDrawing, setSelectedDrawing] = useState<DrawingObject | null>(null)
   const [sceneScale, setSceneScale] = useState<number>(1)
+  const [zoomLevel, setZoomLevel] = useState(1)
 
   const findMostRecentScene = (scenes: DMImage[]): DMImage | null => {
     let mostRecentScene = null;
@@ -368,12 +369,12 @@ export default function Home() {
         setTopLayerImages(sceneData.elements?.topLayer || [])
         setSceneScale(sceneData.scale || 1)
 
-        // Load drawings for the new scene
-        const drawingsResponse = await fetch(`/api/drawings?sceneId=${sceneImage.Id}`)
-        if (drawingsResponse.ok) {
-          const sceneDrawings = await drawingsResponse.json()
-          setDrawings(sceneDrawings)
-        }
+        // Temporarily disable drawings API calls
+        // const drawingsResponse = await fetch(`/api/drawings?sceneId=${sceneImage.Id}`)
+        // if (drawingsResponse.ok) {
+        //   const sceneDrawings = await drawingsResponse.json()
+        //   setDrawings(sceneDrawings)
+        // }
 
         toast({ title: "Success", description: "Scene loaded successfully." })
       } catch (error) {
@@ -510,7 +511,18 @@ export default function Home() {
       if (!response.ok) {
         throw new Error("Failed to save scene")
       }
+
+      // Update both scenes and images
       await fetchScenes()
+      
+      // Also update the images state to get the latest SceneData
+      const imagesResponse = await fetch("/api/images", { credentials: "include" })
+      if (imagesResponse.ok) {
+        const updatedImages = await imagesResponse.json()
+        setImages(updatedImages)
+        console.log("Images updated after saving scene data")
+      }
+      
       toast({ title: "Success", description: "Scene saved successfully." })
     } catch (error) {
       console.error("Error saving scene:", error)
@@ -533,14 +545,21 @@ export default function Home() {
       setTopLayerImages(sceneData.elements?.topLayer || [])
       setSceneScale(sceneData.scale || 1)
 
-      // Load drawings for the scene
-      const drawingsResponse = await fetch(`/api/drawings?sceneId=${scene.Id}`)
-      if (drawingsResponse.ok) {
-        const sceneDrawings = await drawingsResponse.json()
-        setDrawings(sceneDrawings)
-      } else {
-        setDrawings([])
+      // Temporarily disable drawings API calls
+      // const drawingsResponse = await fetch(`/api/drawings?sceneId=${scene.Id}`)
+      // if (drawingsResponse.ok) {
+      //   const sceneDrawings = await drawingsResponse.json()
+      //   setDrawings(sceneDrawings)
+      // }
+
+      // Refresh the images state to ensure we have the latest data
+      const imagesResponse = await fetch("/api/images", { credentials: "include" })
+      if (imagesResponse.ok) {
+        const updatedImages = await imagesResponse.json()
+        setImages(updatedImages)
+        console.log("Images updated after loading scene")
       }
+      
       toast({ title: "Success", description: "Scene loaded successfully." })
     } catch (error) {
       console.error("Error loading scene:", error)
@@ -563,12 +582,23 @@ export default function Home() {
         throw new Error("Failed to delete scene data")
       }
 
-      // Update the image in the local state to remove SceneData
-      setImages(prev => prev.map(img => 
-        img.Id === image.Id 
-          ? { ...img, SceneData: undefined } 
-          : img
-      ))
+      // Update the scenes state
+      await fetchScenes()
+      
+      // Refresh the images state to ensure we have the latest data
+      const imagesResponse = await fetch("/api/images", { credentials: "include" })
+      if (imagesResponse.ok) {
+        const updatedImages = await imagesResponse.json()
+        setImages(updatedImages)
+        console.log("Images updated after deleting scene data")
+      } else {
+        // Fallback to local state update if API call fails
+        setImages(prev => prev.map(img => 
+          img.Id === image.Id 
+            ? { ...img, SceneData: undefined } 
+            : img
+        ))
+      }
 
       toast({ title: "Success", description: "Scene data deleted successfully." })
     } catch (error) {
@@ -722,6 +752,8 @@ export default function Home() {
             currentColor="#000000"
             onColorChange={() => {}}
             sceneScale={sceneScale}
+            zoomLevel={zoomLevel}
+            setZoomLevel={setZoomLevel}
           />
         </div>
         <div className="absolute top-4 right-4 z-50">
@@ -763,6 +795,8 @@ export default function Home() {
               currentColor={currentColor}
               onColorChange={setCurrentColor}
               sceneScale={sceneScale}
+              zoomLevel={zoomLevel}
+              setZoomLevel={setZoomLevel}
             />
           </div>
           <RightSideMenu
@@ -786,6 +820,7 @@ export default function Home() {
             onLoadScene={handleLoadScene}
             onDeleteSceneData={handleDeleteSceneData}
             onUpdateSceneScale={handleUpdateSceneScale}
+            setImages={setImages}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />

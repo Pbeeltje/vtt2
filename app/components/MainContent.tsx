@@ -22,6 +22,8 @@ interface MainContentProps {
   currentColor: string
   onColorChange: (color: string) => void
   sceneScale: number
+  zoomLevel: number
+  setZoomLevel: React.Dispatch<React.SetStateAction<number>>
 }
 
 export default function MainContent({
@@ -39,6 +41,8 @@ export default function MainContent({
   currentColor,
   onColorChange,
   sceneScale = 1,
+  zoomLevel,
+  setZoomLevel,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -62,6 +66,7 @@ export default function MainContent({
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null)
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null)
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -85,6 +90,17 @@ export default function MainContent({
       setImageDimensions(null)
     }
   }, [backgroundImage, sceneScale])
+
+  useEffect(() => {
+    const savedZoom = localStorage.getItem('dmScreenZoomLevel')
+    if (savedZoom) {
+      setZoomLevel(parseFloat(savedZoom))
+    }
+  }, [setZoomLevel])
+
+  useEffect(() => {
+    localStorage.setItem('dmScreenZoomLevel', zoomLevel.toString())
+  }, [zoomLevel])
 
   const generateUniqueId = useCallback((baseId: string) => `${baseId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, [])
 
@@ -155,8 +171,12 @@ export default function MainContent({
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return
 
-    const x = Math.floor((e.clientX - rect.left) / gridSize) * gridSize
-    const y = Math.floor((e.clientY - rect.top) / gridSize) * gridSize
+    // Adjust for zoom level when calculating position
+    const adjustedX = (e.clientX - rect.left) / zoomLevel
+    const adjustedY = (e.clientY - rect.top) / zoomLevel
+
+    const x = Math.floor(adjustedX / gridSize) * gridSize
+    const y = Math.floor(adjustedY / gridSize) * gridSize
 
     const image = new window.Image()
     image.src = url
@@ -197,7 +217,7 @@ export default function MainContent({
     } else if (category === "Token") {
       onUpdateImages?.(middleLayerImages, [...topLayerImages, imageData])
     }
-  }, [gridSize, adjustImageSize, generateUniqueId, middleLayerImages, topLayerImages, onUpdateImages])
+  }, [gridSize, adjustImageSize, generateUniqueId, middleLayerImages, topLayerImages, onUpdateImages, zoomLevel])
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -216,8 +236,8 @@ export default function MainContent({
     setDraggingIds(dragIds)
     const rect = e.currentTarget.getBoundingClientRect()
     setDragOffset({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
+      x: (e.clientX - rect.left),
+      y: (e.clientY - rect.top),
     })
     const canvas = document.createElement("canvas")
     const ctx = canvas.getContext("2d")
@@ -241,14 +261,19 @@ export default function MainContent({
     const referenceItem = middleLayerImages.find((i) => i.id === draggingIds[0]) || topLayerImages.find((i) => i.id === draggingIds[0])
     if (!referenceItem) return
 
-    const newX = Math.floor((e.clientX - rect.left - dragOffset.x) / gridSize) * gridSize
-    const newY = Math.floor((e.clientY - rect.top - dragOffset.y) / gridSize) * gridSize
+    // Adjust for zoom level when calculating position
+    const adjustedX = (e.clientX - rect.left) / zoomLevel
+    const adjustedY = (e.clientY - rect.top) / zoomLevel
+    
+    const newX = Math.floor((adjustedX - dragOffset.x / zoomLevel) / gridSize) * gridSize
+    const newY = Math.floor((adjustedY - dragOffset.y / zoomLevel) / gridSize) * gridSize
+    
     const dx = newX - referenceItem.x
     const dy = newY - referenceItem.y
 
     const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy)
     onUpdateImages?.(middleLayer, topLayer)
-  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages])
+  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages, zoomLevel])
 
   const handleItemDragEnd = useCallback(() => {
     setDraggingIds(null)
@@ -270,14 +295,17 @@ export default function MainContent({
 
   const handleResizeMove = useCallback((e: MouseEvent) => {
     if (!resizingId || !resizeStart) return
-    const dx = e.clientX - resizeStart.x
-    const dy = e.clientY - resizeStart.y
+    
+    // Adjust for zoom level when calculating resize
+    const dx = (e.clientX - resizeStart.x) / zoomLevel
+    const dy = (e.clientY - resizeStart.y) / zoomLevel
+    
     const newWidth = Math.max(gridSize, Math.floor((resizeStart.width + dx) / gridSize) * gridSize)
     const newHeight = Math.max(gridSize, Math.floor((resizeStart.height + dy) / gridSize) * gridSize)
 
     const { middleLayer, topLayer } = updateItemSize(resizingId, newWidth, newHeight)
     onUpdateImages?.(middleLayer, topLayer)
-  }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages])
+  }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages, zoomLevel])
 
   const handleResizeEnd = useCallback(() => {
     setResizingId(null)
@@ -295,10 +323,16 @@ export default function MainContent({
   }, [selectedIds, middleLayerImages, topLayerImages, onUpdateImages])
 
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === gridRef.current) {
-      setSelectedIds([])
+    // Check if we're clicking on the background and not on a token or image
+    const target = e.target as HTMLElement;
+    const isClickingToken = target.classList.contains('token-image') || 
+                           target.closest('.token-image') ||
+                           target.closest('[draggable="true"]');
+    
+    if (!isClickingToken && currentTool !== 'brush') {
+      setSelectedIds([]);
     }
-  }, [])
+  }, [currentTool]);
 
   const handleItemClick = useCallback((e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
     e.stopPropagation()
@@ -312,7 +346,11 @@ export default function MainContent({
   }, [currentTool])
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.shiftKey && userRole === "DM") {
+    if (e.ctrlKey) {
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? -0.1 : 0.1
+      setZoomLevel(prev => Math.max(0.5, Math.min(3, prev + delta)))
+    } else if (e.shiftKey && userRole === "DM") {
       e.preventDefault()
       const newSize = Math.min(200, Math.max(20, gridSize + (e.deltaY < 0 ? 5 : -5)))
       onGridSizeChange(newSize)
@@ -410,21 +448,33 @@ export default function MainContent({
   };
 
   const handleNavigationDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    // Only enable panning if we're not clicking on a token or image
-    if (e.target === e.currentTarget && currentTool !== 'brush') {
-      setIsPanning(true)
-      setPanStart({ x: e.clientX, y: e.clientY })
+    // Enable panning when using the main mouse button (left-click)
+    // But avoid interfering with other interactions like token dragging
+    if (e.button === 0 && !e.altKey && !e.ctrlKey && !e.shiftKey && currentTool !== 'brush') {
+      // Check if we're clicking on the background and not on a token or image
+      const target = e.target as HTMLElement;
+      const isClickingToken = target.classList.contains('token-image') || 
+                             target.closest('.token-image') ||
+                             target.closest('[draggable="true"]');
+      
+      if (!isClickingToken) {
+        e.preventDefault();
+        setIsPanning(true);
+        setPanStart({ x: e.clientX, y: e.clientY });
+      }
     }
-  }, [currentTool])
+  }, [currentTool]);
 
   const handleNavigationDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (isPanning && panStart && containerRef.current) {
       const dx = e.clientX - panStart.x
       const dy = e.clientY - panStart.y
       
-      // Update scroll position
-      containerRef.current.scrollLeft -= dx
-      containerRef.current.scrollTop -= dy
+      // Adjust the scroll position of the container
+      if (containerRef.current) {
+        containerRef.current.scrollLeft -= dx
+        containerRef.current.scrollTop -= dy
+      }
       
       // Update start position for next drag event
       setPanStart({ x: e.clientX, y: e.clientY })
@@ -435,6 +485,19 @@ export default function MainContent({
     setIsPanning(false)
     setPanStart(null)
   }, [])
+
+  const handleZoomIn = useCallback(() => {
+    setZoomLevel(prev => Math.min(prev + 0.1, 3)) // Max zoom: 3x
+  }, [setZoomLevel])
+
+  const handleZoomOut = useCallback(() => {
+    setZoomLevel(prev => Math.max(prev - 0.1, 0.5)) // Min zoom: 0.5x
+  }, [setZoomLevel])
+
+  const handleZoomReset = useCallback(() => {
+    setZoomLevel(1) // Reset to 1x zoom
+    setPanOffset({ x: 0, y: 0 }) // Reset pan offset
+  }, [setZoomLevel])
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -464,29 +527,29 @@ export default function MainContent({
       <div 
         ref={containerRef}
         className="flex-grow relative overflow-auto"
-        style={{ cursor: isPanning ? 'grabbing' : 'default' }}
+        style={{ 
+          cursor: isPanning ? 'grabbing' : 'grab',
+          userSelect: 'none' // Prevent text selection during dragging
+        }}
+        onWheel={handleWheel}
+        onMouseDown={handleNavigationDragStart}
+        onMouseMove={handleNavigationDrag}
+        onMouseUp={handleNavigationDragEnd}
+        onMouseLeave={handleNavigationDragEnd}
       >
         <div
           ref={gridRef}
-          className="relative inline-block"
+          className="relative"
           style={{
-            backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
-            backgroundSize: "contain",
-            backgroundRepeat: "no-repeat",
-            backgroundPosition: "center",
+            cursor: currentTool === "brush" ? "crosshair" : "default",
+            transform: `scale(${zoomLevel})`,
+            transformOrigin: "0 0",
             width: imageDimensions?.width || "100%",
             height: imageDimensions?.height || "100%",
           }}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          onClick={handleGridClick}
-          onWheel={handleWheel}
-          onMouseDown={handleNavigationDragStart}
-          onMouseMove={handleNavigationDrag}
-          onMouseUp={handleNavigationDragEnd}
         >
           {userRole === "DM" && (
-            <div className="absolute top-2 left-2 z-30">
+            <div className="absolute top-2 left-2 z-30" style={{ transform: 'scale(calc(1 / ' + zoomLevel + '))', transformOrigin: "0 0" }}>
               <DrawingToolbar
                 currentTool={currentTool}
                 onToolChange={onToolChange}
@@ -498,146 +561,161 @@ export default function MainContent({
             </div>
           )}
           <div
-            className="absolute inset-0 pointer-events-none"
+            className="absolute inset-0"
             style={{
-              backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
-              backgroundSize: `${gridSize}px ${gridSize}px`,
+              backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
+              backgroundSize: "contain",
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "center",
               width: "100%",
               height: "100%",
             }}
-          />
-          {middleLayerImages.map((img) => (
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onClick={handleGridClick}
+          >
             <div
-              key={img.id}
-              className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-              style={{ left: img.x, top: img.y, zIndex: 10 }}
-              draggable={true}
-              onDragStart={(e) => handleItemDragStart(e, img, false)}
-              onDrag={(e) => handleItemDrag(e)}
-              onDragEnd={handleItemDragEnd}
-              onClick={(e) => handleItemClick(e, img)}
-            >
-              <Image
-                src={img.url}
-                alt="Middle layer image"
-                width={img.width || gridSize * 2}
-                height={img.height || gridSize * 2}
-                style={{ objectFit: 'contain' }}
-              />
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
+                backgroundSize: `${gridSize}px ${gridSize}px`,
+                width: "100%",
+                height: "100%",
+              }}
+            />
+            {middleLayerImages.map((img) => (
               <div
-                className="absolute bottom-0 right-0 w-4 h-4 bg-gray-500 cursor-se-resize"
-                onMouseDown={(e) => handleResizeStart(e, img)}
-              />
-            </div>
-          ))}
-          {topLayerImages.map((img) => (
-            <div
-              key={img.id}
-              className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-              style={{ left: img.x, top: img.y, zIndex: 20 }}
-              draggable={true}
-              onDragStart={(e) => handleItemDragStart(e, img, true)}
-              onDrag={(e) => handleItemDrag(e)}
-              onDragEnd={handleItemDragEnd}
-              onClick={(e) => handleItemClick(e, img)}
-            >
-              <div className="relative">
+                key={img.id}
+                className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
+                style={{ left: img.x, top: img.y, zIndex: 10 }}
+                draggable={true}
+                onDragStart={(e) => handleItemDragStart(e, img, false)}
+                onDrag={(e) => handleItemDrag(e)}
+                onDragEnd={handleItemDragEnd}
+                onClick={(e) => handleItemClick(e, img)}
+              >
                 <Image
                   src={img.url}
-                  alt="Token"
-                  width={gridSize}
-                  height={gridSize}
+                  alt="Middle layer image"
+                  width={img.width || gridSize * 2}
+                  height={img.height || gridSize * 2}
                   style={{ objectFit: 'contain' }}
-                  className="token-image"
                 />
-                {selectedIds.includes(img.id) && img.character && (
-                  <div 
-                    className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap"
-                    style={{ zIndex: 20 }}
-                  >
-                    <span className="text-sm font-semibold text-black" style={{ 
-                      textShadow: `
-                        -1px -1px 0 white,
-                        1px -1px 0 white,
-                        -1px 1px 0 white,
-                        1px 1px 0 white
-                      `
-                    }}>
-                      {img.character.Name}
-                    </span>
-                  </div>
-                )}
+                <div
+                  className="absolute bottom-0 right-0 w-4 h-4 bg-gray-500 cursor-se-resize"
+                  onMouseDown={(e) => handleResizeStart(e, img)}
+                />
               </div>
-              {(() => {
-                if (!selectedIds.includes(img.id) || !img.character) return null;
-                
-                const character = img.character;
-                return (
-                  <div className="status-circles-container absolute -top-12 left-0 right-0 flex justify-center space-x-3" style={{ zIndex: 50 }}>
-                    {/* Guard Circle */}
-                    <div className="status-circle guard-circle relative bg-white rounded-full p-1">
-                      <div 
-                        className="w-8 h-8 rounded-full border-2 border-green-500 flex items-center justify-center text-sm cursor-pointer hover:bg-green-50"
-                        onClick={() => setStatusModal({
-                          isOpen: true,
-                          type: 'guard',
-                          currentValue: character.Guard,
-                          maxValue: character.MaxGuard,
-                          characterId: img.characterId!,
-                          character
-                        })}
-                      >
-                        {character.Guard}/{character.MaxGuard}
-                      </div>
-                      <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
-                        Gd
-                      </div>
+            ))}
+            {topLayerImages.map((img) => (
+              <div
+                key={img.id}
+                className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
+                style={{ left: img.x, top: img.y, zIndex: 20 }}
+                draggable={true}
+                onDragStart={(e) => handleItemDragStart(e, img, true)}
+                onDrag={(e) => handleItemDrag(e)}
+                onDragEnd={handleItemDragEnd}
+                onClick={(e) => handleItemClick(e, img)}
+              >
+                <div className="relative">
+                  <Image
+                    src={img.url}
+                    alt="Token"
+                    width={gridSize}
+                    height={gridSize}
+                    style={{ objectFit: 'contain' }}
+                    className="token-image"
+                  />
+                  {selectedIds.includes(img.id) && img.character && (
+                    <div 
+                      className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap"
+                      style={{ zIndex: 20 }}
+                    >
+                      <span className="text-sm font-semibold text-black" style={{ 
+                        textShadow: `
+                          -1px -1px 0 white,
+                          1px -1px 0 white,
+                          -1px 1px 0 white,
+                          1px 1px 0 white
+                        `
+                      }}>
+                        {img.character.Name}
+                      </span>
                     </div>
-                    {/* Strength Circle */}
-                    <div className="status-circle strength-circle relative bg-white rounded-full p-1">
-                      <div 
-                        className="w-8 h-8 rounded-full border-2 border-red-500 flex items-center justify-center text-sm cursor-pointer hover:bg-red-50"
-                        onClick={() => setStatusModal({
-                          isOpen: true,
-                          type: 'strength',
-                          currentValue: character.Strength,
-                          maxValue: character.MaxStrength,
-                          characterId: img.characterId!,
-                          character
-                        })}
-                      >
-                        {character.Strength}/{character.MaxStrength}
-                      </div>
-                      <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
-                        Str
-                      </div>
-                    </div>
-                    {/* MP Circle (only for Magic Users) */}
-                    {character.Path === "Magic User" && (
-                      <div className="status-circle mp-circle relative bg-white rounded-full p-1">
+                  )}
+                </div>
+                {(() => {
+                  if (!selectedIds.includes(img.id) || !img.character) return null;
+                  
+                  const character = img.character;
+                  return (
+                    <div className="status-circles-container absolute -top-12 left-0 right-0 flex justify-center space-x-3" style={{ zIndex: 50 }}>
+                      {/* Guard Circle */}
+                      <div className="status-circle guard-circle relative bg-white rounded-full p-1">
                         <div 
-                          className="w-8 h-8 rounded-full border-2 border-blue-500 flex items-center justify-center text-sm cursor-pointer hover:bg-blue-50"
+                          className="w-8 h-8 rounded-full border-2 border-green-500 flex items-center justify-center text-sm cursor-pointer hover:bg-green-50"
                           onClick={() => setStatusModal({
                             isOpen: true,
-                            type: 'mp',
-                            currentValue: character.Mp,
-                            maxValue: character.MaxMp,
+                            type: 'guard',
+                            currentValue: character.Guard,
+                            maxValue: character.MaxGuard,
                             characterId: img.characterId!,
                             character
                           })}
                         >
-                          {character.Mp}/{character.MaxMp}
+                          {character.Guard}/{character.MaxGuard}
                         </div>
                         <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
-                          Mp
+                          Gd
                         </div>
                       </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-          ))}
+                      {/* Strength Circle */}
+                      <div className="status-circle strength-circle relative bg-white rounded-full p-1">
+                        <div 
+                          className="w-8 h-8 rounded-full border-2 border-red-500 flex items-center justify-center text-sm cursor-pointer hover:bg-red-50"
+                          onClick={() => setStatusModal({
+                            isOpen: true,
+                            type: 'strength',
+                            currentValue: character.Strength,
+                            maxValue: character.MaxStrength,
+                            characterId: img.characterId!,
+                            character
+                          })}
+                        >
+                          {character.Strength}/{character.MaxStrength}
+                        </div>
+                        <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                          Str
+                        </div>
+                      </div>
+                      {/* MP Circle (only for Magic Users) */}
+                      {character.Path === "Magic User" && (
+                        <div className="status-circle mp-circle relative bg-white rounded-full p-1">
+                          <div 
+                            className="w-8 h-8 rounded-full border-2 border-blue-500 flex items-center justify-center text-sm cursor-pointer hover:bg-blue-50"
+                            onClick={() => setStatusModal({
+                              isOpen: true,
+                              type: 'mp',
+                              currentValue: character.Mp,
+                              maxValue: character.MaxMp,
+                              characterId: img.characterId!,
+                              character
+                            })}
+                          >
+                            {character.Mp}/{character.MaxMp}
+                          </div>
+                          <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                            Mp
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
       {statusModal && (
@@ -679,6 +757,35 @@ export default function MainContent({
           </div>
         </div>
       )}
+      {/* Bottom Bar with Zoom Controls */}
+      <div className="h-10 bg-gray-100 border-t flex items-center px-4">
+        <div className="flex items-center space-x-2">
+          <button 
+            onClick={handleZoomOut}
+            className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-full"
+            title="Zoom Out"
+          >
+            <span className="text-sm">−</span>
+          </button>
+          <div className="text-xs font-medium w-12 text-center">
+            {Math.round(zoomLevel * 100)}%
+          </div>
+          <button 
+            onClick={handleZoomIn}
+            className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-full"
+            title="Zoom In"
+          >
+            <span className="text-sm">+</span>
+          </button>
+          <button 
+            onClick={handleZoomReset}
+            className="ml-1 px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+            title="Reset Zoom"
+          >
+            Reset
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
