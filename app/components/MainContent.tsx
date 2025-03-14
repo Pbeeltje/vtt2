@@ -749,24 +749,24 @@ export default function MainContent({
                     <div className="flex items-center space-x-2">
           <button 
             onClick={handleZoomOut}
-            className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-full"
+            className="w-6 h-6 flex items-center justify-center bg-stone-300 hover:stone-500 rounded-full"
             title="Zoom Out"
           >
             <span className="text-sm">−</span>
           </button>
-          <div className="text-xs font-medium w-12 text-center bg-white rounded">
+          <div className="text-xs font-medium w-12 text-center bg-stone-300 rounded">
             {Math.round(zoomLevel * 100)}%
           </div>
           <button 
             onClick={handleZoomIn}
-            className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-full"
+            className="w-6 h-6 flex items-center justify-center bg-stone-300 hover:stone-500 rounded-full"
             title="Zoom In"
           >
             <span className="text-sm">+</span>
           </button>
           <button 
             onClick={handleZoomReset}
-            className="ml-1 px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+            className="ml-1 px-2 py-1 text-xs bg-stone-300 hover:stone-500 rounded"
             title="Reset Zoom"
           >
             Reset

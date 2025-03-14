@@ -39,7 +39,7 @@ export default function DrawingToolbar({
   const [isGridColorPickerOpen, setIsGridColorPickerOpen] = useState(false);
 
   return (
-    <div className="fixed left-2 top-12 flex flex-col gap-2 bg-white/90 backdrop-blur p-2 rounded-lg shadow-md z-10">
+    <div className="fixed left-2 top-12 flex flex-col gap-2 backdrop-blur p-2 rounded-lg shadow-md z-10 bg-stone-300/90">
       <Button
         variant="ghost"
         size="icon"

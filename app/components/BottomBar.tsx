@@ -31,7 +31,7 @@ export default function BottomBar({ onDiceRoll, onPhaseChange }: BottomBarProps)
         min="1"
         value={numberOfDice}
         onChange={(e) => setNumberOfDice(Math.max(1, parseInt(e.target.value) || 1))}
-        className="w-12 h-8 text-center border-black rounded bg-gray-400"
+        className="w-12 h-8 text-center border rounded bg-gray-400"
       />
       <Button onClick={() => rollDice(4)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d4

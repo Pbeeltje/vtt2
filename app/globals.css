@@ -76,7 +76,7 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #d3d3a9; /* Thumb color: Stone */
+  background-color: stone-300; /* Thumb color: Stone */
   border-radius: 4px; /* Rounded corners for the thumb */
   border: 1px solid #a8a876; /* Outline for the thumb */
 }

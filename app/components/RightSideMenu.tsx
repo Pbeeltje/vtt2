@@ -138,7 +138,7 @@ export default function RightSideMenu({
     <div className="w-96 bg-white border-l flex flex-col" style={{ backgroundImage: 'url("images/rightsidemenu.jpeg")', backgroundSize: '100% auto', backgroundRepeat: 'repeat-y' }}>
       <div className="p-4 border-b w-full">
         <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as "chat" | "characters" | "maps")} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-3 bg-stone-300">
             <TabsTrigger value="chat">
               <MessageSquare className="h-4 w-4" />
             </TabsTrigger>
@@ -196,7 +196,7 @@ export default function RightSideMenu({
                     onChange={(e) => setInputMessage(e.target.value)}
                     onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
                     placeholder="Type a message..."
-                    className="flex-grow mr-2 bg-yellow-20"
+                    className="flex-grow mr-2 bg-yellow-20 bg-stone-200"
                   />
                   <Button onClick={handleSendMessage}>Send</Button>
                 </div>

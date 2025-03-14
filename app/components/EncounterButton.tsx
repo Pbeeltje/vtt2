@@ -37,12 +37,12 @@ export default function EncounterButton({ onPhaseChange }: EncounterButtonProps)
     <div className="flex items-center">
       <Button
         onClick={handleClick}
-        className={`w-24 ${phase !== "Encounter" ? phases.find((p) => p.name === phase)?.color : "bg-black"} ${textColor} hover:bg-black hover:text-white`}
+        className={`w-24 ${phase !== "Encounter" ? phases.find((p) => p.name === phase)?.color : "bg-neutral-600 border-b-4 border-neutral-800"} ${textColor} hover:bg-black hover:text-white`}
       >
         {phase}
       </Button>
       {phase !== "Encounter" && (
-        <Button onClick={resetEncounter} variant="ghost" size="icon" className="ml-2 bg-amber-200" >
+        <Button onClick={resetEncounter} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800" >
           <X className="h-4 w-4" />
         </Button>
       )}
