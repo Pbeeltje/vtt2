@@ -81,6 +81,10 @@
   border: 1px solid #a8a876; /* Outline for the thumb */
 }
 
+::-webkit-scrollbar-corner {
+  background-color: rgba(207, 198, 198, 0.505);
+}
+
 ::-webkit-scrollbar-button:hover {
   background-color: #c0c096; /* Darker thumb color on hover */
 }
