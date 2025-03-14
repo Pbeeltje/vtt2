@@ -220,14 +220,14 @@ export default function RightSideMenu({
           <TabsContent value="maps" className="w-full">
             <div className="p-4 w-full">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg text-white font-semibold">Scenes and Images</h3>
+                <h3 className="text-lg text-white font-semibold">Images</h3>
                 <div className="space-x-2">
-                  <Button onClick={onSaveScene} size="sm" variant="ghost" title="Save Scene">
-                    <Save className="h-4 w-4 mr-2" />
-                    Save
+                  <Button onClick={onSaveScene} size="sm" variant="ghost" title="Save Scene" className="bg-white">
+                     <Save className="h-4 w-4" />
+                    
                   </Button>
                   <Button onClick={() => onAddImage("Scene", new File([], ""))} size="sm">
-                    Upload
+                   Upload
                   </Button>
                 </div>
               </div>

@@ -746,6 +746,32 @@ export default function MainContent({
               gridColor={gridColor}
               onGridColorChange={onGridColorChange}
             />
+                    <div className="flex items-center space-x-2">
+          <button 
+            onClick={handleZoomOut}
+            className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-full"
+            title="Zoom Out"
+          >
+            <span className="text-sm">−</span>
+          </button>
+          <div className="text-xs font-medium w-12 text-center bg-white rounded">
+            {Math.round(zoomLevel * 100)}%
+          </div>
+          <button 
+            onClick={handleZoomIn}
+            className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-full"
+            title="Zoom In"
+          >
+            <span className="text-sm">+</span>
+          </button>
+          <button 
+            onClick={handleZoomReset}
+            className="ml-1 px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
+            title="Reset Zoom"
+          >
+            Reset
+          </button>
+        </div>
           </div>
         )}
         <div
@@ -1015,35 +1041,7 @@ export default function MainContent({
           </div>
         </div>
       )}
-      {/* Bottom Bar with Zoom Controls */}
-      <div className="h-10 bg-gray-100 border-t flex items-center px-4">
-        <div className="flex items-center space-x-2">
-          <button 
-            onClick={handleZoomOut}
-            className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-full"
-            title="Zoom Out"
-          >
-            <span className="text-sm">−</span>
-          </button>
-          <div className="text-xs font-medium w-12 text-center">
-            {Math.round(zoomLevel * 100)}%
-          </div>
-          <button 
-            onClick={handleZoomIn}
-            className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded-full"
-            title="Zoom In"
-          >
-            <span className="text-sm">+</span>
-          </button>
-          <button 
-            onClick={handleZoomReset}
-            className="ml-1 px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
-            title="Reset Zoom"
-          >
-            Reset
-          </button>
-        </div>
+
       </div>
-    </div>
   )
 }
