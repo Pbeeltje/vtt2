@@ -152,7 +152,7 @@ export default function RightSideMenu({
           <TabsContent value="chat" className="w-full">
             <div className="flex flex-col h-[calc(100vh-8rem)] w-full">
               <h2 className="text-lg text-white font-semibold p-4 pb-2">Chat</h2>
-              <div ref={chatContainerRef} className={`flex-grow px-4 ${chatBackgroundColor} overflow-y-auto`}>
+              <div ref={chatContainerRef} className={`flex-grow px-4 ${chatBackgroundColor} overflow-y-auto rounded bg-opacity-80`}>
                 <div className="space-y-2 pb-4">
                   {messages.map((message, index) => {
                     const currentDate = new Date(message.timestamp).toLocaleDateString("en-GB", {
@@ -179,7 +179,7 @@ export default function RightSideMenu({
                           {message.type === "user" ? (
                             <span className="font-semibold">{message.username}:</span>
                           ) : (
-                            <span className="font-semibold text-green-600">System:</span>
+                            <span className="font-semibold text-blue-600">System:</span>
                           )}{" "}
                           <span dangerouslySetInnerHTML={{ __html: message.content }} />
                         </div>
@@ -196,7 +196,7 @@ export default function RightSideMenu({
                     onChange={(e) => setInputMessage(e.target.value)}
                     onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
                     placeholder="Type a message..."
-                    className="flex-grow mr-2"
+                    className="flex-grow mr-2 bg-yellow-20"
                   />
                   <Button onClick={handleSendMessage}>Send</Button>
                 </div>
