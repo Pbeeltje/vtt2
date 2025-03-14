@@ -67,14 +67,53 @@ export default function MainContent({
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null)
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  
+  // Drawing state
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [currentPath, setCurrentPath] = useState<string>("")
+  const [drawings, setDrawings] = useState<Array<{id: string, path: string, color: string, sceneId: string, createdBy: number, createdAt: string}>>([])
+  const [selectedDrawingIds, setSelectedDrawingIds] = useState<string[]>([])
+  const [userId, setUserId] = useState<number | null>(null)
+  const [sceneId, setSceneId] = useState<string | null>(null)
+  const [isLoadingDrawings, setIsLoadingDrawings] = useState(false)
 
   useEffect(() => {
     const fetchUser = async () => {
       const user = await getUserFromCookie()
       setUserRole(user?.role || null)
+      setUserId(user?.id || null)
     }
     fetchUser()
   }, [])
+
+  useEffect(() => {
+    if (backgroundImage) {
+      const match = backgroundImage.match(/\/api\/images\/([^\/]+)/)
+      if (match && match[1]) {
+        const newSceneId = match[1];
+        
+        // Only update if scene has changed
+        if (newSceneId !== sceneId) {
+          console.log(`Switching from scene ${sceneId} to ${newSceneId}`);
+          
+          // Clear drawing state
+          setCurrentPath('');
+          setIsDrawing(false);
+          setSelectedDrawingIds([]);
+          
+          // Set new scene ID
+          setSceneId(newSceneId);
+        }
+      }
+    } else {
+      // Clear all drawing state when no scene is loaded
+      setDrawings([]);
+      setCurrentPath('');
+      setIsDrawing(false);
+      setSelectedDrawingIds([]);
+      setSceneId(null);
+    }
+  }, [backgroundImage, sceneId])
 
   useEffect(() => {
     if (backgroundImage) {
@@ -320,7 +359,24 @@ export default function MainContent({
       onUpdateImages?.(newMiddleLayer, newTopLayer)
       setSelectedIds([])
     }
-  }, [selectedIds, middleLayerImages, topLayerImages, onUpdateImages])
+    if (e.key === "Delete" && selectedDrawingIds.length > 0) {
+      // Update local state for immediate UI response
+      const newDrawings = drawings.filter((drawing) => !selectedDrawingIds.includes(drawing.id))
+      setDrawings(newDrawings)
+      
+      // Delete drawings from the database
+      selectedDrawingIds.forEach(id => {
+        fetch(`/api/drawings?id=${id}`, {
+          method: 'DELETE',
+        }).catch(error => {
+          console.error('Error deleting drawing:', error);
+        });
+      });
+      
+      // Clear selection
+      setSelectedDrawingIds([])
+    }
+  }, [selectedIds, middleLayerImages, topLayerImages, onUpdateImages, selectedDrawingIds, drawings])
 
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // Check if we're clicking on the background and not on a token or image
@@ -331,6 +387,7 @@ export default function MainContent({
     
     if (!isClickingToken && currentTool !== 'brush') {
       setSelectedIds([]);
+      setSelectedDrawingIds([]);
     }
   }, [currentTool]);
 
@@ -342,6 +399,17 @@ export default function MainContent({
       setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id])
     } else {
       setSelectedIds([item.id])
+    }
+  }, [currentTool])
+
+  const handleDrawingClick = useCallback((e: React.MouseEvent<SVGPathElement>, drawing: {id: string, path: string, color: string, sceneId: string, createdBy: number, createdAt: string}) => {
+    e.stopPropagation()
+    if (currentTool === 'brush') return;
+    
+    if (e.shiftKey) {
+      setSelectedDrawingIds((prev) => prev.includes(drawing.id) ? prev.filter((id) => id !== drawing.id) : [...prev, drawing.id])
+    } else {
+      setSelectedDrawingIds([drawing.id])
     }
   }, [currentTool])
 
@@ -447,44 +515,66 @@ export default function MainContent({
     });
   };
 
-  const handleNavigationDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    // Enable panning when using the main mouse button (left-click)
-    // But avoid interfering with other interactions like token dragging
-    if (e.button === 0 && !e.altKey && !e.ctrlKey && !e.shiftKey && currentTool !== 'brush') {
-      // Check if we're clicking on the background and not on a token or image
-      const target = e.target as HTMLElement;
-      const isClickingToken = target.classList.contains('token-image') || 
-                             target.closest('.token-image') ||
-                             target.closest('[draggable="true"]');
+  const handleNavigationDragStart = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
+    // Only start panning on middle mouse button or Alt+left click
+    // OR when using cursor tool with left click (not on a token)
+    if (e) {
+      const isAltClick = e.button === 0 && e.altKey;
+      const isMiddleClick = e.button === 1;
+      const isLeftClickWithCursor = e.button === 0 && currentTool === 'cursor';
       
-      if (!isClickingToken) {
-        e.preventDefault();
+      if (isMiddleClick || isAltClick || isLeftClickWithCursor) {
+        // Check if we're clicking on a token or image when using cursor tool
+        if (isLeftClickWithCursor) {
+          const target = e.target as HTMLElement;
+          const isClickingToken = target.classList.contains('token-image') || 
+                                target.closest('.token-image') ||
+                                target.closest('[draggable="true"]');
+          
+          // Don't start panning if clicking on a token
+          if (isClickingToken) {
+            return;
+          }
+        }
+        
         setIsPanning(true);
         setPanStart({ x: e.clientX, y: e.clientY });
+        e.preventDefault();
       }
     }
   }, [currentTool]);
 
-  const handleNavigationDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (isPanning && panStart && containerRef.current) {
-      const dx = e.clientX - panStart.x
-      const dy = e.clientY - panStart.y
+  const handleNavigationDrag = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
+    if (isPanning && panStart && e) {
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
       
-      // Adjust the scroll position of the container
-      if (containerRef.current) {
-        containerRef.current.scrollLeft -= dx
-        containerRef.current.scrollTop -= dy
+      const containerEl = containerRef.current;
+      if (containerEl) {
+        // Update scroll position based on mouse movement
+        containerEl.scrollLeft = panOffset.x - dx;
+        containerEl.scrollTop = panOffset.y - dy;
       }
       
-      // Update start position for next drag event
-      setPanStart({ x: e.clientX, y: e.clientY })
+      e.preventDefault();
     }
-  }, [isPanning, panStart])
+  }, [isPanning, panStart, panOffset]);
 
-  const handleNavigationDragEnd = useCallback(() => {
-    setIsPanning(false)
-    setPanStart(null)
-  }, [])
+  const handleNavigationDragEnd = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
+    if (isPanning) {
+      const containerEl = containerRef.current;
+      if (containerEl) {
+        setPanOffset({
+          x: containerEl.scrollLeft,
+          y: containerEl.scrollTop
+        });
+      }
+      
+      setIsPanning(false);
+      setPanStart(null);
+      e?.preventDefault();
+    }
+  }, [isPanning]);
 
   const handleZoomIn = useCallback(() => {
     setZoomLevel(prev => Math.min(prev + 0.1, 3)) // Max zoom: 3x
@@ -498,6 +588,94 @@ export default function MainContent({
     setZoomLevel(1) // Reset to 1x zoom
     setPanOffset({ x: 0, y: 0 }) // Reset pan offset
   }, [setZoomLevel])
+
+  // Drawing handlers
+  const startDrawing = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (currentTool !== 'brush') return;
+    
+    // Prevent drawing from starting if we're panning
+    if (e.button !== 0 || e.altKey) return;
+    
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    // Adjust for zoom level when calculating position
+    const x = (e.clientX - rect.left) / zoomLevel;
+    const y = (e.clientY - rect.top) / zoomLevel;
+    
+    setIsDrawing(true);
+    setCurrentPath(`M${x},${y}`);
+    
+    // Prevent default to avoid text selection
+    e.preventDefault();
+  }, [currentTool, zoomLevel]);
+  
+  const draw = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawing || currentTool !== 'brush') return;
+    
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    // Adjust for zoom level when calculating position
+    const x = (e.clientX - rect.left) / zoomLevel;
+    const y = (e.clientY - rect.top) / zoomLevel;
+    
+    setCurrentPath(prev => `${prev} L${x},${y}`);
+    
+    // Prevent default to avoid text selection
+    e.preventDefault();
+  }, [isDrawing, currentTool, zoomLevel]);
+  
+  const endDrawing = useCallback((e?: React.MouseEvent<any>) => {
+    if (!isDrawing || !currentPath || currentTool !== 'brush') return;
+    
+    // Prevent default to avoid text selection
+    e?.preventDefault();
+    
+    // Don't save if no scene is selected
+    if (!sceneId) {
+      setIsDrawing(false);
+      setCurrentPath('');
+      return;
+    }
+    
+    // Generate a unique ID for the drawing
+    const drawingId = `drawing-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create the new drawing object
+    const newDrawing = {
+      id: drawingId,
+      path: currentPath,
+      color: currentColor,
+      sceneId: sceneId,
+      createdBy: userId || 0,
+      createdAt: new Date().toISOString()
+    };
+    
+    // Update local state with the new drawing
+    setDrawings(prevDrawings => [...prevDrawings, newDrawing]);
+    
+    // Reset drawing state
+    setIsDrawing(false);
+    setCurrentPath('');
+    
+    // Save the drawing to the database
+    fetch('/api/drawings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(newDrawing),
+    }).catch((error) => {
+      console.error('Error saving drawing:', error);
+    });
+  }, [isDrawing, currentPath, currentTool, currentColor, sceneId, userId]);
+  
+  const handleMouseLeave = useCallback(() => {
+    if (isDrawing) {
+      endDrawing();
+    }
+  }, [isDrawing, endDrawing]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -522,6 +700,24 @@ export default function MainContent({
     }
   }, [handleResizeMove, handleResizeEnd, handleDelete, handleKeyDown, handleNavigationDragEnd])
 
+  useEffect(() => {
+    if (sceneId) {
+      setIsLoadingDrawings(true);
+      fetch(`/api/drawings?sceneId=${sceneId}`)
+        .then(response => response.json())
+        .then(data => {
+          setDrawings(data);
+          setIsLoadingDrawings(false);
+        })
+        .catch(error => {
+          console.error('Error loading drawings:', error);
+          setIsLoadingDrawings(false);
+        });
+    } else {
+      setDrawings([]);
+    }
+  }, [sceneId]);
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       <div 
@@ -537,6 +733,21 @@ export default function MainContent({
         onMouseUp={handleNavigationDragEnd}
         onMouseLeave={handleNavigationDragEnd}
       >
+        {userRole === "DM" && (
+          <div className="absolute top-2 left-2 z-30" style={{ 
+            position: 'sticky',
+            transform: 'none'
+          }}>
+            <DrawingToolbar
+              currentTool={currentTool}
+              onToolChange={onToolChange}
+              currentColor={currentColor}
+              onColorChange={onColorChange}
+              gridColor={gridColor}
+              onGridColorChange={onGridColorChange}
+            />
+          </div>
+        )}
         <div
           ref={gridRef}
           className="relative"
@@ -548,18 +759,6 @@ export default function MainContent({
             height: imageDimensions?.height || "100%",
           }}
         >
-          {userRole === "DM" && (
-            <div className="absolute top-2 left-2 z-30" style={{ transform: 'scale(calc(1 / ' + zoomLevel + '))', transformOrigin: "0 0" }}>
-              <DrawingToolbar
-                currentTool={currentTool}
-                onToolChange={onToolChange}
-                currentColor={currentColor}
-                onColorChange={onColorChange}
-                gridColor={gridColor}
-                onGridColorChange={onGridColorChange}
-              />
-            </div>
-          )}
           <div
             className="absolute inset-0"
             style={{
@@ -573,6 +772,39 @@ export default function MainContent({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             onClick={handleGridClick}
+            onMouseDown={(e) => {
+              if (currentTool === 'brush') {
+                startDrawing(e);
+                // Prevent navigation drag when using brush tool
+                e.stopPropagation();
+              } else {
+                handleNavigationDragStart(e);
+              }
+            }}
+            onMouseMove={(e) => {
+              if (isDrawing && currentTool === 'brush') {
+                draw(e);
+                // Prevent navigation drag when drawing
+                e.stopPropagation();
+              } else {
+                handleNavigationDrag(e);
+              }
+            }}
+            onMouseUp={(e) => {
+              if (isDrawing && currentTool === 'brush') {
+                endDrawing(e);
+                // Prevent navigation drag end when finishing drawing
+                e.stopPropagation();
+              } else {
+                handleNavigationDragEnd(e);
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (isDrawing) {
+                endDrawing(e);
+              }
+              handleNavigationDragEnd(e);
+            }}
           >
             <div
               className="absolute inset-0 pointer-events-none"
@@ -607,11 +839,37 @@ export default function MainContent({
                 />
               </div>
             ))}
+            <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 20 }}>
+              {drawings.map((drawing) => (
+                <path
+                  key={drawing.id}
+                  d={drawing.path}
+                  stroke={selectedDrawingIds.includes(drawing.id) ? "blue" : drawing.color}
+                  strokeWidth={selectedDrawingIds.includes(drawing.id) ? "5" : "3"}
+                  fill="none"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  onClick={(e) => handleDrawingClick(e, drawing)}
+                  className={`${currentTool === 'cursor' ? 'cursor-pointer' : ''}`}
+                  style={{ pointerEvents: currentTool === 'cursor' ? 'auto' : 'none' }}
+                />
+              ))}
+              {isDrawing && currentPath && (
+                <path
+                  d={currentPath}
+                  stroke={currentColor}
+                  strokeWidth="3"
+                  fill="none"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              )}
+            </svg>
             {topLayerImages.map((img) => (
               <div
                 key={img.id}
                 className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-                style={{ left: img.x, top: img.y, zIndex: 20 }}
+                style={{ left: img.x, top: img.y, zIndex: 30 }}
                 draggable={true}
                 onDragStart={(e) => handleItemDragStart(e, img, true)}
                 onDrag={(e) => handleItemDrag(e)}
@@ -630,7 +888,7 @@ export default function MainContent({
                   {selectedIds.includes(img.id) && img.character && (
                     <div 
                       className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap"
-                      style={{ zIndex: 20 }}
+                      style={{ zIndex: 30 }}
                     >
                       <span className="text-sm font-semibold text-black" style={{ 
                         textShadow: `
