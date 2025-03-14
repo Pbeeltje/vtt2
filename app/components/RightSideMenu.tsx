@@ -135,7 +135,7 @@ export default function RightSideMenu({
   }
 
   return (
-    <div className="w-96 bg-white border-l flex flex-col">
+    <div className="w-96 bg-white border-l flex flex-col" style={{ backgroundImage: 'url("images/rightsidemenu.jpeg")', backgroundSize: '100% auto', backgroundRepeat: 'repeat-y' }}>
       <div className="p-4 border-b w-full">
         <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as "chat" | "characters" | "maps")} className="w-full">
           <TabsList className="grid w-full grid-cols-3">

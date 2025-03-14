@@ -25,7 +25,7 @@ export default function BottomBar({ onDiceRoll, onPhaseChange }: BottomBarProps)
   }
 
   return (
-    <div className="bg-gray-200 p-2 flex justify-center space-x-2 items-center w-full">
+    <div className="bg-gray-200 p-2 flex justify-center space-x-2 items-center w-full" style={{ backgroundImage: 'url("images/bottombar.jpeg")', backgroundSize: 'auto 150%', backgroundRepeat: 'repeat-x' }}>
       <input
         type="number"
         min="1"
@@ -62,4 +62,3 @@ export default function BottomBar({ onDiceRoll, onPhaseChange }: BottomBarProps)
     </div>
   )
 }
-
