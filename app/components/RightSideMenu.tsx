@@ -151,7 +151,7 @@ export default function RightSideMenu({
           </TabsList>
           <TabsContent value="chat" className="w-full">
             <div className="flex flex-col h-[calc(100vh-8rem)] w-full">
-              <h2 className="text-lg font-semibold p-4 pb-2">Chat</h2>
+              <h2 className="text-lg text-white font-semibold p-4 pb-2">Chat</h2>
               <div ref={chatContainerRef} className={`flex-grow px-4 ${chatBackgroundColor} overflow-y-auto`}>
                 <div className="space-y-2 pb-4">
                   {messages.map((message, index) => {
@@ -205,7 +205,7 @@ export default function RightSideMenu({
           </TabsContent>
           <TabsContent value="characters" className="w-full">
             <div className="p-4 w-full">
-              <h2 className="text-lg font-semibold mb-4">Characters</h2>
+              <h2 className="text-lg text-white font-semibold mb-4">Characters</h2>
               <CharacterList
                 categories={["Party", "NPC", "Monster"]}
                 characters={characters}
@@ -220,7 +220,7 @@ export default function RightSideMenu({
           <TabsContent value="maps" className="w-full">
             <div className="p-4 w-full">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold">Background Images</h3>
+                <h3 className="text-lg text-white font-semibold">Scenes and Images</h3>
                 <div className="space-x-2">
                   <Button onClick={onSaveScene} size="sm" variant="ghost" title="Save Scene">
                     <Save className="h-4 w-4 mr-2" />

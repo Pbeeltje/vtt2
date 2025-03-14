@@ -4,7 +4,11 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
 
-export default function EncounterButton({ onPhaseChange }) {
+interface EncounterButtonProps {
+  onPhaseChange: (phase: string, color: string) => void;
+}
+
+export default function EncounterButton({ onPhaseChange }: EncounterButtonProps) {
   const [phase, setPhase] = useState("Encounter")
   const phases = [
     { name: "Prepare", color: "bg-blue-100" },
