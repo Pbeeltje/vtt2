@@ -42,7 +42,7 @@ export default function EncounterButton({ onPhaseChange }: EncounterButtonProps)
         {phase}
       </Button>
       {phase !== "Encounter" && (
-        <Button onClick={resetEncounter} variant="ghost" size="icon" className="ml-2 bg-white" >
+        <Button onClick={resetEncounter} variant="ghost" size="icon" className="ml-2 bg-amber-200" >
           <X className="h-4 w-4" />
         </Button>
       )}

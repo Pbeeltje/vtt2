@@ -31,33 +31,32 @@ export default function BottomBar({ onDiceRoll, onPhaseChange }: BottomBarProps)
         min="1"
         value={numberOfDice}
         onChange={(e) => setNumberOfDice(Math.max(1, parseInt(e.target.value) || 1))}
-        className="w-12 h-8 text-center border rounded"
+        className="w-12 h-8 text-center border-black rounded bg-gray-400"
       />
-      <Button onClick={() => rollDice(4)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(4)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d4
       </Button>
-      <Button onClick={() => rollDice(6)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(6)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d6
       </Button>
-      <Button onClick={() => rollDice(8)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(8)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d8
       </Button>
-      <Button onClick={() => rollDice(10)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(10)} variant="default"  size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d10
       </Button>
-      <Button onClick={() => rollDice(12)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(12)} variant="default"  size="icon"className="bg-neutral-600 border-b-4 border-neutral-800">
         d12
       </Button>
-      <Button onClick={() => rollDice(20)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(20)} variant="default"  size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d20
       </Button>
-      <Button onClick={() => rollDice(30)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(30)} variant="default"  size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d30
       </Button>
-      <Button onClick={() => rollDice(100)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(100)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d100
       </Button>
-      <div className="border-l border-gray-400 h-6 mx-2"></div>
       <EncounterButton onPhaseChange={onPhaseChange} />
     </div>
   )
