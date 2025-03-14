@@ -235,9 +235,7 @@ export default function ImageList({
                           </span>
                         )}
                         {image.Category === "Scene" && (
-                          <span className={`truncate block ${getNameClass(image.Name)}`}>
-                            {image.Name.length > 3 ? `${image.Name.substring(0, 3)}...` : image.Name}
-                          </span>
+                          <span className="text-xs text-gray-600 truncate block">{image.Name}</span>
                         )}
                         {selectedImage?.Id === image.Id && image.Category === "Token" && image.Character && (
                           <span className="text-xs text-gray-600 truncate block">{image.Character.Name}</span>
