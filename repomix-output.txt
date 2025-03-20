@@ -48,17 +48,24 @@ Directory Structure
 .gitignore
 app/api/characters/[id]/route.ts
 app/api/characters/route.ts
+app/api/chat/route.ts
+app/api/drawings/route.ts
 app/api/images/[id]/route.ts
 app/api/images/route.ts
 app/api/imgur-upload/route.ts
 app/api/login/route.ts
 app/api/logout/route.ts
+app/api/public/images/[sceneId]/route.ts
+app/api/public/scenes/route.ts
 app/api/register/route.ts
+app/api/scenes/route.ts
 app/api/upload/route.ts
 app/api/user/route.ts
 app/components/BottomBar.tsx
 app/components/CharacterList.tsx
 app/components/CharacterPopup.tsx
+app/components/DrawingLayer.tsx
+app/components/DrawingToolbar.tsx
 app/components/EncounterButton.tsx
 app/components/ErrorBoundary.tsx
 app/components/Home.tsx
@@ -67,8 +74,12 @@ app/components/LoginForm.tsx
 app/components/MainContent.tsx
 app/components/RegisterForm.tsx
 app/components/RightSideMenu.tsx
+app/components/ui/button.tsx
+app/components/ui/popover.tsx
 app/globals.css
 app/layout.tsx
+app/lib/db.ts
+app/lib/prisma.ts
 app/page.tsx
 app/types/character.ts
 app/types/image.ts
@@ -134,6 +145,7 @@ lib/utils.ts
 next.config.mjs
 package.json
 postcss.config.mjs
+prisma/schema.prisma
 public/placeholder-logo.svg
 public/placeholder.svg
 styles/globals.css
@@ -190,6 +202,8 @@ const client = createClient({
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   const id = params.id
   const updatedCharacter = await request.json()
+  console.log("Received character update:", updatedCharacter)
+  console.log("Path value:", updatedCharacter.Path)
 
   if (!id) {
     return NextResponse.json({ error: 'Character ID is required' }, { status: 400 })
@@ -197,12 +211,15 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
   const allowedFields = ['Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'Armor', 'MaxGuard', 'Strength', 'MaxStrength', 'Dexternity', 'MaxDexternity', 'Mind', 'MaxMind', 'Charisma', 'MaxCharisma', 'Skill', 'MaxSkill', 'Mp', 'MaxMp', 'PortraitUrl', 'TokenUrl']
   const updateFields = Object.keys(updatedCharacter).filter(key => allowedFields.includes(key))
+  console.log("Fields to update:", updateFields)
 
   try {
     const setClause = updateFields
       .map(key => `${key} = ?`)
       .join(', ')
     const values = updateFields.map(key => updatedCharacter[key])
+    console.log("SQL update:", `UPDATE Character SET ${setClause} WHERE CharacterId = ?`)
+    console.log("Values:", values)
 
     await client.execute({
       sql: `UPDATE Character SET ${setClause} WHERE CharacterId = ?`,
@@ -218,6 +235,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       throw new Error('Character not found after update')
     }
 
+    console.log("Updated character data:", updatedData.rows[0])
     return NextResponse.json(updatedData.rows[0])
   } catch (error) {
     console.error('Error updating character:', error)
@@ -347,6 +365,153 @@ export async function POST(req: Request) {
 }
 
 ================
+File: app/api/chat/route.ts
+================
+import { NextResponse } from "next/server"
+import { createClient } from "@libsql/client"
+import { getUserFromCookie } from "@/lib/auth"
+
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || "",
+  authToken: process.env.TURSO_AUTH_TOKEN || "",
+})
+
+export async function GET(req: Request) {
+  console.log("Entering GET /api/chat")
+
+  if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
+    console.error("Database configuration missing")
+    return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
+  }
+
+  const user = await getUserFromCookie()
+  if (!user) {
+    console.log("User not authenticated")
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+  }
+
+  try {
+    console.log("Fetching chat messages for user:", user.id)
+    const result = await client.execute({
+      sql: "SELECT * FROM ChatMessage WHERE UserId = ? ORDER BY Timestamp ASC",
+      args: [user.id],
+    })
+    console.log("Chat messages fetched:", result.rows)
+    return NextResponse.json(result.rows)
+  } catch (error) {
+    console.error("Error fetching chat messages:", error)
+    return NextResponse.json(
+      { error: "Failed to fetch chat messages", details: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(req: Request) {
+  console.log("Entering POST /api/chat")
+
+  if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
+    console.error("Database configuration missing")
+    return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
+  }
+
+  const user = await getUserFromCookie()
+  if (!user) {
+    console.log("User not authenticated")
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+  }
+
+  try {
+    const { type, content } = await req.json()
+    if (!type || !content) {
+      return NextResponse.json({ error: "Type and content are required" }, { status: 400 })
+    }
+
+    const timestamp = new Date().toISOString()
+    const username = user.username
+
+    console.log("Saving chat message:", { type, content, timestamp, username })
+    const result = await client.execute({
+      sql: "INSERT INTO ChatMessage (Type, Content, Timestamp, Username, UserId) VALUES (?, ?, ?, ?, ?)",
+      args: [type, content, timestamp, username, user.id],
+    })
+
+    if (!result.lastInsertRowid) {
+      throw new Error("Failed to insert chat message")
+    }
+
+    const newMessage = await client.execute({
+      sql: "SELECT * FROM ChatMessage WHERE MessageId = ?",
+      args: [result.lastInsertRowid],
+    })
+
+    console.log("New chat message saved:", newMessage.rows[0])
+    return NextResponse.json(newMessage.rows[0])
+  } catch (error) {
+    console.error("Error saving chat message:", error)
+    return NextResponse.json(
+      { error: "Failed to save chat message", details: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    )
+  }
+}
+
+================
+File: app/api/drawings/route.ts
+================
+import { NextResponse } from 'next/server'
+import { db } from '../../lib/db'
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const sceneId = searchParams.get('sceneId')
+    
+    if (!sceneId) {
+      return NextResponse.json({ error: 'Scene ID is required' }, { status: 400 })
+    }
+
+    const stmt = db.prepare('SELECT * FROM Drawing WHERE sceneId = ? ORDER BY createdAt ASC')
+    const drawings = stmt.all([sceneId])
+    return NextResponse.json(drawings)
+  } catch (error) {
+    console.error('Error fetching drawings:', error)
+    return NextResponse.json({ error: 'Failed to fetch drawings' }, { status: 500 })
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const data = await request.json()
+    const stmt = db.prepare(
+      'INSERT INTO Drawing (id, path, color, createdBy, sceneId, createdAt) VALUES (?, ?, ?, ?, ?, ?)'
+    )
+    stmt.run(data.id, data.path, data.color, data.createdBy, data.sceneId, data.createdAt || new Date().toISOString())
+    return NextResponse.json({ id: data.id })
+  } catch (error) {
+    console.error('Error creating drawing:', error)
+    return NextResponse.json({ error: 'Failed to create drawing' }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+    if (!id) {
+      return NextResponse.json({ error: 'Drawing ID is required' }, { status: 400 })
+    }
+
+    const stmt = db.prepare('DELETE FROM Drawing WHERE id = ?')
+    stmt.run(id)
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting drawing:', error)
+    return NextResponse.json({ error: 'Failed to delete drawing' }, { status: 500 })
+  }
+}
+
+================
 File: app/api/images/[id]/route.ts
 ================
 import { NextResponse } from "next/server";
@@ -357,6 +522,30 @@ const client = createClient({
   url: process.env.TURSO_DATABASE_URL || "",
   authToken: process.env.TURSO_AUTH_TOKEN || "",
 });
+
+export async function PUT(req: Request, { params }: { params: { id: string } }) {
+  const user = await getUserFromCookie();
+  if (!user || user.role !== "DM") {
+    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
+  }
+
+  try {
+    const { name } = await req.json();
+    const result = await client.execute({
+      sql: "UPDATE DMImage SET Name = ? WHERE Id = ? AND UserId = ?",
+      args: [name, params.id, user.id],
+    });
+    
+    if (result.rows.length === 0) {
+      return NextResponse.json({ error: "Image not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ message: "Image renamed" });
+  } catch (error) {
+    console.error("Error renaming image:", error);
+    return NextResponse.json({ error: "Failed to rename image" }, { status: 500 });
+  }
+}
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const user = await getUserFromCookie();
@@ -642,6 +831,85 @@ export async function POST(req: Request) {
 }
 
 ================
+File: app/api/public/images/[sceneId]/route.ts
+================
+import { NextResponse } from "next/server";
+import { createClient } from "@libsql/client";
+
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || "",
+  authToken: process.env.TURSO_AUTH_TOKEN || "",
+});
+
+export async function GET(req: Request, { params }: { params: { sceneId: string } }) {
+  const { sceneId } = params;
+
+  try {
+    // Get the scene image
+    const result = await client.execute({
+      sql: "SELECT * FROM DMImage WHERE Id = ? AND Category = 'Scene'",
+      args: [sceneId],
+    });
+
+    if (result.rows.length === 0) {
+      return NextResponse.json({ error: "Scene not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching scene:", error);
+    return NextResponse.json({ error: "Failed to fetch scene" }, { status: 500 });
+  }
+}
+
+================
+File: app/api/public/scenes/route.ts
+================
+import { NextResponse } from "next/server";
+import { createClient } from "@libsql/client";
+
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || "",
+  authToken: process.env.TURSO_AUTH_TOKEN || "",
+});
+
+export async function GET(req: Request) {
+  // Check if we're requesting a specific scene
+  const segments = req.url.split('/');
+  const lastSegment = segments[segments.length - 1];
+  
+  // If the last segment is 'scenes', return all scenes
+  if (lastSegment === 'scenes') {
+    try {
+      const result = await client.execute({
+        sql: "SELECT * FROM DMImage WHERE Category = 'Scene' AND SceneData IS NOT NULL",
+        args: [], // Empty array for no arguments
+      });
+      return NextResponse.json(result.rows);
+    } catch (error) {
+      return NextResponse.json({ error: "Failed to fetch scenes" }, { status: 500 });
+    }
+  }
+
+  // Otherwise, treat the last segment as a scene ID
+  const sceneId = lastSegment;
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM DMImage WHERE Id = ? AND Category = 'Scene' AND SceneData IS NOT NULL",
+      args: [sceneId],
+    });
+
+    if (result.rows.length === 0) {
+      return NextResponse.json({ error: "Scene not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(result.rows[0]);
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to fetch scene" }, { status: 500 });
+  }
+}
+
+================
 File: app/api/register/route.ts
 ================
 import { NextResponse } from "next/server"
@@ -703,6 +971,63 @@ export async function POST(req: Request) {
 }
 
 ================
+File: app/api/scenes/route.ts
+================
+import { NextResponse } from "next/server";
+import { createClient } from "@libsql/client";
+import { getUserFromCookie } from "@/lib/auth";
+
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || "",
+  authToken: process.env.TURSO_AUTH_TOKEN || "",
+});
+
+export async function GET(req: Request) {
+  const user = await getUserFromCookie();
+  if (!user || user.role !== "DM") {
+    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
+  }
+
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM DMImage WHERE UserId = ? AND Category = 'Scene' AND SceneData IS NOT NULL",
+      args: [user.id],
+    });
+    return NextResponse.json(result.rows);
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to fetch scenes" }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+  const user = await getUserFromCookie();
+  if (!user || user.role !== "DM") {
+    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
+  }
+
+  try {
+    const { sceneId, sceneData } = await req.json();
+
+    if (!sceneId || !sceneData) {
+      return NextResponse.json({ error: "Scene ID and data are required" }, { status: 400 });
+    }
+
+    const result = await client.execute({
+      sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ? AND UserId = ? AND Category = 'Scene' RETURNING *",
+      args: [JSON.stringify(sceneData), sceneId, user.id],
+    });
+
+    if (result.rows.length === 0) {
+      return NextResponse.json({ error: "Scene not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(result.rows[0]);
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to save scene" }, { status: 500 });
+  }
+}
+
+================
 File: app/api/upload/route.ts
 ================
 import { put } from '@vercel/blob';
@@ -757,42 +1082,63 @@ File: app/components/BottomBar.tsx
 ================
 "use client"
 
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import EncounterButton from "./EncounterButton"
 
-export default function BottomBar({ onDiceRoll, onPhaseChange }) {
+interface BottomBarProps {
+  onDiceRoll: (sides: number, result: number, numberOfDice: number, individualRolls: number[]) => void
+  onPhaseChange: (phase: string, color: string) => void
+}
+
+export default function BottomBar({ onDiceRoll, onPhaseChange }: BottomBarProps) {
+  const [numberOfDice, setNumberOfDice] = useState(1)
+
   const rollDice = (sides: number) => {
-    const result = Math.floor(Math.random() * sides) + 1
-    onDiceRoll(sides, result)
+    let total = 0
+    const individualRolls: number[] = []
+    for (let i = 0; i < numberOfDice; i++) {
+      const roll = Math.floor(Math.random() * sides) + 1
+      individualRolls.push(roll)
+      total += roll
+    }
+    onDiceRoll(sides, total, numberOfDice, individualRolls)
+    setNumberOfDice(1) // Reset to 1 after rolling
   }
 
   return (
-    <div className="bg-gray-200 p-2 flex justify-center space-x-2 items-center w-full">
-      <Button onClick={() => rollDice(4)} variant="outline" size="icon">
+    <div className="bg-gray-200 p-2 flex justify-center space-x-2 items-center w-full" style={{ backgroundImage: 'url("images/bottombar.jpeg")', backgroundSize: 'auto 150%', backgroundRepeat: 'repeat-x' }}>
+      <input
+        type="number"
+        min="1"
+        value={numberOfDice}
+        onChange={(e) => setNumberOfDice(Math.max(1, parseInt(e.target.value) || 1))}
+        className="w-12 h-8 text-center border rounded bg-gray-400"
+      />
+      <Button onClick={() => rollDice(4)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d4
       </Button>
-      <Button onClick={() => rollDice(6)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(6)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d6
       </Button>
-      <Button onClick={() => rollDice(8)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(8)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d8
       </Button>
-      <Button onClick={() => rollDice(10)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(10)} variant="default"  size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d10
       </Button>
-      <Button onClick={() => rollDice(12)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(12)} variant="default"  size="icon"className="bg-neutral-600 border-b-4 border-neutral-800">
         d12
       </Button>
-      <Button onClick={() => rollDice(20)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(20)} variant="default"  size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d20
       </Button>
-      <Button onClick={() => rollDice(30)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(30)} variant="default"  size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d30
       </Button>
-      <Button onClick={() => rollDice(100)} variant="outline" size="icon">
+      <Button onClick={() => rollDice(100)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
         d100
       </Button>
-      <div className="border-l border-gray-400 h-6 mx-2"></div>
       <EncounterButton onPhaseChange={onPhaseChange} />
     </div>
   )
@@ -803,7 +1149,7 @@ File: app/components/CharacterList.tsx
 ================
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo, useCallback, memo } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -812,91 +1158,172 @@ import { Plus, Trash2 } from "lucide-react"
 import CharacterPopup from "./CharacterPopup"
 import type { Character } from "../types/character"
 
+const CATEGORIES = ["Party", "NPC", "Monster"] as const
+
 interface CharacterListProps {
-  characters: Character[]
   categories: string[]
+  characters: Character[]
   onAddCharacter: (category: string) => void
   onUpdateCharacter: (updatedCharacter: Character) => void
   onDeleteCharacter: (character: Character) => void
+  currentUser: number
+  isDM: boolean
 }
+
+// Memoized character list item component
+const CharacterListItem = memo(({ 
+  character, 
+  onDragStart, 
+  onSelect, 
+  onDelete,
+  currentUser,
+  isDM
+}: { 
+  character: Character
+  onDragStart: (e: React.DragEvent<HTMLLIElement>, character: Character) => void
+  onSelect: (character: Character) => void
+  onDelete: (character: Character) => void
+  currentUser: number
+  isDM: boolean
+}) => {
+  const imageUrl = character.TokenUrl || character.PortraitUrl || "/placeholder.svg"
+  const imageAlt = `${character.TokenUrl ? 'Token' : 'Portrait'} of ${character.Name}`
+  const canDrag = isDM || (character.Category === "Party" && character.UserId === currentUser)
+
+  return (
+    <li
+      className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
+      draggable={canDrag}
+      onDragStart={(e) => canDrag && onDragStart(e, character)}
+    >
+      <div className="flex items-center space-x-3">
+        <div className="w-12 h-12 bg-gray-200 rounded-full overflow-hidden">
+          {(character.TokenUrl || character.PortraitUrl) ? (
+            <Image
+              src={imageUrl}
+              alt={imageAlt}
+              width={48}
+              height={48}
+              className="object-cover"
+              priority={false}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+              No Image
+            </div>
+          )}
+        </div>
+        <button className="text-left hover:underline" onClick={() => onSelect(character)}>
+          {character.Name}
+        </button>
+      </div>
+      <Button variant="ghost" size="icon" onClick={() => onDelete(character)}>
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </li>
+  )
+})
+
+CharacterListItem.displayName = "CharacterListItem"
 
 export default function CharacterList({
   characters,
   onAddCharacter,
   onUpdateCharacter,
   onDeleteCharacter,
+  currentUser,
+  isDM
 }: CharacterListProps) {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null)
   const [activeCategory, setActiveCategory] = useState<string>("Party")
 
-  const handleDeleteCharacter = (character: Character) => {
+  const handleDeleteCharacter = useCallback((character: Character) => {
     if (window.confirm(`Are you sure you want to delete ${character.Name}?`)) {
       onDeleteCharacter(character)
     }
-  }
+  }, [onDeleteCharacter])
 
-  const categories = ["Party", "NPC", "Monster"]
+  const handleDragStart = useCallback((e: React.DragEvent<HTMLLIElement>, character: Character) => {
+    e.dataTransfer.setData("imageId", character.CharacterId.toString())
+    e.dataTransfer.setData("category", "Token")
+    e.dataTransfer.setData("url", character.TokenUrl || character.PortraitUrl || "/placeholder.png")
+    e.dataTransfer.setData("characterId", character.CharacterId.toString())
+    e.dataTransfer.setData("character", JSON.stringify({
+      Name: character.Name,
+      Path: character.Path,
+      Guard: character.Guard ?? 0,
+      MaxGuard: character.MaxGuard ?? 0,
+      Strength: character.Strength ?? 0,
+      MaxStrength: character.MaxStrength ?? 0,
+      Mp: character.Mp ?? 0,
+      MaxMp: character.MaxMp ?? 0
+    }))
+  }, [])
+
+  const handleSelectCharacter = useCallback((character: Character) => {
+    setSelectedCharacter(character)
+  }, [])
+
+  const handleUpdateCharacter = useCallback((updatedCharacter: Character) => {
+    onUpdateCharacter(updatedCharacter)
+    setSelectedCharacter(null)
+  }, [onUpdateCharacter])
+
+  // Memoize the filtered characters for each category
+  const filteredCharactersByCategory = useMemo(() => {
+    return CATEGORIES.reduce((acc, category) => {
+      acc[category] = characters.filter(
+        (character) => (character.Category || character.category)?.toLowerCase() === category.toLowerCase()
+      )
+      return acc
+    }, {} as Record<string, Character[]>)
+  }, [characters])
 
   return (
     <Tabs value={activeCategory} onValueChange={setActiveCategory}>
       <TabsList className="grid w-full grid-cols-3">
-        {categories.map((category) => (
+        {CATEGORIES.map((category) => (
           <TabsTrigger key={category} value={category}>
             {category}
           </TabsTrigger>
         ))}
       </TabsList>
-      {categories.map((category) => (
-        <TabsContent key={category} value={category}>
-          <ScrollArea className="h-[calc(100vh-250px)] pr-4">
-            <ul className="space-y-2">
-              {characters
-                .filter((character) => character.Category === category)
-                .map((character) => (
-                  <li
+      {CATEGORIES.map((category) => {
+        const filteredCharacters = filteredCharactersByCategory[category]
+        return (
+          <TabsContent key={category} value={category}>
+            <ScrollArea className="h-[calc(100vh-250px)] pr-4">
+              <ul className="space-y-2">
+                {filteredCharacters.map((character) => (
+                  <CharacterListItem
                     key={character.CharacterId}
-                    className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 bg-gray-200 rounded-full overflow-hidden">
-                        {character.PortraitUrl ? (
-                          <Image
-                            src={character.PortraitUrl || "/placeholder.svg"}
-                            alt={`Portrait of ${character.Name}`}
-                            width={48}
-                            height={48}
-                            objectFit="cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                            No Image
-                          </div>
-                        )}
-                      </div>
-                      <button className="text-left hover:underline" onClick={() => setSelectedCharacter(character)}>
-                        {character.Name}
-                      </button>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={() => handleDeleteCharacter(character)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </li>
+                    character={character}
+                    onDragStart={handleDragStart}
+                    onSelect={handleSelectCharacter}
+                    onDelete={handleDeleteCharacter}
+                    currentUser={currentUser}
+                    isDM={isDM}
+                  />
                 ))}
-            </ul>
-            <Button variant="outline" size="sm" className="mt-4" onClick={() => onAddCharacter(category)}>
-              <Plus className="w-4 h-4 mr-2" /> Add {category}
-            </Button>
-          </ScrollArea>
-        </TabsContent>
-      ))}
+                {filteredCharacters.length === 0 && (
+                  <li className="p-2 text-gray-500">No characters in this category</li>
+                )}
+              </ul>
+              <Button
+                className="w-full mt-4"
+                onClick={() => onAddCharacter(category)}
+              >
+                <Plus className="w-4 h-4 mr-2" /> Add {category}
+              </Button>
+            </ScrollArea>
+          </TabsContent>
+        )
+      })}
       {selectedCharacter && (
         <CharacterPopup
           character={selectedCharacter}
           onClose={() => setSelectedCharacter(null)}
-          onUpdate={(updatedCharacter) => {
-            onUpdateCharacter(updatedCharacter)
-            setSelectedCharacter(null)
-          }}
+          onUpdate={handleUpdateCharacter}
         />
       )}
     </Tabs>
@@ -931,7 +1358,9 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
   const [editingName, setEditingName] = useState(false)
   const [editingDescription, setEditingDescription] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadingToken, setUploadingToken] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const tokenFileInputRef = useRef<HTMLInputElement>(null)
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -940,6 +1369,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    console.log("Submitting character with Path:", editedCharacter.Path)
     try {
       const response = await fetch(`/api/characters/${character.CharacterId}`, {
         method: 'PUT',
@@ -953,6 +1383,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
         throw new Error(errorData.error || 'Failed to update character')
       }
       const updatedCharacter = await response.json()
+      console.log("Character updated successfully:", updatedCharacter)
       onUpdate(updatedCharacter)
       toast({
         title: "Character Updated",
@@ -1017,6 +1448,55 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
     }
   };
 
+  const handleTokenFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Check file size (5MB = 5 * 1024 * 1024 bytes)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "Error",
+          description: "Image size exceeds 5MB limit. Please choose a smaller file.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setUploadingToken(true);
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch('/api/imgur-upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(`Failed to upload image: ${errorData.error || response.statusText}`);
+        }
+
+        const { url } = await response.json();
+        
+        setEditedCharacter(prev => ({ ...prev, TokenUrl: url }));
+
+        toast({
+          title: "Token Uploaded",
+          description: "Your character's token has been uploaded successfully. Don't forget to save your changes!",
+        });
+      } catch (error) {
+        console.error('Error uploading token:', error);
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to upload token. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setUploadingToken(false);
+      }
+    }
+  };
+
   const renderField = (label: string, name: string, type: string = "text", maxField?: string) => (
     <div className="space-y-1">
       <Label htmlFor={name}>{label}</Label>
@@ -1052,18 +1532,19 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
   const renderPathField = () => (
     <div className="space-y-1">
       <Label htmlFor="Path">Path</Label>
-      <Select
-        value={editedCharacter.Path}
-        onValueChange={(value) => setEditedCharacter(prev => ({ ...prev, Path: value }))}
+      <select
+        id="Path"
+        name="Path"
+        value={editedCharacter.Path || "Warrior"}
+        onChange={(e) => {
+          console.log("Path changed to:", e.target.value);
+          setEditedCharacter(prev => ({ ...prev, Path: e.target.value }));
+        }}
+        className="w-full max-w-xs h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
       >
-        <SelectTrigger className="w-full max-w-xs">
-          <SelectValue placeholder="Select a path" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="Warrior">Warrior</SelectItem>
-          <SelectItem value="Magic User">Magic User</SelectItem>
-        </SelectContent>
-      </Select>
+        <option value="Warrior">Warrior</option>
+        <option value="Magic User">Magic User</option>
+      </select>
     </div>
   )
 
@@ -1074,8 +1555,14 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center" onClick={(e) => e.stopPropagation()}>
-      <div className="bg-white p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]" 
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto relative z-[101]"
+        onClick={e => e.stopPropagation()}
+      >
         <Button
           variant="ghost"
           size="icon"
@@ -1166,7 +1653,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                           alt={`Portrait of ${editedCharacter.Name}`}
                           width={128}
                           height={128}
-                          objectFit="cover"
+                          style={{ objectFit: 'cover' }}
                         />
                       )
                     ) : (
@@ -1191,6 +1678,46 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                     disabled={uploading}
                   >
                     {uploading ? 'Uploading...' : 'Upload Portrait'}
+                    <Upload className="ml-2 h-4 w-4" />
+                  </Button>
+
+                  <div className="w-16 h-16 bg-gray-200 rounded-lg overflow-hidden mt-4">
+                    {editedCharacter.TokenUrl ? (
+                      uploadingToken ? (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                          Uploading...
+                        </div>
+                      ) : (
+                        <Image
+                          src={editedCharacter.TokenUrl}
+                          alt={`Token of ${editedCharacter.Name}`}
+                          width={64}
+                          height={64}
+                          style={{ objectFit: 'cover' }}
+                        />
+                      )
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                        No Token
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleTokenFileChange}
+                    className="hidden"
+                    ref={tokenFileInputRef}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => tokenFileInputRef.current?.click()}
+                    disabled={uploadingToken}
+                  >
+                    {uploadingToken ? 'Uploading...' : 'Upload Token'}
                     <Upload className="ml-2 h-4 w-4" />
                   </Button>
                 </div>
@@ -1233,6 +1760,317 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
 }
 
 ================
+File: app/components/DrawingLayer.tsx
+================
+import { useEffect, useRef, useState } from 'react';
+import { cn } from "@/lib/utils";
+
+interface DrawingLayerProps {
+  isDrawingMode: boolean;
+  currentColor: string;
+  currentTool: 'brush' | 'cursor';
+  drawings: DrawingObject[];
+  onDrawingComplete: (drawing: DrawingObject) => void;
+  onDrawingSelect: (drawing: DrawingObject | null) => void;
+  onDrawingDelete: (drawing: DrawingObject) => void;
+  selectedDrawing: DrawingObject | null;
+}
+
+export interface DrawingObject {
+  id: string;
+  path: string;
+  color: string;
+  createdBy: number;
+  createdAt: string;
+}
+
+export default function DrawingLayer({
+  isDrawingMode,
+  currentColor,
+  currentTool,
+  drawings,
+  onDrawingComplete,
+  onDrawingSelect,
+  onDrawingDelete,
+  selectedDrawing
+}: DrawingLayerProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [currentPath, setCurrentPath] = useState<string>('');
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size to match parent
+    const resizeCanvas = () => {
+      const parent = canvas.parentElement;
+      if (!parent) return;
+      canvas.width = parent.clientWidth;
+      canvas.height = parent.clientHeight;
+    };
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    return () => window.removeEventListener('resize', resizeCanvas);
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Redraw all drawings
+    drawings.forEach(drawing => {
+      const path = new Path2D(drawing.path);
+      ctx.strokeStyle = drawing.color;
+      ctx.lineWidth = 2;
+      ctx.stroke(path);
+    });
+  }, [drawings]);
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawingMode || currentTool !== 'brush') return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    setIsDrawing(true);
+    setCurrentPath(`M ${x} ${y}`);
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    setCurrentPath(prev => `${prev} L ${x} ${y}`);
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawings.forEach(drawing => {
+      const path = new Path2D(drawing.path);
+      ctx.strokeStyle = drawing.color;
+      ctx.lineWidth = 2;
+      ctx.stroke(path);
+    });
+
+    const currentPathObj = new Path2D(currentPath);
+    ctx.strokeStyle = currentColor;
+    ctx.lineWidth = 2;
+    ctx.stroke(currentPathObj);
+  };
+
+  const stopDrawing = () => {
+    if (!isDrawing) return;
+
+    setIsDrawing(false);
+    if (currentPath) {
+      onDrawingComplete({
+        id: Date.now().toString(),
+        path: currentPath,
+        color: currentColor,
+        createdBy: 0, // TODO: Get actual user ID
+        createdAt: new Date().toISOString()
+      });
+      setCurrentPath('');
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (currentTool !== 'cursor') return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Check if click is on any drawing
+    const clickedDrawing = drawings.find(drawing => {
+      const path = new Path2D(drawing.path);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return false;
+      return ctx.isPointInPath(path, x, y);
+    });
+
+    onDrawingSelect(clickedDrawing || null);
+  };
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={cn(
+        "absolute inset-0",
+        currentTool === 'brush' ? "pointer-events-auto" : "pointer-events-none",
+        currentTool === 'cursor' && "cursor-pointer"
+      )}
+      onMouseDown={startDrawing}
+      onMouseMove={draw}
+      onMouseUp={stopDrawing}
+      onMouseLeave={stopDrawing}
+      onClick={handleClick}
+      style={{ zIndex: 15 }}
+    />
+  );
+}
+
+================
+File: app/components/DrawingToolbar.tsx
+================
+import { useState } from 'react';
+import { cn } from "@/lib/utils";
+import { Brush, MousePointer, Palette, Grid } from 'lucide-react';
+import { Button } from './ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+
+interface DrawingToolbarProps {
+  currentTool: 'brush' | 'cursor';
+  onToolChange: (tool: 'brush' | 'cursor') => void;
+  currentColor: string;
+  onColorChange: (color: string) => void;
+  gridColor: string;
+  onGridColorChange: (color: string) => void;
+}
+
+const COLORS = [
+  '#000000', '#FF0000', '#00FF00', '#0000FF',
+  '#FFFF00', '#FF00FF', '#00FFFF', '#FFFFFF'
+];
+
+const GRID_COLORS = [
+  { name: 'White', value: 'white' },
+  { name: 'Black', value: 'black' },
+  { name: 'Red', value: 'red' },
+  { name: 'Green', value: 'green' },
+  { name: 'Gray', value: 'rgba(0,0,0,0.1)' },
+  { name: 'Hidden', value: 'transparent' }
+];
+
+export default function DrawingToolbar({
+  currentTool,
+  onToolChange,
+  currentColor,
+  onColorChange,
+  gridColor,
+  onGridColorChange,
+}: DrawingToolbarProps) {
+  const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
+  const [isGridColorPickerOpen, setIsGridColorPickerOpen] = useState(false);
+
+  return (
+    <div className="fixed left-2 top-12 flex flex-col gap-2 backdrop-blur p-2 rounded-lg shadow-md z-10 bg-stone-300/90">
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn(
+          "w-10 h-10",
+          currentTool === 'cursor' && "bg-gray-200"
+        )}
+        onClick={() => onToolChange('cursor')}
+      >
+        <MousePointer className="w-5 h-5" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn(
+          "w-10 h-10",
+          currentTool === 'brush' && "bg-gray-200"
+        )}
+        onClick={() => onToolChange('brush')}
+      >
+        <Brush className="w-5 h-5" />
+      </Button>
+
+      <Popover open={isColorPickerOpen} onOpenChange={setIsColorPickerOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="w-10 h-10"
+          >
+            <Palette className="w-5 h-5" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-48 p-2">
+          <div className="grid grid-cols-4 gap-2">
+            {COLORS.map((color) => (
+              <button
+                key={color}
+                className={cn(
+                  "w-8 h-8 rounded-full border-2",
+                  currentColor === color && "border-black"
+                )}
+                style={{ backgroundColor: color }}
+                onClick={() => {
+                  onColorChange(color);
+                  setIsColorPickerOpen(false);
+                }}
+              />
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <Popover open={isGridColorPickerOpen} onOpenChange={setIsGridColorPickerOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="w-10 h-10"
+          >
+            <Grid className="w-5 h-5" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-48 p-2">
+          <div className="grid grid-cols-2 gap-2">
+            {GRID_COLORS.map((color) => (
+              <button
+                key={color.value}
+                className={cn(
+                  "w-full h-8 rounded border-2 text-xs",
+                  gridColor === color.value && "border-black"
+                )}
+                style={{ backgroundColor: color.value }}
+                onClick={() => {
+                  onGridColorChange(color.value);
+                  setIsGridColorPickerOpen(false);
+                }}
+              >
+                {color.name}
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+================
 File: app/components/EncounterButton.tsx
 ================
 "use client"
@@ -1241,7 +2079,11 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
 
-export default function EncounterButton({ onPhaseChange }) {
+interface EncounterButtonProps {
+  onPhaseChange: (phase: string, color: string) => void;
+}
+
+export default function EncounterButton({ onPhaseChange }: EncounterButtonProps) {
   const [phase, setPhase] = useState("Encounter")
   const phases = [
     { name: "Prepare", color: "bg-blue-100" },
@@ -1270,12 +2112,12 @@ export default function EncounterButton({ onPhaseChange }) {
     <div className="flex items-center">
       <Button
         onClick={handleClick}
-        className={`w-24 ${phase !== "Encounter" ? phases.find((p) => p.name === phase)?.color : "bg-black"} ${textColor} hover:bg-black hover:text-white`}
+        className={`w-24 ${phase !== "Encounter" ? phases.find((p) => p.name === phase)?.color : "bg-neutral-600 border-b-4 border-neutral-800"} ${textColor} hover:bg-black hover:text-white`}
       >
         {phase}
       </Button>
       {phase !== "Encounter" && (
-        <Button onClick={resetEncounter} variant="ghost" size="icon" className="ml-2">
+        <Button onClick={resetEncounter} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800" >
           <X className="h-4 w-4" />
         </Button>
       )}
@@ -1364,16 +2206,20 @@ import { getUserFromCookie } from "@/lib/auth"
 import type { User } from "../types/user"
 import type { Character } from "../types/character"
 import ErrorBoundary from "./ErrorBoundary"
-import type { DMImage } from "../types/image";
-import type { LayerImage } from "../types/layerImage";
+import type { DMImage } from "../types/image"
+import type { LayerImage } from "../types/layerImage"
+import DrawingLayer, { DrawingObject } from './DrawingLayer'
+import DrawingToolbar from './DrawingToolbar'
 
 export type MessageType = "user" | "system"
 
 export interface ChatMessage {
+  MessageId?: number // Add from DB
   type: MessageType
   content: string
   timestamp: string
   username: string
+  UserId?: number // Add from DB
 }
 
 export default function Home() {
@@ -1381,93 +2227,225 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [characters, setCharacters] = useState<Character[]>([])
   const [chatBackgroundColor, setChatBackgroundColor] = useState("bg-white")
-  const [images, setImages] = useState<DMImage[]>([]);
+  const [images, setImages] = useState<DMImage[]>([])
+  const [backgroundImage, setBackgroundImage] = useState<string>("")
+  const [middleLayerImages, setMiddleLayerImages] = useState<any[]>([])
+  const [topLayerImages, setTopLayerImages] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [scenes, setScenes] = useState<DMImage[]>([])
+  const [selectedScene, setSelectedScene] = useState<DMImage | null>(null)
+  const [gridSize, setGridSize] = useState<number>(50)
+  const [gridColor, setGridColor] = useState<string>("rgba(0,0,0,0.1)")
+  const [isInitialized, setIsInitialized] = useState(false)
+  const [currentTool, setCurrentTool] = useState<'brush' | 'cursor'>('cursor')
+  const [currentColor, setCurrentColor] = useState('#000000')
+  const [drawings, setDrawings] = useState<DrawingObject[]>([])
+  const [selectedDrawing, setSelectedDrawing] = useState<DrawingObject | null>(null)
+  const [sceneScale, setSceneScale] = useState<number>(1)
+  const [zoomLevel, setZoomLevel] = useState(1)
 
-  const [backgroundImage, setBackgroundImage] = useState<string | null>(null)
-  const [middleLayerImages, setMiddleLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
-  const [topLayerImages, setTopLayerImages] = useState<{ id: string; url: string; x: number; y: number; width?: number; height?: number }[]>([])
+  const findMostRecentScene = (scenes: DMImage[]): DMImage | null => {
+    let mostRecentScene = null;
+    let mostRecentDate = null;
+
+    for (const scene of scenes) {
+      if (!scene.SceneData) continue;
+      try {
+        const sceneData = JSON.parse(scene.SceneData);
+        if (sceneData.savedAt && (!mostRecentDate || new Date(sceneData.savedAt) > new Date(mostRecentDate))) {
+          mostRecentDate = sceneData.savedAt;
+          mostRecentScene = scene;
+        }
+      } catch (error) {
+        console.error("Error parsing scene data:", error);
+      }
+    }
+
+    return mostRecentScene;
+  }
+
+  const fetchPublicScene = async (sceneId: string) => {
+    try {
+      console.log('Fetching scene data from:', `/api/public/scenes/${sceneId}`)
+      const sceneResponse = await fetch(`/api/public/scenes/${sceneId}`)
+      console.log('Scene response status:', sceneResponse.status)
+      
+      if (sceneResponse.ok) {
+        const scene = await sceneResponse.json()
+        console.log('Received scene data:', scene)
+        
+        // Get the minimum required images for the scene
+        console.log('Fetching scene images from:', `/api/public/images/${sceneId}`)
+        const imagesResponse = await fetch(`/api/public/images/${sceneId}`)
+        console.log('Images response status:', imagesResponse.status)
+        
+        if (imagesResponse.ok) {
+          const sceneImages = await imagesResponse.json()
+          console.log('Received scene images:', sceneImages)
+          setImages(sceneImages)
+          await handleLoadScene(scene)
+        }
+      }
+    } catch (error) {
+      console.error("Error loading public scene:", error)
+    }
+  }
 
   useEffect(() => {
-    const checkUser = async () => {
+    const initializeApp = async () => {
       try {
+        setIsLoading(true)
+        
+        // First, try to load scenes without authentication
+        const scenesResponse = await fetch('/api/public/scenes')
+        if (scenesResponse.ok) {
+          const allScenes = await scenesResponse.json()
+          const mostRecentScene = findMostRecentScene(allScenes)
+          
+          if (mostRecentScene) {
+            await handleLoadScene(mostRecentScene)
+          }
+        }
+
+        // Load existing drawings
+        const drawingsResponse = await fetch('/api/drawings')
+        if (drawingsResponse.ok) {
+          const existingDrawings = await drawingsResponse.json()
+          setDrawings(existingDrawings)
+        }
+
+        // Then check user authentication
         const userData = await getUserFromCookie()
         if (userData) {
           setUser(userData)
-          await fetchCharacters()
+          await Promise.all([fetchCharacters(), fetchChatMessages(), fetchScenes()])
+          
+          // If user is DM, fetch all images
           if (userData.role === "DM") {
             await fetchImages()
           }
         }
       } catch (error) {
-        console.error("Error checking user:", error)
-        toast({ title: "Error", description: "Failed to authenticate user.", variant: "destructive" })
+        console.error("Error initializing app:", error)
+        toast({ title: "Error", description: "Failed to initialize application.", variant: "destructive" })
+      } finally {
+        setIsLoading(false)
+        setIsInitialized(true)
       }
     }
-    void checkUser()
-
-    const handleDropEvent = (e: Event) => {
-      const { category, image, x, y } = (e as CustomEvent).detail
-      handleDropImage(category, { Id: image.id, Link: image.url, Name: "", Category: category, UserId: user?.id ?? 0 }, x, y)
-    }
-    window.addEventListener("dropImage", handleDropEvent)
-    return () => window.removeEventListener("dropImage", handleDropEvent)
+    void initializeApp()
   }, [])
 
   const fetchCharacters = async () => {
     try {
-      const response = await fetch(`/api/characters`, {
-        credentials: "include",
-      })
-
+      const response = await fetch(`/api/characters`, { credentials: "include" })
       if (response.status === 401) {
         setUser(null)
-        toast({
-          title: "Authentication Error",
-          description: "Please log in again.",
-          variant: "destructive",
-        })
+        toast({ title: "Authentication Error", description: "Please log in again.", variant: "destructive" })
         return
       }
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
       const data = await response.json()
-      console.log("Fetched characters:", data) // Add this line for debugging
       setCharacters(data)
     } catch (error) {
       console.error("Error fetching characters:", error)
-      toast({
-        title: "Error",
-        description: "Failed to fetch characters. Please try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Failed to fetch characters.", variant: "destructive" })
+    }
+  }
+
+  const fetchChatMessages = async () => {
+    try {
+      const response = await fetch("/api/chat", { credentials: "include" })
+      if (response.status === 401) {
+        setUser(null)
+        toast({ title: "Authentication Error", description: "Please log in again.", variant: "destructive" })
+        return
+      }
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+      const data = await response.json()
+      setMessages(data.map((msg: any) => ({
+        MessageId: msg.MessageId,
+        type: msg.Type as MessageType,
+        content: msg.Content,
+        timestamp: msg.Timestamp,
+        username: msg.Username,
+        UserId: msg.UserId,
+      })))
+    } catch (error) {
+      console.error("Error fetching chat messages:", error)
+      toast({ title: "Error", description: "Failed to fetch chat messages.", variant: "destructive" })
+    }
+  }
+
+  const fetchScenes = async () => {
+    const response = await fetch("/api/scenes", { credentials: "include" })
+    if (response.ok) {
+      const scenes = await response.json()
+      setScenes(scenes)
     }
   }
 
   const handleLogin = async (username: string, role: string) => {
     setUser({ id: 0, username, role })
-    void fetchCharacters()
+    await Promise.all([fetchCharacters(), fetchChatMessages()])
   }
 
   const handleLogout = () => {
     setUser(null)
     setCharacters([])
+    setMessages([])
   }
 
-  const addMessage = (type: MessageType, content: string, username: string) => {
-    const newMessage: ChatMessage = {
+  const addMessage = async (type: MessageType, content: string, username: string) => {
+    // Create a temporary message with a temporary ID
+    const tempMessage: ChatMessage = {
+      MessageId: -Date.now(), // Temporary negative ID
       type,
       content,
       timestamp: new Date().toISOString(),
       username,
+      UserId: user?.id
     }
-    setMessages((prevMessages) => [...prevMessages, newMessage])
+
+    // Add the message to the UI immediately
+    setMessages((prev) => [...prev, tempMessage])
+
+    // Send to database asynchronously
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, content }),
+      })
+      if (!response.ok) throw new Error("Failed to save message")
+      const newMessage = await response.json()
+      
+      // Update the message with the real database ID
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.MessageId === tempMessage.MessageId 
+            ? {
+                MessageId: newMessage.MessageId,
+                type: newMessage.Type,
+                content: newMessage.Content,
+                timestamp: newMessage.Timestamp,
+                username: newMessage.Username,
+                UserId: newMessage.UserId,
+              }
+            : msg
+        )
+      )
+    } catch (error) {
+      console.error("Error saving message:", error)
+      // Remove the temporary message if saving failed
+      setMessages((prev) => prev.filter((msg) => msg.MessageId !== tempMessage.MessageId))
+      toast({ title: "Error", description: "Failed to save message.", variant: "destructive" })
+    }
   }
 
-  const handleDiceRoll = (sides: number, result: number) => {
-    addMessage("system", `Rolled a d${sides}: ${result}`, "System")
+  const handleDiceRoll = (sides: number, result: number, numberOfDice: number, individualRolls: number[]) => {
+    const rollsText = numberOfDice > 1 ? ` (${individualRolls.join(", ")})` : ""
+    addMessage("user", `${numberOfDice}d${sides}: <strong>${result}</strong>${rollsText}`, user?.username || "Unknown")
   }
 
   const handlePhaseChange = (phase: string, color: string) => {
@@ -1479,125 +2457,192 @@ export default function Home() {
     try {
       const response = await fetch("/api/characters", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category }),
       })
-
-      if (!response.ok) {
-        throw new Error("Failed to add character")
-      }
-
+      if (!response.ok) throw new Error("Failed to add character")
       const newCharacter = await response.json()
       setCharacters((prevCharacters) => [...prevCharacters, newCharacter])
     } catch (error) {
       console.error("Error adding character:", error)
-      toast({
-        title: "Error",
-        description: "Failed to add character. Please try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Failed to add character. Please try again.", variant: "destructive" })
     }
   }
-  
+
   const handleUpdateCharacter = async (updatedCharacter: Character) => {
     try {
       const response = await fetch(`/api/characters/${updatedCharacter.CharacterId}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedCharacter),
       })
-
-      if (!response.ok) {
-        throw new Error("Failed to update character")
-      }
-
+      if (!response.ok) throw new Error("Failed to update character")
       setCharacters((prevCharacters) =>
-        prevCharacters.map((char) => (char.CharacterId === updatedCharacter.CharacterId ? updatedCharacter : char)),
+        prevCharacters.map((char) => (char.CharacterId === updatedCharacter.CharacterId ? updatedCharacter : char))
       )
     } catch (error) {
       console.error("Error updating character:", error)
-      toast({
-        title: "Error",
-        description: "Failed to update character. Please try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Failed to update character. Please try again.", variant: "destructive" })
     }
   }
 
   const handleDeleteCharacter = async (character: Character) => {
     try {
-      const response = await fetch(`/api/characters/${character.CharacterId}`, {
-        method: "DELETE",
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to delete character")
-      }
-
+      const response = await fetch(`/api/characters/${character.CharacterId}`, { method: "DELETE" })
+      if (!response.ok) throw new Error("Failed to delete character")
       setCharacters((prevCharacters) => prevCharacters.filter((char) => char.CharacterId !== character.CharacterId))
     } catch (error) {
       console.error("Error deleting character:", error)
-      toast({
-        title: "Error",
-        description: "Failed to delete character. Please try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Failed to delete character. Please try again.", variant: "destructive" })
     }
   }
 
-  const fetchImages = async () => {
-    const response = await fetch("/api/images", { credentials: "include" });
-    if (response.ok) setImages(await response.json());
-  };
-  
+  const fetchImages = async (sceneOnly: boolean = false) => {
+    const url = sceneOnly ? "/api/images?sceneOnly=true" : "/api/images"
+    const response = await fetch(url, { credentials: "include" })
+    if (response.ok) setImages(await response.json())
+  }
+
   const handleAddImage = async (category: string, file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("category", category);
+    const formData = new FormData()
+    formData.append("file", file)
+    formData.append("category", category)
     try {
-      const response = await fetch("/api/images", { method: "POST", body: formData });
+      const response = await fetch("/api/images", { method: "POST", body: formData })
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to add image");
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to add image")
       }
-      const newImage = await response.json();
-      setImages((prev) => [...prev, newImage]);
-      toast({
-        title: "Image Uploaded",
-        description: `${file.name} added to ${category}.`,
-      });
+      const newImage = await response.json()
+      setImages((prev) => [...prev, newImage])
+      toast({ title: "Image Uploaded", description: `${file.name} added to ${category}.` })
     } catch (error) {
-      console.error("Error adding image:", error);
+      console.error("Error adding image:", error)
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to add image.",
         variant: "destructive",
-      });
+      })
     }
-  };
-  
-  const handleDeleteImage = async (image: DMImage) => {
-    const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE" });
-    if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id));
-  };
+  }
 
-  const handleSetBackground = (url: string) => {
+  const handleDeleteImage = async (image: DMImage) => {
+    const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE" })
+    if (response.ok) setImages((prev) => prev.filter((i) => i.Id !== image.Id))
+  }
+
+  const handleRenameImage = async (image: DMImage, newName: string) => {
+    try {
+      const response = await fetch(`/api/images/${image.Id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      })
+      if (!response.ok) throw new Error("Failed to rename image")
+      const updatedImage = await response.json()
+      setImages((prev) => prev.map((i) => (i.Id === image.Id ? updatedImage : i)))
+    } catch (error) {
+      console.error("Error renaming image:", error)
+      throw error
+    }
+  }
+
+  const handleSetBackground = async (url: string) => {
     setBackgroundImage(url)
+    // Clear existing drawings when changing scenes
+    setDrawings([])
+    
+    // Find the scene image
+    const sceneImage = images.find(img => img.Link === url)
+    if (sceneImage?.SceneData) {
+      try {
+        const sceneData = JSON.parse(sceneImage.SceneData)
+        setGridSize(sceneData.gridSize || 50)
+        setGridColor(sceneData.gridColor || "rgba(0,0,0,0.1)")
+        setMiddleLayerImages(sceneData.elements?.middleLayer || [])
+        setTopLayerImages(sceneData.elements?.topLayer || [])
+        setSceneScale(sceneData.scale || 1)
+
+        // Temporarily disable drawings API calls
+        // const drawingsResponse = await fetch(`/api/drawings?sceneId=${sceneImage.Id}`)
+        // if (drawingsResponse.ok) {
+        //   const sceneDrawings = await drawingsResponse.json()
+        //   setDrawings(sceneDrawings)
+        // }
+
+        toast({ title: "Success", description: "Scene loaded successfully." })
+      } catch (error) {
+        console.error("Error loading scene:", error)
+        toast({ title: "Error", description: "Failed to load scene data.", variant: "destructive" })
+        // Clear all layers if there's an error parsing scene data
+        setMiddleLayerImages([])
+        setTopLayerImages([])
+      }
+    } else {
+      // Reset to defaults for a new scene or a scene with no data
+      setGridSize(50)
+      setGridColor("rgba(0,0,0,0.1)")
+      // Explicitly clear all tokens and images
+      setMiddleLayerImages([])
+      setTopLayerImages([])
+      setSceneScale(1)
+      // Clear drawings for scenes with no scene data
+      setDrawings([])
+      
+      // Notify the user that this is a new scene with no saved data
+      toast({ 
+        title: "New Scene", 
+        description: "Loaded a scene with no saved data. All tokens and images have been cleared." 
+      })
+    }
   }
 
   const handleDropImage = (category: string, image: DMImage, x: number, y: number) => {
-    const imageData: { id: string; url: string; x: number; y: number; width?: number; height?: number } = { id: image.Id.toString(), url: image.Link, x, y }
+    const imageData: { id: string; url: string; x: number; y: number; width?: number; height?: number; characterId?: number; character?: any } = { 
+      id: image.Id.toString(), 
+      url: image.Link, 
+      x, 
+      y 
+    }
     if (category === "Image") {
-      imageData.width = 100 // Default size for images
+      imageData.width = 100
       imageData.height = 100
       setMiddleLayerImages((prev) => [...prev, imageData])
     } else if (category === "Token") {
-      imageData.width = 50 // Fixed size for tokens
+      imageData.width = 50
       imageData.height = 50
+      // Check if this is a character token
+      const character = characters.find(c => c.TokenUrl === image.Link || c.PortraitUrl === image.Link)
+      if (character) {
+        imageData.characterId = character.CharacterId
+        imageData.character = {
+          Name: character.Name,
+          Path: character.Path,
+          Guard: character.Guard ?? 0,
+          MaxGuard: character.MaxGuard ?? 0,
+          Strength: character.Strength ?? 0,
+          MaxStrength: character.MaxStrength ?? 0,
+          Mp: character.Mp ?? 0,
+          MaxMp: character.MaxMp ?? 0
+        }
+        // Update the image in the images state with character information
+        setImages(prev => prev.map(img => 
+          img.Id === image.Id ? {
+            ...img,
+            CharacterId: character.CharacterId,
+            Character: {
+              Name: character.Name,
+              Path: character.Path,
+              Guard: character.Guard ?? 0,
+              MaxGuard: character.MaxGuard ?? 0,
+              Strength: character.Strength ?? 0,
+              MaxStrength: character.MaxStrength ?? 0,
+              Mp: character.Mp ?? 0,
+              MaxMp: character.MaxMp ?? 0
+            }
+          } as DMImage : img
+        ))
+      }
       setTopLayerImages((prev) => [...prev, imageData])
     }
   }
@@ -1605,24 +2650,321 @@ export default function Home() {
   const handleUpdateImages = (middleLayer: LayerImage[], topLayer: LayerImage[]) => {
     setMiddleLayerImages(middleLayer)
     setTopLayerImages(topLayer)
+
+    // Update characters state if any character data has changed
+    const updatedCharacters = characters.map(char => {
+      const updatedToken = topLayer.find(img => img.characterId === char.CharacterId)
+      if (updatedToken?.character) {
+        return {
+          ...char,
+          ...updatedToken.character
+        }
+      }
+      return char
+    })
+
+    // Only update if there are actual changes
+    if (JSON.stringify(updatedCharacters) !== JSON.stringify(characters)) {
+      setCharacters(updatedCharacters)
+    }
+  }
+
+  const handleSaveScene = async () => {
+    if (!backgroundImage) {
+      toast({ title: "Error", description: "No background image selected.", variant: "destructive" })
+      return
+    }
+
+    const sceneImage = images.find(img => img.Link === backgroundImage)
+    if (!sceneImage) {
+      toast({ title: "Error", description: "Background image not found.", variant: "destructive" })
+      return
+    }
+
+    const sceneData = {
+      savedAt: new Date().toISOString(),
+      gridSize,
+      gridColor,
+      scale: sceneScale,
+      elements: {
+        middleLayer: middleLayerImages,
+        topLayer: topLayerImages
+      }
+    }
+
+    try {
+      const response = await fetch("/api/scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sceneId: sceneImage.Id,
+          sceneData
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to save scene")
+      }
+
+      // Update both scenes and images
+      await fetchScenes()
+      
+      // Also update the images state to get the latest SceneData
+      const imagesResponse = await fetch("/api/images", { credentials: "include" })
+      if (imagesResponse.ok) {
+        const updatedImages = await imagesResponse.json()
+        setImages(updatedImages)
+        console.log("Images updated after saving scene data")
+      }
+      
+      toast({ title: "Success", description: "Scene saved successfully." })
+    } catch (error) {
+      console.error("Error saving scene:", error)
+      toast({ title: "Error", description: "Failed to save scene.", variant: "destructive" })
+    }
+  }
+
+  const handleLoadScene = async (scene: DMImage) => {
+    if (!scene.SceneData) {
+      toast({ title: "Error", description: "No scene data found.", variant: "destructive" })
+      return
+    }
+
+    try {
+      const sceneData = JSON.parse(scene.SceneData || "{}")
+      setBackgroundImage(scene.Link)
+      setGridSize(sceneData.gridSize || 50)
+      setGridColor(sceneData.gridColor || "rgba(0,0,0,0.1)")
+      setMiddleLayerImages(sceneData.elements?.middleLayer || [])
+      setTopLayerImages(sceneData.elements?.topLayer || [])
+      setSceneScale(sceneData.scale || 1)
+
+      // Temporarily disable drawings API calls
+      // const drawingsResponse = await fetch(`/api/drawings?sceneId=${scene.Id}`)
+      // if (drawingsResponse.ok) {
+      //   const sceneDrawings = await drawingsResponse.json()
+      //   setDrawings(sceneDrawings)
+      // }
+
+      // Refresh the images state to ensure we have the latest data
+      const imagesResponse = await fetch("/api/images", { credentials: "include" })
+      if (imagesResponse.ok) {
+        const updatedImages = await imagesResponse.json()
+        setImages(updatedImages)
+        console.log("Images updated after loading scene")
+      }
+      
+      toast({ title: "Success", description: "Scene loaded successfully." })
+    } catch (error) {
+      console.error("Error loading scene:", error)
+      toast({ title: "Error", description: "Failed to load scene.", variant: "destructive" })
+    }
+  }
+
+  const handleDeleteSceneData = async (image: DMImage) => {
+    try {
+      const response = await fetch("/api/scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sceneId: image.Id,
+          sceneData: null
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to delete scene data")
+      }
+
+      // Update the scenes state
+      await fetchScenes()
+      
+      // Refresh the images state to ensure we have the latest data
+      const imagesResponse = await fetch("/api/images", { credentials: "include" })
+      if (imagesResponse.ok) {
+        const updatedImages = await imagesResponse.json()
+        setImages(updatedImages)
+        console.log("Images updated after deleting scene data")
+      } else {
+        // Fallback to local state update if API call fails
+        setImages(prev => prev.map(img => 
+          img.Id === image.Id 
+            ? { ...img, SceneData: undefined } 
+            : img
+        ))
+      }
+
+      toast({ title: "Success", description: "Scene data deleted successfully." })
+    } catch (error) {
+      console.error("Error deleting scene data:", error)
+      toast({ title: "Error", description: "Failed to delete scene data.", variant: "destructive" })
+    }
+  }
+
+  const handleDrawingComplete = async (drawing: DrawingObject) => {
+    // Find current scene ID
+    const sceneImage = images.find(img => img.Link === backgroundImage)
+    if (!sceneImage) {
+      toast({ 
+        title: "Error", 
+        description: "No scene is currently active.", 
+        variant: "destructive" 
+      })
+      return
+    }
+
+    try {
+      const response = await fetch('/api/drawings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...drawing,
+          createdBy: user?.id || 0,
+          sceneId: sceneImage.Id
+        })
+      })
+
+      if (response.ok) {
+        const savedDrawing = await response.json()
+        setDrawings(prev => [...prev, { ...drawing, id: savedDrawing.id }])
+      } else {
+        toast({ 
+          title: "Error", 
+          description: "Failed to save drawing.", 
+          variant: "destructive" 
+        })
+      }
+    } catch (error) {
+      console.error('Error saving drawing:', error)
+      toast({ 
+        title: "Error", 
+        description: "Failed to save drawing.", 
+        variant: "destructive" 
+      })
+    }
+  }
+
+  const handleDrawingSelect = (drawing: DrawingObject | null) => {
+    setSelectedDrawing(drawing);
+  };
+
+  const handleDrawingDelete = async (drawing: DrawingObject) => {
+    try {
+      const response = await fetch(`/api/drawings?id=${drawing.id}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        setDrawings(prev => prev.filter(d => d.id !== drawing.id))
+        setSelectedDrawing(null)
+      } else {
+        toast({ 
+          title: "Error", 
+          description: "Failed to delete drawing.", 
+          variant: "destructive" 
+        })
+      }
+    } catch (error) {
+      console.error('Error deleting drawing:', error)
+      toast({ 
+        title: "Error", 
+        description: "Failed to delete drawing.", 
+        variant: "destructive" 
+      })
+    }
+  }
+
+  const handleUpdateSceneScale = async (image: DMImage, scale: number) => {
+    if (!image.SceneData) {
+      toast({ title: "Error", description: "No scene data found.", variant: "destructive" })
+      return
+    }
+
+    try {
+      // Parse existing scene data
+      const sceneData = JSON.parse(image.SceneData)
+      
+      // Update the scale
+      const updatedSceneData = {
+        ...sceneData,
+        scale: scale
+      }
+
+      // Save the updated scene data
+      const response = await fetch("/api/scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sceneId: image.Id,
+          sceneData: updatedSceneData
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update scene scale")
+      }
+
+      // Update the image in the local state
+      setImages(
+        images.map(img => 
+          img.Id === image.Id 
+            ? { ...img, SceneData: JSON.stringify(updatedSceneData) } 
+            : img
+        )
+      )
+
+      // If this is the current background, update the scale
+      if (image.Link === backgroundImage) {
+        setSceneScale(scale)
+      }
+    } catch (error) {
+      console.error("Error updating scene scale:", error)
+      toast({ title: "Error", description: "Failed to update scene scale.", variant: "destructive" })
+      throw error
+    }
+  }
+
+  if (isLoading || !isInitialized) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>
   }
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100">
-        <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
-          <Tabs defaultValue="login">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="register">Register</TabsTrigger>
-            </TabsList>
-            <TabsContent value="login">
-              <LoginForm onLogin={handleLogin} />
-            </TabsContent>
-            <TabsContent value="register">
-              <RegisterForm onRegister={handleLogin} />
-            </TabsContent>
-          </Tabs>
+      <div className="flex flex-col h-screen">
+        <div className="flex-grow">
+          <MainContent
+            backgroundImage={backgroundImage}
+            middleLayerImages={middleLayerImages}
+            topLayerImages={topLayerImages}
+            onUpdateImages={handleUpdateImages}
+            gridSize={gridSize}
+            gridColor={gridColor}
+            onGridSizeChange={setGridSize}
+            onGridColorChange={setGridColor}
+            currentTool="cursor"
+            onToolChange={() => {}}
+            currentColor="#000000"
+            onColorChange={() => {}}
+            sceneScale={sceneScale}
+            zoomLevel={zoomLevel}
+            setZoomLevel={setZoomLevel}
+          />
+        </div>
+        <div className="absolute top-4 right-4 z-50">
+          <div className="bg-white/90 backdrop-blur p-8 rounded-lg shadow-md max-w-md">
+            <Tabs defaultValue="login">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="login">Login</TabsTrigger>
+                <TabsTrigger value="register">Register</TabsTrigger>
+              </TabsList>
+              <TabsContent value="login">
+                <LoginForm onLogin={handleLogin} />
+              </TabsContent>
+              <TabsContent value="register">
+                <RegisterForm onRegister={handleLogin} />
+              </TabsContent>
+            </Tabs>
+          </div>
         </div>
       </div>
     )
@@ -1638,12 +2980,23 @@ export default function Home() {
               middleLayerImages={middleLayerImages}
               topLayerImages={topLayerImages}
               onUpdateImages={handleUpdateImages}
+              gridSize={gridSize}
+              gridColor={gridColor}
+              onGridSizeChange={setGridSize}
+              onGridColorChange={setGridColor}
+              currentTool={currentTool}
+              onToolChange={setCurrentTool}
+              currentColor={currentColor}
+              onColorChange={setCurrentColor}
+              sceneScale={sceneScale}
+              zoomLevel={zoomLevel}
+              setZoomLevel={setZoomLevel}
             />
           </div>
           <RightSideMenu
             messages={messages}
             addMessage={addMessage}
-            user={user.username}
+            user={user}
             chatBackgroundColor={chatBackgroundColor}
             characters={characters}
             onAddCharacter={handleAddCharacter}
@@ -1653,11 +3006,30 @@ export default function Home() {
             images={images}
             onAddImage={handleAddImage}
             onDeleteImage={handleDeleteImage}
+            onRenameImage={handleRenameImage}
             onSetBackground={handleSetBackground}
             onDropImage={handleDropImage}
+            scenes={scenes}
+            onSaveScene={handleSaveScene}
+            onLoadScene={handleLoadScene}
+            onDeleteSceneData={handleDeleteSceneData}
+            onUpdateSceneScale={handleUpdateSceneScale}
+            setImages={setImages}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />
+      </div>
+      <div className="relative w-full h-full">
+        <DrawingLayer
+          isDrawingMode={currentTool === 'brush'}
+          currentColor={currentColor}
+          currentTool={currentTool}
+          drawings={drawings}
+          onDrawingComplete={handleDrawingComplete}
+          onDrawingSelect={handleDrawingSelect}
+          onDrawingDelete={handleDrawingDelete}
+          selectedDrawing={selectedDrawing}
+        />
       </div>
     </ErrorBoundary>
   )
@@ -1673,9 +3045,19 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, Pencil } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import type { DMImage } from "../types/image"
+import type { Character } from "../types/character"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 interface ImageListProps {
   images: DMImage[]
@@ -1684,6 +3066,10 @@ interface ImageListProps {
   onDeleteImage: (image: DMImage) => Promise<void>
   onDragStart?: (e: React.DragEvent<HTMLLIElement>, image: DMImage) => void
   onSceneClick?: (url: string) => void
+  onDeleteSceneData?: (image: DMImage) => Promise<void>
+  onRenameImage?: (image: DMImage, newName: string) => Promise<void>
+  onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
+  characters?: Character[]
 }
 
 export default function ImageList({
@@ -1692,10 +3078,19 @@ export default function ImageList({
   onDeleteImage,
   onDragStart,
   onSceneClick,
+  onDeleteSceneData,
+  onRenameImage,
+  onUpdateSceneScale,
+  characters = [],
 }: ImageListProps) {
   const [activeCategory, setActiveCategory] = useState<string>("Scene")
   const [uploading, setUploading] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<DMImage | null>(null)
   const categories = ["Scene", "Image", "Token"]
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editingImage, setEditingImage] = useState<DMImage | null>(null)
+  const [newName, setNewName] = useState("")
+  const [sceneScale, setSceneScale] = useState(1)
 
   const handleDeleteImage = (image: DMImage) => {
     if (window.confirm(`Are you sure you want to delete ${image.Name}?`)) {
@@ -1704,8 +3099,11 @@ export default function ImageList({
   }
 
   const handleImageClick = (image: DMImage) => {
-    if (image.Category === "Scene" && onSceneClick) {
-      onSceneClick(image.Link)
+    if (image.Category === "Scene") {
+      onSceneClick?.(image.Link);
+    } else {
+      const newSelectedImage = selectedImage?.Id === image.Id ? null : image;
+      setSelectedImage(newSelectedImage);
     }
   }
 
@@ -1745,76 +3143,233 @@ export default function ImageList({
     input.click();
   };
 
+  const handleRenameImage = async (image: DMImage) => {
+    if (image.Category === "Scene") {
+      // For scenes, open the edit dialog with both name and scale options
+      setEditingImage(image)
+      setNewName(image.Name)
+      
+      // Get scale from scene data if it exists
+      if (image.SceneData) {
+        try {
+          const sceneData = JSON.parse(image.SceneData)
+          setSceneScale(sceneData.scale || 1)
+        } catch (error) {
+          setSceneScale(1)
+        }
+      } else {
+        setSceneScale(1)
+      }
+      
+      setEditDialogOpen(true)
+    } else {
+      // For other image types, just prompt for name
+      const newName = window.prompt("Enter new name:", image.Name)
+      if (newName && newName !== image.Name && onRenameImage) {
+        try {
+          await onRenameImage(image, newName)
+          toast({
+            title: "Success",
+            description: "Image renamed successfully.",
+          })
+        } catch (error) {
+          toast({
+            title: "Error",
+            description: "Failed to rename image.",
+            variant: "destructive",
+          })
+        }
+      }
+    }
+  }
+
+  const handleSaveSceneEdit = async () => {
+    if (!editingImage || !newName) return
+    
+    try {
+      // First rename the image
+      if (newName !== editingImage.Name && onRenameImage) {
+        await onRenameImage(editingImage, newName)
+      }
+      
+      // Then update the scale if the function is provided
+      if (onUpdateSceneScale) {
+        await onUpdateSceneScale(editingImage, sceneScale)
+      }
+      
+      toast({
+        title: "Success",
+        description: "Scene updated successfully.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update scene.",
+        variant: "destructive",
+      })
+    } finally {
+      setEditDialogOpen(false)
+      setEditingImage(null)
+    }
+  }
+
   const getNameClass = (name: string) => {
     // Default Tailwind text size is text-base (16px), reduce to text-sm (14px) if long
     return name.length > 10 ? "text-sm break-words" : "text-base"
   };
 
   return (
-    <Tabs value={activeCategory} onValueChange={setActiveCategory}>
-      <TabsList className="grid w-full grid-cols-3">
+    <>
+      <Tabs value={activeCategory} onValueChange={setActiveCategory}>
+        <TabsList className="grid w-full grid-cols-3">
+          {categories.map((category) => (
+            <TabsTrigger key={category} value={category}>
+              {category}
+            </TabsTrigger>
+          ))}
+        </TabsList>
         {categories.map((category) => (
-          <TabsTrigger key={category} value={category}>
-            {category}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      {categories.map((category) => (
-        <TabsContent key={category} value={category}>
-          <ScrollArea className="h-[calc(100vh-250px)]">
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-4"
-              onClick={() => handleUpload(category)}
-              disabled={uploading}
-            >
-              {uploading ? (
-                "Uploading..."
-              ) : (
-                <>
-                  <Plus className="w-4 h-4 mr-2" /> Add {category}
-                </>
-              )}
-            </Button>
-            <ul className="space-y-2 mt-4">
-              {images
-                .filter((img) => img.Category === category)
-                .map((image) => (
-                  <li
-                    key={image.Id}
-                    className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
-                    draggable={category !== "Scene"}
-                    onDragStart={(e) => onDragStart?.(e, image)}
-                    onClick={() => handleImageClick(image)}
-                  >
-                    <div className="flex items-center space-x-2 flex-grow">
-                      <Image
-                        src={image.Link || "/placeholder.svg"}
-                        alt={image.Name}
-                        width={40}
-                        height={40}
-                        objectFit="cover"
-                      />
-                      <span className={`${getNameClass(image.Name)} max-w-[150px]`}>{image.Name}</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteImage(image)
-                      }}
+          <TabsContent key={category} value={category}>
+            <ScrollArea className="h-[calc(100vh-250px)]">
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => handleUpload(category)}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  "Uploading..."
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4 mr-2" /> Add {category}
+                  </>
+                )}
+              </Button>
+              <ul className="space-y-2 mt-4">
+                {images
+                  .filter((img) => img.Category === category)
+                  .map((image) => (
+                    <li
+                      key={image.Id}
+                      className="flex items-center gap-2 p-2 bg-white rounded-lg shadow hover:bg-gray-50 cursor-pointer relative"
+                      draggable={image.Category !== "Scene"}
+                      onDragStart={image.Category !== "Scene" ? (e) => onDragStart?.(e, image) : undefined}
+                      onClick={() => handleImageClick(image)}
+                      style={{ maxWidth: '100%' }}
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </li>
-                ))}
-            </ul>
-          </ScrollArea>
-        </TabsContent>
-      ))}
-    </Tabs>
+                      <div className="flex-shrink-0 mr-2">
+                        <Image
+                          src={image.Link || "/placeholder.svg"}
+                          alt={image.Name}
+                          width={40}
+                          height={40}
+                          className="rounded object-cover"
+                          style={{ objectFit: 'cover' }}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0 max-w-[calc(100%-120px)]">
+                        {image.Category !== "Scene" && (
+                          <span className={`truncate block ${getNameClass(image.Name)}`}>
+                            {image.Name}
+                          </span>
+                        )}
+                        {image.Category === "Scene" && (
+                          <span className="text-xs text-gray-600 truncate block">{image.Name}</span>
+                        )}
+                        {selectedImage?.Id === image.Id && image.Category === "Token" && image.Character && (
+                          <span className="text-xs text-gray-600 truncate block">{image.Character.Name}</span>
+                        )}
+                      </div>
+                      
+                      <div className="flex gap-1 flex-shrink-0 ml-auto" style={{ minWidth: '80px' }}>
+                        {image.Category === "Scene" && image.SceneData && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm("Are you sure you want to clear this scene's data?")) {
+                                onDeleteSceneData?.(image);
+                              }
+                            }}
+                            className="text-blue-500 hover:text-blue-700 h-7 w-7"
+                            title="Clear Scene Data"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRenameImage(image);
+                          }}
+                          title="Rename"
+                          className="h-7 w-7"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteImage(image);
+                          }}
+                          title="Delete Image"
+                          className="text-gray-700 hover:text-gray-900 h-7 w-7"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+              </ul>
+            </ScrollArea>
+          </TabsContent>
+        ))}
+      </Tabs>
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Scene</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="name" className="text-right">
+                Name
+              </Label>
+              <Input
+                id="name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="scale" className="text-right">
+                Scale
+              </Label>
+              <Input
+                id="scale"
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={sceneScale}
+                onChange={(e) => setSceneScale(parseFloat(e.target.value) || 1)}
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleSaveSceneEdit}>Save changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -1932,12 +3487,25 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { getUserFromCookie } from "@/lib/auth"
 import type { LayerImage } from "../types/layerImage"
+import DrawingToolbar from "./DrawingToolbar"
 
 interface MainContentProps {
   backgroundImage: string | null
   middleLayerImages: LayerImage[] | undefined
   topLayerImages: LayerImage[] | undefined
   onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void
+  onUpdateCharacter?: (character: any) => void
+  gridSize: number
+  gridColor: string
+  onGridSizeChange: (size: number) => void
+  onGridColorChange: (color: string) => void
+  currentTool: 'brush' | 'cursor'
+  onToolChange: (tool: 'brush' | 'cursor') => void
+  currentColor: string
+  onColorChange: (color: string) => void
+  sceneScale: number
+  zoomLevel: number
+  setZoomLevel: React.Dispatch<React.SetStateAction<number>>
 }
 
 export default function MainContent({
@@ -1945,9 +3513,21 @@ export default function MainContent({
   middleLayerImages = [],
   topLayerImages = [],
   onUpdateImages,
+  onUpdateCharacter,
+  gridSize,
+  gridColor,
+  onGridSizeChange,
+  onGridColorChange,
+  currentTool,
+  onToolChange,
+  currentColor,
+  onColorChange,
+  sceneScale = 1,
+  zoomLevel,
+  setZoomLevel,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
-  const [gridSize, setGridSize] = useState(50)
+  const containerRef = useRef<HTMLDivElement>(null)
   const IMAGE_MAX_SIZE = 1200
   const IMAGE_MIN_SIZE = 50
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -1956,16 +3536,92 @@ export default function MainContent({
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null)
   const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
-  const [gridColor, setGridColor] = useState("rgba(0,0,0,0.1)")
   const [showColorMenu, setShowColorMenu] = useState(false)
+  const [statusModal, setStatusModal] = useState<{
+    isOpen: boolean;
+    type: 'guard' | 'strength' | 'mp';
+    currentValue: number;
+    maxValue: number;
+    characterId: number;
+    character: any;
+  } | null>(null)
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null)
+  const [isPanning, setIsPanning] = useState(false)
+  const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null)
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  
+  // Drawing state
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [currentPath, setCurrentPath] = useState<string>("")
+  const [drawings, setDrawings] = useState<Array<{id: string, path: string, color: string, sceneId: string, createdBy: number, createdAt: string}>>([])
+  const [selectedDrawingIds, setSelectedDrawingIds] = useState<string[]>([])
+  const [userId, setUserId] = useState<number | null>(null)
+  const [sceneId, setSceneId] = useState<string | null>(null)
+  const [isLoadingDrawings, setIsLoadingDrawings] = useState(false)
 
   useEffect(() => {
     const fetchUser = async () => {
       const user = await getUserFromCookie()
       setUserRole(user?.role || null)
+      setUserId(user?.id || null)
     }
     fetchUser()
   }, [])
+
+  useEffect(() => {
+    if (backgroundImage) {
+      const match = backgroundImage.match(/\/api\/images\/([^\/]+)/)
+      if (match && match[1]) {
+        const newSceneId = match[1];
+        
+        // Only update if scene has changed
+        if (newSceneId !== sceneId) {
+          console.log(`Switching from scene ${sceneId} to ${newSceneId}`);
+          
+          // Clear drawing state
+          setCurrentPath('');
+          setIsDrawing(false);
+          setSelectedDrawingIds([]);
+          
+          // Set new scene ID
+          setSceneId(newSceneId);
+        }
+      }
+    } else {
+      // Clear all drawing state when no scene is loaded
+      setDrawings([]);
+      setCurrentPath('');
+      setIsDrawing(false);
+      setSelectedDrawingIds([]);
+      setSceneId(null);
+    }
+  }, [backgroundImage, sceneId])
+
+  useEffect(() => {
+    if (backgroundImage) {
+      const img = new window.Image()
+      img.src = backgroundImage
+      img.onload = () => {
+        // Apply scale to image dimensions
+        const scaledWidth = Math.round(img.width * sceneScale);
+        const scaledHeight = Math.round(img.height * sceneScale);
+        setImageDimensions({ width: scaledWidth, height: scaledHeight })
+      }
+    } else {
+      setImageDimensions(null)
+    }
+  }, [backgroundImage, sceneScale])
+
+  useEffect(() => {
+    const savedZoom = localStorage.getItem('dmScreenZoomLevel')
+    if (savedZoom) {
+      setZoomLevel(parseFloat(savedZoom))
+    }
+  }, [setZoomLevel])
+
+  useEffect(() => {
+    localStorage.setItem('dmScreenZoomLevel', zoomLevel.toString())
+  }, [zoomLevel])
 
   const generateUniqueId = useCallback((baseId: string) => `${baseId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, [])
 
@@ -2030,11 +3686,18 @@ export default function MainContent({
     const imageId = e.dataTransfer.getData("imageId")
     const category = e.dataTransfer.getData("category")
     const url = e.dataTransfer.getData("url")
+    const characterId = e.dataTransfer.getData("characterId")
+    const characterData = e.dataTransfer.getData("character")
+    
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return
 
-    const x = Math.floor((e.clientX - rect.left) / gridSize) * gridSize
-    const y = Math.floor((e.clientY - rect.top) / gridSize) * gridSize
+    // Adjust for zoom level when calculating position
+    const adjustedX = (e.clientX - rect.left) / zoomLevel
+    const adjustedY = (e.clientY - rect.top) / zoomLevel
+
+    const x = Math.floor(adjustedX / gridSize) * gridSize
+    const y = Math.floor(adjustedY / gridSize) * gridSize
 
     const image = new window.Image()
     image.src = url
@@ -2045,15 +3708,37 @@ export default function MainContent({
     const uniqueId = generateUniqueId(imageId)
     const imageData: LayerImage = { id: uniqueId, url: url || "", x, y }
     if (category === "Image") {
-      const { width, height } = adjustImageSize(image.width, image.height)
-      imageData.width = width
-      imageData.height = height
+      // Keep original size for scene images
+      imageData.width = image.width
+      imageData.height = image.height
     } else if (category === "Token") {
       imageData.width = gridSize
       imageData.height = gridSize
+      if (characterId && characterData) {
+        try {
+          const parsedCharacter = JSON.parse(characterData)
+          imageData.characterId = parseInt(characterId)
+          imageData.character = {
+            Name: parsedCharacter.Name,
+            Path: parsedCharacter.Path,
+            Guard: parsedCharacter.Guard ?? 0,
+            MaxGuard: parsedCharacter.MaxGuard ?? 0,
+            Strength: parsedCharacter.Strength ?? 0,
+            MaxStrength: parsedCharacter.MaxStrength ?? 0,
+            Mp: parsedCharacter.Mp ?? 0,
+            MaxMp: parsedCharacter.MaxMp ?? 0
+          }
+        } catch (error) {
+          console.error('MainContent - Error parsing character data:', error);
+        }
+      }
     }
-    window.dispatchEvent(new CustomEvent("dropImage", { detail: { category, image: imageData, x, y } }))
-  }, [gridSize, adjustImageSize, generateUniqueId])
+    if (category === "Image") {
+      onUpdateImages?.([...middleLayerImages, imageData], topLayerImages)
+    } else if (category === "Token") {
+      onUpdateImages?.(middleLayerImages, [...topLayerImages, imageData])
+    }
+  }, [gridSize, adjustImageSize, generateUniqueId, middleLayerImages, topLayerImages, onUpdateImages, zoomLevel])
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -2066,14 +3751,14 @@ export default function MainContent({
       setSelectedIds([item.id])
       dragIds = [item.id]
     } else if (!selectedIds.includes(item.id)) {
-      // If something is selected but not this item, don’t drag
+      // If something is selected but not this item, don't drag
       return
     }
     setDraggingIds(dragIds)
     const rect = e.currentTarget.getBoundingClientRect()
     setDragOffset({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
+      x: (e.clientX - rect.left),
+      y: (e.clientY - rect.top),
     })
     const canvas = document.createElement("canvas")
     const ctx = canvas.getContext("2d")
@@ -2097,14 +3782,19 @@ export default function MainContent({
     const referenceItem = middleLayerImages.find((i) => i.id === draggingIds[0]) || topLayerImages.find((i) => i.id === draggingIds[0])
     if (!referenceItem) return
 
-    const newX = Math.floor((e.clientX - rect.left - dragOffset.x) / gridSize) * gridSize
-    const newY = Math.floor((e.clientY - rect.top - dragOffset.y) / gridSize) * gridSize
+    // Adjust for zoom level when calculating position
+    const adjustedX = (e.clientX - rect.left) / zoomLevel
+    const adjustedY = (e.clientY - rect.top) / zoomLevel
+    
+    const newX = Math.floor((adjustedX - dragOffset.x / zoomLevel) / gridSize) * gridSize
+    const newY = Math.floor((adjustedY - dragOffset.y / zoomLevel) / gridSize) * gridSize
+    
     const dx = newX - referenceItem.x
     const dy = newY - referenceItem.y
 
     const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy)
     onUpdateImages?.(middleLayer, topLayer)
-  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages])
+  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages, zoomLevel])
 
   const handleItemDragEnd = useCallback(() => {
     setDraggingIds(null)
@@ -2126,14 +3816,17 @@ export default function MainContent({
 
   const handleResizeMove = useCallback((e: MouseEvent) => {
     if (!resizingId || !resizeStart) return
-    const dx = e.clientX - resizeStart.x
-    const dy = e.clientY - resizeStart.y
+    
+    // Adjust for zoom level when calculating resize
+    const dx = (e.clientX - resizeStart.x) / zoomLevel
+    const dy = (e.clientY - resizeStart.y) / zoomLevel
+    
     const newWidth = Math.max(gridSize, Math.floor((resizeStart.width + dx) / gridSize) * gridSize)
     const newHeight = Math.max(gridSize, Math.floor((resizeStart.height + dy) / gridSize) * gridSize)
 
     const { middleLayer, topLayer } = updateItemSize(resizingId, newWidth, newHeight)
     onUpdateImages?.(middleLayer, topLayer)
-  }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages])
+  }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages, zoomLevel])
 
   const handleResizeEnd = useCallback(() => {
     setResizingId(null)
@@ -2148,33 +3841,74 @@ export default function MainContent({
       onUpdateImages?.(newMiddleLayer, newTopLayer)
       setSelectedIds([])
     }
-  }, [selectedIds, middleLayerImages, topLayerImages, onUpdateImages])
+    if (e.key === "Delete" && selectedDrawingIds.length > 0) {
+      // Update local state for immediate UI response
+      const newDrawings = drawings.filter((drawing) => !selectedDrawingIds.includes(drawing.id))
+      setDrawings(newDrawings)
+      
+      // Delete drawings from the database
+      selectedDrawingIds.forEach(id => {
+        fetch(`/api/drawings?id=${id}`, {
+          method: 'DELETE',
+        }).catch(error => {
+          console.error('Error deleting drawing:', error);
+        });
+      });
+      
+      // Clear selection
+      setSelectedDrawingIds([])
+    }
+  }, [selectedIds, middleLayerImages, topLayerImages, onUpdateImages, selectedDrawingIds, drawings])
 
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === gridRef.current) {
-      setSelectedIds([])
+    // Check if we're clicking on the background and not on a token or image
+    const target = e.target as HTMLElement;
+    const isClickingToken = target.classList.contains('token-image') || 
+                           target.closest('.token-image') ||
+                           target.closest('[draggable="true"]');
+    
+    if (!isClickingToken && currentTool !== 'brush') {
+      setSelectedIds([]);
+      setSelectedDrawingIds([]);
     }
-  }, [])
+  }, [currentTool]);
 
   const handleItemClick = useCallback((e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
     e.stopPropagation()
+    if (currentTool === 'brush') return;
+    
     if (e.shiftKey) {
       setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id])
     } else {
       setSelectedIds([item.id])
     }
-  }, [])
+  }, [currentTool])
+
+  const handleDrawingClick = useCallback((e: React.MouseEvent<SVGPathElement>, drawing: {id: string, path: string, color: string, sceneId: string, createdBy: number, createdAt: string}) => {
+    e.stopPropagation()
+    if (currentTool === 'brush') return;
+    
+    if (e.shiftKey) {
+      setSelectedDrawingIds((prev) => prev.includes(drawing.id) ? prev.filter((id) => id !== drawing.id) : [...prev, drawing.id])
+    } else {
+      setSelectedDrawingIds([drawing.id])
+    }
+  }, [currentTool])
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.shiftKey && userRole === "DM") {
+    if (e.ctrlKey) {
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? -0.1 : 0.1
+      setZoomLevel(prev => Math.max(0.5, Math.min(3, prev + delta)))
+    } else if (e.shiftKey && userRole === "DM") {
       e.preventDefault()
       const newSize = Math.min(200, Math.max(20, gridSize + (e.deltaY < 0 ? 5 : -5)))
-      setGridSize(newSize)
+      onGridSizeChange(newSize)
       const newMiddleLayer = snapToGrid(middleLayerImages, newSize)
       const newTopLayer = snapToGrid(topLayerImages, newSize)
       onUpdateImages?.(newMiddleLayer, newTopLayer)
     }
-  }, [userRole, gridSize, middleLayerImages, topLayerImages, onUpdateImages, snapToGrid])
+  }, [userRole, gridSize, middleLayerImages, topLayerImages, onUpdateImages, snapToGrid, onGridSizeChange])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (selectedIds.length === 1) {
@@ -2206,9 +3940,224 @@ export default function MainContent({
   }, [selectedIds, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages])
 
   const handleColorChange = useCallback((color: string) => {
-    setGridColor(color === "hidden" ? "transparent" : color === "gray" ? "rgba(0,0,0,0.1)" : color)
+    onGridColorChange(color === "hidden" ? "transparent" : color === "gray" ? "rgba(0,0,0,0.1)" : color)
     setShowColorMenu(false)
-  }, [])
+  }, [onGridColorChange])
+
+  const handleStatusUpdate = (value: number) => {
+    if (!statusModal) return;
+    
+    const { type, characterId, character } = statusModal;
+
+    // Create the updated character with the new value first
+    const updatedCharacter = {
+      Name: character.Name,
+      Path: character.Path || (type === 'mp' ? "Magic User" : "Warrior"),
+      Guard: type === 'guard' ? value : character.Guard || 0,
+      MaxGuard: character.MaxGuard || 0,
+      Strength: type === 'strength' ? value : character.Strength || 0,
+      MaxStrength: character.MaxStrength || 0,
+      Mp: type === 'mp' ? value : character.Mp || 0,
+      MaxMp: character.MaxMp || 0
+    };
+
+    // Immediately update the UI
+    const updatedTopLayer = topLayerImages.map(item => {
+      if (item.characterId === characterId) {
+        return {
+          ...item,
+          character: updatedCharacter
+        };
+      }
+      return item;
+    });
+
+    // Force a state update with the new data
+    onUpdateImages?.(middleLayerImages, updatedTopLayer);
+    setStatusModal(null);
+
+    // Update the database asynchronously
+    fetch(`/api/characters/${characterId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        [type === 'guard' ? 'Guard' : type === 'strength' ? 'Strength' : 'Mp']: value,
+        CharacterId: characterId
+      }),
+    }).catch(() => {
+      // If the database update fails, revert the UI change
+      const revertedTopLayer = topLayerImages.map(item => 
+        item.characterId === characterId
+          ? { ...item, character }
+          : item
+      );
+      onUpdateImages?.(middleLayerImages, revertedTopLayer);
+    });
+  };
+
+  const handleNavigationDragStart = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
+    // Only start panning on middle mouse button or Alt+left click
+    // OR when using cursor tool with left click (not on a token)
+    if (e) {
+      const isAltClick = e.button === 0 && e.altKey;
+      const isMiddleClick = e.button === 1;
+      const isLeftClickWithCursor = e.button === 0 && currentTool === 'cursor';
+      
+      if (isMiddleClick || isAltClick || isLeftClickWithCursor) {
+        // Check if we're clicking on a token or image when using cursor tool
+        if (isLeftClickWithCursor) {
+          const target = e.target as HTMLElement;
+          const isClickingToken = target.classList.contains('token-image') || 
+                                target.closest('.token-image') ||
+                                target.closest('[draggable="true"]');
+          
+          // Don't start panning if clicking on a token
+          if (isClickingToken) {
+            return;
+          }
+        }
+        
+        setIsPanning(true);
+        setPanStart({ x: e.clientX, y: e.clientY });
+        e.preventDefault();
+      }
+    }
+  }, [currentTool]);
+
+  const handleNavigationDrag = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
+    if (isPanning && panStart && e) {
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      
+      const containerEl = containerRef.current;
+      if (containerEl) {
+        // Update scroll position based on mouse movement
+        containerEl.scrollLeft = panOffset.x - dx;
+        containerEl.scrollTop = panOffset.y - dy;
+      }
+      
+      e.preventDefault();
+    }
+  }, [isPanning, panStart, panOffset]);
+
+  const handleNavigationDragEnd = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
+    if (isPanning) {
+      const containerEl = containerRef.current;
+      if (containerEl) {
+        setPanOffset({
+          x: containerEl.scrollLeft,
+          y: containerEl.scrollTop
+        });
+      }
+      
+      setIsPanning(false);
+      setPanStart(null);
+      e?.preventDefault();
+    }
+  }, [isPanning]);
+
+  const handleZoomIn = useCallback(() => {
+    setZoomLevel(prev => Math.min(prev + 0.1, 3)) // Max zoom: 3x
+  }, [setZoomLevel])
+
+  const handleZoomOut = useCallback(() => {
+    setZoomLevel(prev => Math.max(prev - 0.1, 0.5)) // Min zoom: 0.5x
+  }, [setZoomLevel])
+
+  const handleZoomReset = useCallback(() => {
+    setZoomLevel(1) // Reset to 1x zoom
+    setPanOffset({ x: 0, y: 0 }) // Reset pan offset
+  }, [setZoomLevel])
+
+  // Drawing handlers
+  const startDrawing = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (currentTool !== 'brush') return;
+    
+    // Prevent drawing from starting if we're panning
+    if (e.button !== 0 || e.altKey) return;
+    
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    // Adjust for zoom level when calculating position
+    const x = (e.clientX - rect.left) / zoomLevel;
+    const y = (e.clientY - rect.top) / zoomLevel;
+    
+    setIsDrawing(true);
+    setCurrentPath(`M${x},${y}`);
+    
+    // Prevent default to avoid text selection
+    e.preventDefault();
+  }, [currentTool, zoomLevel]);
+  
+  const draw = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawing || currentTool !== 'brush') return;
+    
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    // Adjust for zoom level when calculating position
+    const x = (e.clientX - rect.left) / zoomLevel;
+    const y = (e.clientY - rect.top) / zoomLevel;
+    
+    setCurrentPath(prev => `${prev} L${x},${y}`);
+    
+    // Prevent default to avoid text selection
+    e.preventDefault();
+  }, [isDrawing, currentTool, zoomLevel]);
+  
+  const endDrawing = useCallback((e?: React.MouseEvent<any>) => {
+    if (!isDrawing || !currentPath || currentTool !== 'brush') return;
+    
+    // Prevent default to avoid text selection
+    e?.preventDefault();
+    
+    // Don't save if no scene is selected
+    if (!sceneId) {
+      setIsDrawing(false);
+      setCurrentPath('');
+      return;
+    }
+    
+    // Generate a unique ID for the drawing
+    const drawingId = `drawing-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create the new drawing object
+    const newDrawing = {
+      id: drawingId,
+      path: currentPath,
+      color: currentColor,
+      sceneId: sceneId,
+      createdBy: userId || 0,
+      createdAt: new Date().toISOString()
+    };
+    
+    // Update local state with the new drawing
+    setDrawings(prevDrawings => [...prevDrawings, newDrawing]);
+    
+    // Reset drawing state
+    setIsDrawing(false);
+    setCurrentPath('');
+    
+    // Save the drawing to the database
+    fetch('/api/drawings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(newDrawing),
+    }).catch((error) => {
+      console.error('Error saving drawing:', error);
+    });
+  }, [isDrawing, currentPath, currentTool, currentColor, sceneId, userId]);
+  
+  const handleMouseLeave = useCallback(() => {
+    if (isDrawing) {
+      endDrawing();
+    }
+  }, [isDrawing, endDrawing]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -2218,100 +4167,364 @@ export default function MainContent({
     window.addEventListener("mousemove", handleResizeMove)
     window.addEventListener("mouseup", handleResizeEnd)
     window.addEventListener("keydown", handleGlobalKeyDown)
+    
+    // Add global mouse up handler for navigation
+    const handleGlobalMouseUp = () => {
+      handleNavigationDragEnd()
+    }
+    window.addEventListener("mouseup", handleGlobalMouseUp)
+    
     return () => {
       window.removeEventListener("mousemove", handleResizeMove)
       window.removeEventListener("mouseup", handleResizeEnd)
       window.removeEventListener("keydown", handleGlobalKeyDown)
+      window.removeEventListener("mouseup", handleGlobalMouseUp)
     }
-  }, [handleResizeMove, handleResizeEnd, handleDelete, handleKeyDown])
+  }, [handleResizeMove, handleResizeEnd, handleDelete, handleKeyDown, handleNavigationDragEnd])
+
+  useEffect(() => {
+    if (sceneId) {
+      setIsLoadingDrawings(true);
+      fetch(`/api/drawings?sceneId=${sceneId}`)
+        .then(response => response.json())
+        .then(data => {
+          setDrawings(data);
+          setIsLoadingDrawings(false);
+        })
+        .catch(error => {
+          console.error('Error loading drawings:', error);
+          setIsLoadingDrawings(false);
+        });
+    } else {
+      setDrawings([]);
+    }
+  }, [sceneId]);
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <div
-        ref={gridRef}
-        className="flex-grow relative"
-        style={{
-          backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
+      <div 
+        ref={containerRef}
+        className="flex-grow relative overflow-auto"
+        style={{ 
+          cursor: isPanning ? 'grabbing' : 'grab',
+          userSelect: 'none' // Prevent text selection during dragging
         }}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        onClick={handleGridClick}
         onWheel={handleWheel}
+        onMouseDown={handleNavigationDragStart}
+        onMouseMove={handleNavigationDrag}
+        onMouseUp={handleNavigationDragEnd}
+        onMouseLeave={handleNavigationDragEnd}
       >
         {userRole === "DM" && (
-          <div className="absolute top-2 left-2 z-30">
-            <div
-              className="w-6 h-6 rounded-full cursor-pointer border border-black"
-              style={{ backgroundColor: gridColor === "transparent" ? "gray" : gridColor }}
-              onClick={() => setShowColorMenu(!showColorMenu)}
+          <div className="absolute top-2 left-2 z-30" style={{ 
+            position: 'sticky',
+            transform: 'none'
+          }}>
+            <DrawingToolbar
+              currentTool={currentTool}
+              onToolChange={onToolChange}
+              currentColor={currentColor}
+              onColorChange={onColorChange}
+              gridColor={gridColor}
+              onGridColorChange={onGridColorChange}
             />
-            {showColorMenu && (
-              <div className="absolute top-8 left-0 bg-white border rounded p-1.5 flex flex-col gap-1.5 scale-75 origin-top-left">
-                <Button onClick={() => handleColorChange("white")} className="bg-white text-black h-6 text-xs">White</Button>
-                <Button onClick={() => handleColorChange("black")} className="bg-black text-white h-6 text-xs">Black</Button>
-                <Button onClick={() => handleColorChange("red")} className="bg-red-500 text-white h-6 text-xs">Red</Button>
-                <Button onClick={() => handleColorChange("green")} className="bg-green-500 text-white h-6 text-xs">Green</Button>
-                <Button onClick={() => handleColorChange("gray")} className="bg-gray-500 text-white h-6 text-xs">Gray</Button>
-                <Button onClick={() => handleColorChange("hidden")} className="bg-gray-700 text-white h-6 text-xs">Hidden</Button>
-              </div>
-            )}
+                    <div className="flex items-center space-x-2">
+          <button 
+            onClick={handleZoomOut}
+            className="w-6 h-6 flex items-center justify-center bg-stone-300 hover:stone-500 rounded-full"
+            title="Zoom Out"
+          >
+            <span className="text-sm">−</span>
+          </button>
+          <div className="text-xs font-medium w-12 text-center bg-stone-300 rounded">
+            {Math.round(zoomLevel * 100)}%
+          </div>
+          <button 
+            onClick={handleZoomIn}
+            className="w-6 h-6 flex items-center justify-center bg-stone-300 hover:stone-500 rounded-full"
+            title="Zoom In"
+          >
+            <span className="text-sm">+</span>
+          </button>
+          <button 
+            onClick={handleZoomReset}
+            className="ml-1 px-2 py-1 text-xs bg-stone-300 hover:stone-500 rounded"
+            title="Reset Zoom"
+          >
+            Reset
+          </button>
+        </div>
           </div>
         )}
         <div
-          className="absolute inset-0 pointer-events-none"
+          ref={gridRef}
+          className="relative"
           style={{
-            backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
-            backgroundSize: `${gridSize}px ${gridSize}px`,
+            cursor: currentTool === "brush" ? "crosshair" : "default",
+            transform: `scale(${zoomLevel})`,
+            transformOrigin: "0 0",
+            width: imageDimensions?.width || "100%",
+            height: imageDimensions?.height || "100%",
           }}
-        />
-        {middleLayerImages.map((img) => (
+        >
           <div
-            key={img.id}
-            className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-            style={{ left: img.x, top: img.y, zIndex: 10 }}
-            draggable={true}
-            onDragStart={(e) => handleItemDragStart(e, img, false)}
-            onDrag={(e) => handleItemDrag(e)}
-            onDragEnd={handleItemDragEnd}
-            onClick={(e) => handleItemClick(e, img)}
+            className="absolute inset-0"
+            style={{
+              backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
+              backgroundSize: "contain",
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "center",
+              width: "100%",
+              height: "100%",
+            }}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onClick={handleGridClick}
+            onMouseDown={(e) => {
+              if (currentTool === 'brush') {
+                startDrawing(e);
+                // Prevent navigation drag when using brush tool
+                e.stopPropagation();
+              } else {
+                handleNavigationDragStart(e);
+              }
+            }}
+            onMouseMove={(e) => {
+              if (isDrawing && currentTool === 'brush') {
+                draw(e);
+                // Prevent navigation drag when drawing
+                e.stopPropagation();
+              } else {
+                handleNavigationDrag(e);
+              }
+            }}
+            onMouseUp={(e) => {
+              if (isDrawing && currentTool === 'brush') {
+                endDrawing(e);
+                // Prevent navigation drag end when finishing drawing
+                e.stopPropagation();
+              } else {
+                handleNavigationDragEnd(e);
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (isDrawing) {
+                endDrawing(e);
+              }
+              handleNavigationDragEnd(e);
+            }}
           >
-            <Image
-              src={img.url}
-              alt="Middle layer image"
-              width={img.width || gridSize * 2}
-              height={img.height || gridSize * 2}
-              objectFit="contain"
-            />
             <div
-              className="absolute bottom-0 right-0 w-4 h-4 bg-gray-500 cursor-se-resize"
-              onMouseDown={(e) => handleResizeStart(e, img)}
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
+                backgroundSize: `${gridSize}px ${gridSize}px`,
+                width: "100%",
+                height: "100%",
+              }}
             />
+            {middleLayerImages.map((img) => (
+              <div
+                key={img.id}
+                className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
+                style={{ left: img.x, top: img.y, zIndex: 10 }}
+                draggable={true}
+                onDragStart={(e) => handleItemDragStart(e, img, false)}
+                onDrag={(e) => handleItemDrag(e)}
+                onDragEnd={handleItemDragEnd}
+                onClick={(e) => handleItemClick(e, img)}
+              >
+                <Image
+                  src={img.url}
+                  alt="Middle layer image"
+                  width={img.width || gridSize * 2}
+                  height={img.height || gridSize * 2}
+                  style={{ objectFit: 'contain' }}
+                />
+                <div
+                  className="absolute bottom-0 right-0 w-4 h-4 bg-gray-500 cursor-se-resize"
+                  onMouseDown={(e) => handleResizeStart(e, img)}
+                />
+              </div>
+            ))}
+            <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 20 }}>
+              {drawings.map((drawing) => (
+                <path
+                  key={drawing.id}
+                  d={drawing.path}
+                  stroke={selectedDrawingIds.includes(drawing.id) ? "blue" : drawing.color}
+                  strokeWidth={selectedDrawingIds.includes(drawing.id) ? "5" : "3"}
+                  fill="none"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  onClick={(e) => handleDrawingClick(e, drawing)}
+                  className={`${currentTool === 'cursor' ? 'cursor-pointer' : ''}`}
+                  style={{ pointerEvents: currentTool === 'cursor' ? 'auto' : 'none' }}
+                />
+              ))}
+              {isDrawing && currentPath && (
+                <path
+                  d={currentPath}
+                  stroke={currentColor}
+                  strokeWidth="3"
+                  fill="none"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              )}
+            </svg>
+            {topLayerImages.map((img) => (
+              <div
+                key={img.id}
+                className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
+                style={{ left: img.x, top: img.y, zIndex: 30 }}
+                draggable={true}
+                onDragStart={(e) => handleItemDragStart(e, img, true)}
+                onDrag={(e) => handleItemDrag(e)}
+                onDragEnd={handleItemDragEnd}
+                onClick={(e) => handleItemClick(e, img)}
+              >
+                <div className="relative">
+                  <Image
+                    src={img.url}
+                    alt="Token"
+                    width={gridSize}
+                    height={gridSize}
+                    style={{ objectFit: 'contain' }}
+                    className="token-image"
+                  />
+                  {selectedIds.includes(img.id) && img.character && (
+                    <div 
+                      className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap"
+                      style={{ zIndex: 30 }}
+                    >
+                      <span className="text-sm font-semibold text-black" style={{ 
+                        textShadow: `
+                          -1px -1px 0 white,
+                          1px -1px 0 white,
+                          -1px 1px 0 white,
+                          1px 1px 0 white
+                        `
+                      }}>
+                        {img.character.Name}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {(() => {
+                  if (!selectedIds.includes(img.id) || !img.character) return null;
+                  
+                  const character = img.character;
+                  return (
+                    <div className="status-circles-container absolute -top-12 left-0 right-0 flex justify-center space-x-3" style={{ zIndex: 50 }}>
+                      {/* Guard Circle */}
+                      <div className="status-circle guard-circle relative bg-white rounded-full p-1">
+                        <div 
+                          className="w-8 h-8 rounded-full border-2 border-green-500 flex items-center justify-center text-sm cursor-pointer hover:bg-green-50"
+                          onClick={() => setStatusModal({
+                            isOpen: true,
+                            type: 'guard',
+                            currentValue: character.Guard,
+                            maxValue: character.MaxGuard,
+                            characterId: img.characterId!,
+                            character
+                          })}
+                        >
+                          {character.Guard}/{character.MaxGuard}
+                        </div>
+                        <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                          Gd
+                        </div>
+                      </div>
+                      {/* Strength Circle */}
+                      <div className="status-circle strength-circle relative bg-white rounded-full p-1">
+                        <div 
+                          className="w-8 h-8 rounded-full border-2 border-red-500 flex items-center justify-center text-sm cursor-pointer hover:bg-red-50"
+                          onClick={() => setStatusModal({
+                            isOpen: true,
+                            type: 'strength',
+                            currentValue: character.Strength,
+                            maxValue: character.MaxStrength,
+                            characterId: img.characterId!,
+                            character
+                          })}
+                        >
+                          {character.Strength}/{character.MaxStrength}
+                        </div>
+                        <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                          Str
+                        </div>
+                      </div>
+                      {/* MP Circle (only for Magic Users) */}
+                      {character.Path === "Magic User" && (
+                        <div className="status-circle mp-circle relative bg-white rounded-full p-1">
+                          <div 
+                            className="w-8 h-8 rounded-full border-2 border-blue-500 flex items-center justify-center text-sm cursor-pointer hover:bg-blue-50"
+                            onClick={() => setStatusModal({
+                              isOpen: true,
+                              type: 'mp',
+                              currentValue: character.Mp,
+                              maxValue: character.MaxMp,
+                              characterId: img.characterId!,
+                              character
+                            })}
+                          >
+                            {character.Mp}/{character.MaxMp}
+                          </div>
+                          <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-gray-500">
+                            Mp
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            ))}
           </div>
-        ))}
-        {topLayerImages.map((img) => (
-          <div
-            key={img.id}
-            className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-            style={{ left: img.x, top: img.y, zIndex: 20 }}
-            draggable={true}
-            onDragStart={(e) => handleItemDragStart(e, img, true)}
-            onDrag={(e) => handleItemDrag(e)}
-            onDragEnd={handleItemDragEnd}
-            onClick={(e) => handleItemClick(e, img)}
-          >
-            <Image
-              src={img.url}
-              alt="Token"
-              width={gridSize}
-              height={gridSize}
-              objectFit="contain"
-            />
-          </div>
-        ))}
+        </div>
       </div>
-    </div>
+      {statusModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]"
+          onClick={() => setStatusModal(null)}
+        >
+          <div 
+            className="bg-white p-6 rounded-lg shadow-lg z-[101]"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-4">
+              Update {statusModal.type === 'guard' ? 'Guard' : statusModal.type === 'strength' ? 'Strength' : 'MP'}
+            </h3>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  min="0"
+                  value={statusModal.currentValue === 0 ? '' : statusModal.currentValue}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? '' : parseInt(e.target.value);
+                    setStatusModal(prev => prev ? { ...prev, currentValue: value === '' ? 0 : value } : null);
+                  }}
+                  className="w-24 px-2 py-1 border rounded"
+                  autoFocus
+                />
+                <span>/ {statusModal.maxValue}</span>
+              </div>
+              <div className="flex justify-end">
+                <Button 
+                  onClick={() => handleStatusUpdate(statusModal.currentValue)}
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      </div>
   )
 }
 
@@ -2396,13 +4609,11 @@ File: app/components/RightSideMenu.tsx
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { MessageSquare, Users, Map, Settings, LogOut } from "lucide-react"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { MessageSquare, Users, Map, Settings, LogOut, Trash2, Save, Upload } from "lucide-react"
 import CharacterList from "./CharacterList"
 import ImageList from "./ImageList"
 import { toast } from "@/components/ui/use-toast"
-
 type MessageType = "user" | "system"
 
 interface ChatMessage {
@@ -2418,18 +4629,29 @@ import { DMImage } from "../types/image"
 interface RightSideMenuProps {
   messages: ChatMessage[]
   addMessage: (type: MessageType, content: string, username: string) => void
-  user: string
+  user: {
+    id: number;
+    username: string;
+    role: string;
+  }
   chatBackgroundColor: string
   characters: Character[]
   onAddCharacter: (category: string) => void
   onUpdateCharacter: (updatedCharacter: Character) => void
   onDeleteCharacter: (character: Character) => void
   onLogout: () => void
-  images: DMImage[];
-  onAddImage: (category: string, file: File) => Promise<void>;
-  onDeleteImage: (image: DMImage) => Promise<void>;
+  images: DMImage[]
+  onAddImage: (category: string, file: File) => Promise<void>
+  onDeleteImage: (image: DMImage) => Promise<void>
+  onRenameImage: (image: DMImage, newName: string) => Promise<void>
   onSetBackground: (url: string) => void
   onDropImage: (category: string, image: DMImage, x: number, y: number) => void
+  scenes: DMImage[]
+  onSaveScene: () => void
+  onLoadScene: (scene: DMImage) => void
+  onDeleteSceneData: (image: DMImage) => Promise<void>
+  onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
+  setImages: (images: DMImage[]) => void
 }
 
 export default function RightSideMenu({
@@ -2445,16 +4667,41 @@ export default function RightSideMenu({
   images,
   onAddImage,
   onDeleteImage,
+  onRenameImage,
   onSetBackground,
-  onDropImage,
+  onSaveScene,
+  onDeleteSceneData,
+  onUpdateSceneScale,
+  setImages,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const [activeSection, setActiveSection] = useState<"chat" | "characters" | "maps">("chat")
 
+  // Add effect to refresh images when switching to maps tab
+  useEffect(() => {
+    if (activeSection === "maps") {
+      // Simple direct refresh of images when switching to maps tab
+      const refreshImages = async () => {
+        try {
+          const response = await fetch("/api/images", { credentials: "include" });
+          if (response.ok) {
+            const updatedImages = await response.json();
+            // Directly update the images state in the parent component
+            setImages(updatedImages);
+            console.log("Images refreshed when switching to maps tab");
+          }
+        } catch (error) {
+          console.error("Error refreshing images:", error);
+        }
+      };
+      refreshImages();
+    }
+  }, [activeSection, setImages]);
+
   const handleSendMessage = () => {
     if (inputMessage.trim()) {
-      addMessage("user", inputMessage, user)
+      addMessage("user", inputMessage, user.username)
       setInputMessage("")
     }
   }
@@ -2462,14 +4709,18 @@ export default function RightSideMenu({
   const handleDragStart = (e: React.DragEvent<HTMLLIElement>, image: DMImage) => {
     e.dataTransfer.setData("imageId", image.Id.toString())
     e.dataTransfer.setData("category", image.Category)
-    e.dataTransfer.setData("url", image.Link) // Add this line
+    e.dataTransfer.setData("url", image.Link)
+    if (image.CharacterId) {
+      e.dataTransfer.setData("characterId", image.CharacterId.toString())
+      e.dataTransfer.setData("character", JSON.stringify(image))
+    }
   }
 
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
     }
-  }, [chatContainerRef]) // Removed unnecessary dependency: messages
+  }, [messages])
 
   const handleLogout = async () => {
     try {
@@ -2489,114 +4740,196 @@ export default function RightSideMenu({
     }
   }
 
+  useEffect(() => {
+    if (activeSection === "chat" && chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages, activeSection]);
+
   return (
-    <div className="w-64 flex flex-col bg-gray-100 border-l h-full">
-      <Tabs
-        value={activeSection}
-        onValueChange={(value) => setActiveSection(value as typeof activeSection)}
-        className="w-full"
-      >
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="chat" className="p-2">
-            <MessageSquare size={20} />
-          </TabsTrigger>
-          <TabsTrigger value="characters" className="p-2">
-            <Users size={20} />
-          </TabsTrigger>
-          <TabsTrigger value="maps" className="p-2">
-            <Map size={20} />
-          </TabsTrigger>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="p-2 w-full h-full">
-                <Settings size={20} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onClick={handleLogout}>
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Logout</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </TabsList>
-      </Tabs>
-      <div className="flex-grow flex flex-col overflow-hidden">
-        {activeSection === "chat" && (
-          <>
-            <h2 className="text-lg font-semibold p-4 pb-2">Chat</h2>
-            <div ref={chatContainerRef} className={`flex-grow px-4 ${chatBackgroundColor} overflow-y-auto`}>
-              <div className="space-y-2 pb-4">
-                {messages.map((message, index) => (
-                  <div key={index} className="text-sm">
-                    {message.type === "user" ? (
-                      <span className="font-semibold">
-                        {message.username} (
-                        {new Date(message.timestamp).toLocaleTimeString("en-GB", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        ):
-                      </span>
-                    ) : (
-                      <span className="font-semibold text-green-600">
-                        System (
-                        {new Date(message.timestamp).toLocaleTimeString("en-GB", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        ):
-                      </span>
-                    )}{" "}
-                    <span dangerouslySetInnerHTML={{ __html: message.content }} />
-                  </div>
-                ))}
+    <div className="w-[40rem] bg-white border-l flex flex-col" style={{ backgroundImage: 'url("images/rightsidemenu.jpeg")', backgroundSize: '100% auto', backgroundRepeat: 'repeat-y' }}>
+      <div className="p-4 border-b w-full">
+        <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as "chat" | "characters" | "maps")} className="w-full">
+          <TabsList className="grid w-full grid-cols-3 bg-stone-300">
+            <TabsTrigger value="chat">
+              <MessageSquare className="h-4 w-4" />
+            </TabsTrigger>
+            <TabsTrigger value="characters">
+              <Users className="h-4 w-4" />
+            </TabsTrigger>
+            <TabsTrigger value="maps">
+              <Map className="h-4 w-4" />
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="chat" className="w-full">
+            <div className="flex flex-col h-[calc(100vh-8rem)] w-full">
+              <h2 className="text-lg text-white font-semibold p-4 pb-2">Chat</h2>
+              <div ref={chatContainerRef} className={`flex-grow px-4 ${chatBackgroundColor} overflow-y-auto rounded bg-opacity-80`}>
+                <div className="space-y-2 pb-4">
+                  {messages.map((message, index) => {
+                    const currentDate = new Date(message.timestamp).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric"
+                    });
+                    const prevMessage = index > 0 ? messages[index - 1] : null;
+                    const prevDate = prevMessage ? new Date(prevMessage.timestamp).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric"
+                    }) : null;
+                    const showDateSeparator = prevDate && currentDate !== prevDate;
+
+                    return (
+                      <div key={index}>
+                        {showDateSeparator && (
+                          <div className="text-center text-sm text-gray-500 my-2">
+                            {currentDate}
+                          </div>
+                        )}
+                        <div className="text-sm">
+                          {message.type === "user" ? (
+                            <span className="font-semibold">{message.username}:</span>
+                          ) : (
+                            <span className="font-semibold text-blue-600">System:</span>
+                          )}{" "}
+                          <span dangerouslySetInnerHTML={{ __html: message.content }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="p-2 border-t">
+                <div className="flex h-10">
+                  <Input
+                    type="text"
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                    placeholder="Type a message..."
+                    className="flex-grow mr-2 bg-yellow-20 bg-stone-200"
+                  />
+                  <Button onClick={handleSendMessage}>Send</Button>
+                </div>
               </div>
             </div>
-            <div className="p-2 border-t">
-              <div className="flex h-10">
-                <Input
-                  type="text"
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                  placeholder="Type a message..."
-                  className="flex-grow mr-2"
+          </TabsContent>
+          <TabsContent value="characters" className="w-full">
+            <div className="p-4 w-full">
+              <h2 className="text-lg text-white font-semibold mb-4">Characters</h2>
+              <CharacterList
+                categories={["Party", "NPC", "Monster"]}
+                characters={characters}
+                onAddCharacter={onAddCharacter}
+                onUpdateCharacter={onUpdateCharacter}
+                onDeleteCharacter={onDeleteCharacter}
+                currentUser={user.id}
+                isDM={user.role === "DM"}
+              />
+            </div>
+          </TabsContent>
+          <TabsContent value="maps" className="w-full">
+            <div className="p-4 w-full">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg text-white font-semibold">Images</h3>
+                <div className="space-x-2">
+                  <Button onClick={onSaveScene} size="sm" variant="ghost" title="Save Scene" className="bg-white">
+                     <Save className="h-4 w-4" />
+                    
+                  </Button>
+                  <Button onClick={() => onAddImage("Scene", new File([], ""))} size="sm">
+                   Upload
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-4">
+                <ImageList
+                  images={images}
+                  categories={["Scene", "Image", "Token"]}
+                  onAddImage={onAddImage}
+                  onDeleteImage={onDeleteImage}
+                  onDragStart={handleDragStart}
+                  onSceneClick={onSetBackground}
+                  onDeleteSceneData={onDeleteSceneData}
+                  onRenameImage={onRenameImage}
+                  onUpdateSceneScale={onUpdateSceneScale}
+                  characters={characters}
                 />
-                <Button onClick={handleSendMessage}>Send</Button>
               </div>
             </div>
-          </>
-        )}
-        {activeSection === "characters" && (
-          <div className="p-4">
-            <h2 className="text-lg font-semibold mb-4">Characters</h2>
-            <CharacterList
-              categories={["Party", "NPC", "Monster"]}
-              characters={characters}
-              onAddCharacter={onAddCharacter}
-              onUpdateCharacter={onUpdateCharacter}
-              onDeleteCharacter={onDeleteCharacter}
-            />
-          </div>
-        )}
-         {activeSection === "maps" && (
-          <div className="p-4">
-            <h2 className="text-lg font-semibold mb-4">Maps</h2>
-            <ImageList
-              images={images}
-              categories={["Scene", "Image", "Token"]}
-              onAddImage={onAddImage}
-              onDeleteImage={onDeleteImage}
-              onDragStart={handleDragStart}
-              onSceneClick={onSetBackground}
-            />
-          </div>
-        )}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )
 }
+
+================
+File: app/components/ui/button.tsx
+================
+import * as React from "react"
+import { cn } from "@/lib/utils"
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'default' | 'ghost'
+  size?: 'default' | 'icon'
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant = 'default', size = 'default', ...props }, ref) => {
+    return (
+      <button
+        className={cn(
+          "inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none",
+          variant === 'default' && "bg-primary text-primary-foreground hover:bg-primary/90",
+          variant === 'ghost' && "hover:bg-accent hover:text-accent-foreground",
+          size === 'default' && "h-10 py-2 px-4",
+          size === 'icon' && "h-10 w-10",
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+    )
+  }
+)
+Button.displayName = "Button"
+
+export { Button }
+
+================
+File: app/components/ui/popover.tsx
+================
+import * as React from "react"
+import * as PopoverPrimitive from "@radix-ui/react-popover"
+import { cn } from "@/lib/utils"
+
+const Popover = PopoverPrimitive.Root
+
+const PopoverTrigger = PopoverPrimitive.Trigger
+
+const PopoverContent = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
+>(({ className, align = "center", sideOffset = 4, ...props }, ref) => (
+  <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Content
+      ref={ref}
+      align={align}
+      sideOffset={sideOffset}
+      className={cn(
+        "z-50 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        className
+      )}
+      {...props}
+    />
+  </PopoverPrimitive.Portal>
+))
+PopoverContent.displayName = PopoverPrimitive.Content.displayName
+
+export { Popover, PopoverTrigger, PopoverContent }
 
 ================
 File: app/globals.css
@@ -2668,7 +5001,34 @@ File: app/globals.css
     --ring: 212.7 26.8% 83.9%;
   }
 }
- 
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px; /* Width of the entire scrollbar */
+}
+
+::-webkit-scrollbar-track {
+  background-color: rgba(207, 198, 198, 0.505); /* Track color: Transparent */
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: stone-300; /* Thumb color: Stone */
+  border-radius: 4px; /* Rounded corners for the thumb */
+  border: 1px solid #a8a876; /* Outline for the thumb */
+}
+
+::-webkit-scrollbar-corner {
+  background-color: rgba(207, 198, 198, 0.505);
+}
+
+::-webkit-scrollbar-button:hover {
+  background-color: #c0c096; /* Darker thumb color on hover */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #c0c096; /* Darker thumb color on hover */
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -2710,6 +5070,26 @@ export default function RootLayout({
 }
 
 ================
+File: app/lib/db.ts
+================
+import Database from 'better-sqlite3'
+
+const db = new Database('./database.db')
+
+export { db }
+
+================
+File: app/lib/prisma.ts
+================
+import { PrismaClient } from '@prisma/client'
+
+const globalForPrisma = global as unknown as { prisma: PrismaClient }
+
+export const prisma = globalForPrisma.prisma || new PrismaClient()
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+
+================
 File: app/page.tsx
 ================
 import dynamic from "next/dynamic"
@@ -2736,28 +5116,30 @@ export interface Character {
   Name: string
   Description: string
   Path: string
-  Category: string
+  Category?: string // Capitalized (optional)
+  category?: string // Lowercase (optional, for safety)
+  UserId: number
   PortraitUrl?: string
   TokenUrl?: string
-  Age: number
-  Level: number
-  Guard: number
-  Armor: number
-  MaxGuard: number
-  Strength: number
-  MaxStrength: number
-  Dexternity: number
-  MaxDexternity: number
-  Mind: number
-  MaxMind: number
-  Charisma: number
-  MaxCharisma: number
-  Skill: number
-  MaxSkill: number
-  Mp: number
-  MaxMp: number
-  InventoryId: number
-  JobId: number | null
+  Age?: number
+  Level?: number
+  Armor?: number
+  Guard?: number
+  MaxGuard?: number
+  Strength?: number
+  MaxStrength?: number
+  Dexternity?: number
+  MaxDexternity?: number
+  Mind?: number
+  MaxMind?: number
+  Charisma?: number
+  MaxCharisma?: number
+  Skill?: number
+  MaxSkill?: number
+  Mp?: number
+  MaxMp?: number
+  InventoryId?: number | null
+  JobId?: number | null
 }
 
 ================
@@ -2769,6 +5151,18 @@ export type DMImage = {
   Link: string;
   Category: "Scene" | "Image" | "Token";
   UserId: number;
+  SceneData?: string; // JSON string containing scene configuration
+  CharacterId?: number; // Reference to the character this token represents
+  Character?: {
+    Name: string;
+    Path: string;
+    Guard: number;
+    MaxGuard: number;
+    Strength: number;
+    MaxStrength: number;
+    Mp: number;
+    MaxMp: number;
+  };
 };
 
 ================
@@ -2781,6 +5175,17 @@ export type LayerImage = {
     y: number
     width?: number // Optional for images, not used for tokens
     height?: number // Optional for images, not used for tokens
+    characterId?: number // Optional: ID of the character this token represents
+    character?: {
+      Name: string
+      Path: string
+      Guard: number
+      MaxGuard: number
+      Strength: number
+      MaxStrength: number
+      Mp: number
+      MaxMp: number
+    }
   }
 
 ================
@@ -8488,6 +10893,7 @@ File: package.json
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
     "@libsql/client": "latest",
+    "@prisma/client": "^6.4.1",
     "@radix-ui/react-accordion": "^1.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.4",
     "@radix-ui/react-aspect-ratio": "^1.1.1",
@@ -8501,7 +10907,7 @@ File: package.json
     "@radix-ui/react-label": "^2.1.1",
     "@radix-ui/react-menubar": "^1.1.4",
     "@radix-ui/react-navigation-menu": "^1.2.3",
-    "@radix-ui/react-popover": "latest",
+    "@radix-ui/react-popover": "^1.1.6",
     "@radix-ui/react-progress": "^1.1.1",
     "@radix-ui/react-radio-group": "^1.2.2",
     "@radix-ui/react-scroll-area": "^1.2.2",
@@ -8515,11 +10921,13 @@ File: package.json
     "@radix-ui/react-toggle": "^1.1.1",
     "@radix-ui/react-toggle-group": "^1.1.1",
     "@radix-ui/react-tooltip": "^1.1.6",
+    "@types/better-sqlite3": "^7.6.12",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vercel/blob": "latest",
     "autoprefixer": "^10.4.20",
     "bcryptjs": "latest",
+    "better-sqlite3": "^11.8.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
@@ -8547,6 +10955,7 @@ File: package.json
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "postcss": "^8",
+    "prisma": "^6.4.1",
     "tailwindcss": "^3.4.17",
     "typescript": "^5"
   }
@@ -8563,6 +10972,35 @@ const config = {
 };
 
 export default config;
+
+================
+File: prisma/schema.prisma
+================
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  username  String    @unique
+  password  String
+  role      String
+  drawings  Drawing[]
+}
+
+model Drawing {
+  id        String   @id
+  path      String
+  color     String
+  createdBy Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [createdBy], references: [id])
+}
 
 ================
 File: public/placeholder-logo.svg
