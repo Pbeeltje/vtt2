@@ -31,10 +31,16 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
   const [editingDescription, setEditingDescription] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadingToken, setUploadingToken] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const tokenFileInputRef = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [newJobName, setNewJobName] = useState('');
+  const [editingJob, setEditingJob] = useState<number | null>(null); // Track which job is being edited
+  const [jobForm, setJobForm] = useState<{ name: string; description: string | null; tier: number }>({
+    name: '',
+    description: null,
+    tier: 0,
+  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const tokenFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -287,6 +293,61 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
     }
   };
 
+  const handleJobEdit = (job: Job) => {
+    setEditingJob(job.JobId);
+    setJobForm({ name: job.Name, description: job.Description, tier: job.Tier });
+  };
+
+  const handleJobFormChange = (field: keyof typeof jobForm, value: string | number) => {
+    if (jobForm) {
+      setJobForm({
+        ...jobForm,
+        [field]: field === 'tier' ? parseInt(value as string) || 0 : value,
+      });
+    }
+  };
+
+  const handleJobSubmit = async (jobId: number) => {
+    if (!jobForm) return;
+
+    try {
+      const response = await fetch(`/api/characters/${character.CharacterId}/jobs/${jobId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: jobForm.name,
+          description: jobForm.description,
+          tier: jobForm.tier,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to update job: ${response.statusText}`);
+      }
+
+      const updatedJob: Job = await response.json();
+      setJobs(prevJobs =>
+        prevJobs.map(j => (j.JobId === updatedJob.JobId ? updatedJob : j))
+      );
+      setEditingJob(null);
+      setJobForm({ name: '', description: null, tier: 0 });
+
+      toast({
+        title: "Job Updated",
+        description: "Job details have been saved successfully.",
+      });
+    } catch (error: any) {
+      console.error("Error updating job:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update job. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]"
@@ -297,7 +358,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
       }}
     >
       <div
-        className="bg-white p-6 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto relative z-[101]" // Increased max-w-2xl to max-w-3xl
+        className="bg-white p-6 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto relative z-[101]"
         onClick={e => e.stopPropagation()}
         onMouseDown={e => e.stopPropagation()}
         onMouseUp={e => e.stopPropagation()}
@@ -324,9 +385,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
           <TabsContent value="stats" className="min-h-[500px]">
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-2 gap-6">
-                {/* Left Column: Name, Level + Age, Description */}
                 <div className="space-y-6">
-                  {/* Name */}
                   <div>
                     <Label htmlFor="Name">Name</Label>
                     <div className="flex items-center">
@@ -354,14 +413,10 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                       )}
                     </div>
                   </div>
-
-                  {/* Level and Age */}
                   <div className="grid grid-cols-2 gap-4">
                     {renderField("Level", "Level", "number")}
                     {renderField("Age", "Age", "number")}
                   </div>
-
-                  {/* Description */}
                   <div>
                     <Label htmlFor="Description">Description</Label>
                     <div className="flex items-start">
@@ -390,10 +445,7 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                     </div>
                   </div>
                 </div>
-
-                {/* Right Column: Portrait and Token */}
                 <div className="space-y-6">
-                  {/* Portrait */}
                   <div className="flex flex-col items-center">
                     <div className="w-50 h-50 bg-gray-200 rounded-lg overflow-hidden">
                       {editedCharacter.PortraitUrl ? (
@@ -435,8 +487,6 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                       <Upload className="ml-2 h-4 w-4" />
                     </Button>
                   </div>
-
-                  {/* Token */}
                   <div className="flex flex-col items-center">
                     <div className="w-16 h-16 bg-gray-200 rounded-lg overflow-hidden">
                       {editedCharacter.TokenUrl ? (
@@ -480,17 +530,11 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                   </div>
                 </div>
               </div>
-
-              {/* Path */}
               {renderPathField()}
-
-              {/* Guard and Armor */}
               <div className="grid grid-cols-2 gap-4">
                 {renderField("Guard", "Guard", "number", "MaxGuard")}
                 {renderField("Armor", "Armor", "number")}
               </div>
-
-              {/* Remaining Stats */}
               <div className="grid grid-cols-2 gap-4">
                 {renderField("Strength", "Strength", "number", "MaxStrength")}
                 {renderField("Dexterity", "Dexternity", "number", "MaxDexternity")}
@@ -499,8 +543,6 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
                 {editedCharacter.Path === "Warrior" && renderField("Skill", "Skill", "number", "MaxSkill")}
                 {editedCharacter.Path === "Magic User" && renderField("MP", "Mp", "number", "MaxMp")}
               </div>
-
-              {/* Save/Cancel Buttons */}
               <div className="flex justify-end space-x-2 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={onClose}>
                   Cancel
@@ -514,10 +556,75 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
           <TabsContent value="jobs" className="min-h-[500px]">
             <div className="space-y-4">
               {jobs.length > 0 ? (
-                <ul>
+                <ul className="space-y-4">
                   {jobs.map((job) => (
-                    <li key={job.JobId}>
-                      {job.Name} - {job.Description} (Tier {job.Tier})
+                    <li key={job.JobId} className="border p-4 rounded-lg">
+                      {editingJob === job.JobId ? (
+                        <div className="space-y-2">
+                          <div>
+                            <Label htmlFor={`job-name-${job.JobId}`}>Name</Label>
+                            <Input
+                              id={`job-name-${job.JobId}`}
+                              value={jobForm?.name || ''}
+                              onChange={(e) => handleJobFormChange('name', e.target.value)}
+                              className="w-full max-w-xs"
+                              autoFocus
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`job-tier-${job.JobId}`}>Tier</Label>
+                            <Input
+                              id={`job-tier-${job.JobId}`}
+                              type="number"
+                              value={jobForm?.tier || 0}
+                              onChange={(e) => handleJobFormChange('tier', e.target.value)}
+                              className="w-16"
+                              min={0}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`job-desc-${job.JobId}`}>Description</Label>
+                            <Textarea
+                              id={`job-desc-${job.JobId}`}
+                              value={jobForm?.description || ''}
+                              onChange={(e) => handleJobFormChange('description', e.target.value)}
+                              className="w-full min-h-[100px]"
+                            />
+                          </div>
+                          <div className="flex space-x-2">
+                            <Button
+                              size="sm"
+                              onClick={() => handleJobSubmit(job.JobId)}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => { setEditingJob(null); setJobForm({ name: '', description: null, tier: 0 }); }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="font-medium">{job.Name} (Tier {job.Tier})</span>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {job.Description || 'No description provided'}
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleJobEdit(job)}
+                            className="ml-2"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
