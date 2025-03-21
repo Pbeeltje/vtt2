@@ -95,6 +95,7 @@ app/lib/prisma.ts
 app/page.tsx
 app/types/character.ts
 app/types/image.ts
+app/types/inventory.ts
 app/types/layerImage.ts
 app/types/user.ts
 components.json
@@ -237,12 +238,26 @@ export async function PUT(request: Request, { params }: { params: { id: string; 
 ================
 File: app/api/characters/[id]/inventory/route.ts
 ================
+// app/inventory/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@libsql/client';
 
+// Define types for inventory data
+interface InventoryItem {
+  slot: number;
+  name: string;
+  description: string | null;
+}
+
+interface Inventory {
+  Inventoryid: number;
+  CharacterId: number;
+  Contents: InventoryItem[];
+}
+
 // Initialize the libSQL client for Turso
 const client = createClient({
-  url: process.env.TURSO_DATABASE_URL || '', // e.g., "libsql://your-database.turso.io"
+  url: process.env.TURSO_DATABASE_URL || '',
   authToken: process.env.TURSO_AUTH_TOKEN || '',
 });
 
@@ -263,18 +278,10 @@ export async function GET(req: NextRequest) {
       args: [charId],
     });
 
-    let inventoryData: {
-      Inventoryid: number;
-      CharacterId: number;
-      Contents: Array<{
-        slot: number;
-        name: string;
-        description: string | null;
-      }>;
-    };
+    let inventoryData: Inventory;
     if (result.rows.length === 0) {
       // Initialize the inventory with 16 empty slots
-      const initialContents = Array.from({ length: 16 }, (_, i) => ({
+      const initialContents: InventoryItem[] = Array.from({ length: 16 }, (_, i) => ({
         slot: i + 1,
         name: '',
         description: null,
@@ -292,20 +299,20 @@ export async function GET(req: NextRequest) {
       inventoryData = {
         Inventoryid: newResult.rows[0].inventory_id as number,
         CharacterId: newResult.rows[0].character_id as number,
-        Contents: JSON.parse(newResult.rows[0].contents as string),
+        Contents: JSON.parse(newResult.rows[0].contents as string) as InventoryItem[],
       };
     } else {
       inventoryData = {
         Inventoryid: result.rows[0].inventory_id as number,
         CharacterId: result.rows[0].character_id as number,
-        Contents: JSON.parse(result.rows[0].contents as string),
+        Contents: JSON.parse(result.rows[0].contents as string) as InventoryItem[],
       };
 
       // Ensure the contents array has exactly 16 slots
       if (!Array.isArray(inventoryData.Contents) || inventoryData.Contents.length !== 16) {
         const allSlots = Array.from({ length: 16 }, (_, i) => i + 1);
-        const newContents = allSlots.map(slot => {
-          const existingItem = inventoryData.Contents.find((item: any) => item.slot === slot);
+        const newContents: InventoryItem[] = allSlots.map(slot => {
+          const existingItem = inventoryData.Contents.find((item) => item.slot === slot);
           return existingItem || { slot, name: '', description: null };
         });
         await client.execute({
@@ -316,12 +323,54 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Sort by slot number (should already be in order, but just to be safe)
-    inventoryData.Contents.sort((a: any, b: any) => (a.slot || 0) - (b.slot || 0));
+    // Sort by slot number
+    inventoryData.Contents.sort((a, b) => a.slot - b.slot);
     return NextResponse.json(inventoryData);
   } catch (error) {
     console.error('Error fetching inventory:', error);
     return NextResponse.json({ error: 'Failed to fetch inventory' }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { characterId, contents } = body;
+
+    if (!characterId || !contents) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    // Check if inventory already exists
+    const existing = await client.execute({
+      sql: 'SELECT * FROM inventory WHERE character_id = ?',
+      args: [characterId],
+    });
+
+    if (existing.rows.length > 0) {
+      return NextResponse.json({ error: 'Inventory already exists for this character' }, { status: 400 });
+    }
+
+    await client.execute({
+      sql: 'INSERT INTO inventory (character_id, contents) VALUES (?, ?)',
+      args: [characterId, JSON.stringify(contents)],
+    });
+
+    const newResult = await client.execute({
+      sql: 'SELECT * FROM inventory WHERE character_id = ?',
+      args: [characterId],
+    });
+
+    const newInventory: Inventory = {
+      Inventoryid: newResult.rows[0].inventory_id as number,
+      CharacterId: newResult.rows[0].character_id as number,
+      Contents: JSON.parse(newResult.rows[0].contents as string) as InventoryItem[],
+    };
+
+    return NextResponse.json(newInventory);
+  } catch (error) {
+    console.error('Error creating inventory:', error);
+    return NextResponse.json({ error: 'Failed to create inventory' }, { status: 500 });
   }
 }
 
@@ -334,6 +383,15 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
+    const existing = await client.execute({
+      sql: 'SELECT * FROM inventory WHERE inventory_id = ?',
+      args: [inventoryId],
+    });
+
+    if (existing.rows.length === 0) {
+      return NextResponse.json({ error: 'Inventory not found' }, { status: 404 });
+    }
+
     await client.execute({
       sql: 'UPDATE inventory SET contents = ? WHERE inventory_id = ?',
       args: [JSON.stringify(contents), inventoryId],
@@ -343,10 +401,10 @@ export async function PUT(req: NextRequest) {
       sql: 'SELECT * FROM inventory WHERE inventory_id = ?',
       args: [inventoryId],
     });
-    const updatedData = {
+    const updatedData: Inventory = {
       Inventoryid: updatedInventory.rows[0].inventory_id as number,
       CharacterId: updatedInventory.rows[0].character_id as number,
-      Contents: JSON.parse(updatedInventory.rows[0].contents as string),
+      Contents: JSON.parse(updatedInventory.rows[0].contents as string) as InventoryItem[],
     };
     return NextResponse.json(updatedData);
   } catch (error) {
@@ -1928,14 +1986,14 @@ export function StatsTab({ character, onUpdate, onClose }: StatsTabProps) {
           </div>
           <div className="space-y-6">
             <FileUploader
-              imageUrl={editedCharacter.PortraitUrl}
+              imageUrl={editedCharacter.PortraitUrl ?? null}
               onUpload={(url) => setEditedCharacter(prev => ({ ...prev, PortraitUrl: url }))}
               label="Portrait"
               width={50}
               height={50}
             />
             <FileUploader
-              imageUrl={editedCharacter.TokenUrl}
+              imageUrl={editedCharacter.TokenUrl ?? null}
               onUpload={(url) => setEditedCharacter(prev => ({ ...prev, TokenUrl: url }))}
               label="Token"
               width={16}
@@ -5476,6 +5534,7 @@ File: app/hooks/useInventory.ts
 import { useState, useEffect } from 'react';
 import { toast } from "@/components/ui/use-toast";
 
+// Define types locally to avoid import issues
 interface InventoryItem {
   slot: number;
   name: string;
@@ -5501,7 +5560,9 @@ export function useInventory(characterId: number) {
     const fetchInventory = async () => {
       try {
         const response = await fetch(`/inventory?characterId=${characterId}`);
-        if (!response.ok) throw new Error(`Failed to fetch inventory: ${response.statusText}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch inventory: ${response.statusText}`);
+        }
         const data: Inventory = await response.json();
         setInventory(data);
         console.log("Fetched inventory:", data.Contents);
@@ -5525,7 +5586,7 @@ export function useInventory(characterId: number) {
   const handleInventoryEdit = (slot: number) => {
     setEditingSlot(slot);
     const item = inventory?.Contents.find(item => item.slot === slot) || { slot, name: '', description: null };
-    setInventoryForm({ name: item.name, description: item.description, slot: item.slot });
+    setInventoryForm({ name: item.name, description: item.description ?? null, slot: item.slot });
   };
 
   const handleInventoryFormChange = (field: keyof typeof inventoryForm, value: string | number) => {
@@ -5539,16 +5600,42 @@ export function useInventory(characterId: number) {
 
   const handleInventorySubmit = async (slot: number) => {
     if (!inventory || !inventoryForm) return;
+
     try {
-      const updatedContents = inventory.Contents.map(item =>
+      let inventoryId = inventory.Inventoryid;
+      let contents = inventory.Contents;
+
+      // If inventory doesn't exist (Inventoryid is -1), create a new one
+      if (inventoryId === -1) {
+        const initialContents = Array.from({ length: 16 }, (_, i) => ({
+          slot: i + 1,
+          name: '',
+          description: null,
+        }));
+        const createResponse = await fetch(`/inventory?characterId=${characterId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ characterId, contents: initialContents }),
+        });
+        if (!createResponse.ok) throw new Error(`Failed to create inventory: ${createResponse.statusText}`);
+        const createdInventory: Inventory = await createResponse.json();
+        inventoryId = createdInventory.Inventoryid;
+        contents = createdInventory.Contents;
+        setInventory(createdInventory);
+      }
+
+      // Update the contents with the new data
+      const updatedContents = contents.map(item =>
         item.slot === slot
           ? { slot, name: inventoryForm.name, description: inventoryForm.description }
           : item
       );
+
+      // Update the inventory
       const response = await fetch(`/inventory`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inventoryId: inventory.Inventoryid, contents: updatedContents }),
+        body: JSON.stringify({ inventoryId, contents: updatedContents }),
       });
       if (!response.ok) throw new Error(`Failed to update inventory: ${response.statusText}`);
       const updatedInventory: Inventory = await response.json();
@@ -5564,14 +5651,40 @@ export function useInventory(characterId: number) {
 
   const handleClearSlot = async (slot: number) => {
     if (!inventory) return;
+
     try {
-      const updatedContents = inventory.Contents.map(item =>
+      let inventoryId = inventory.Inventoryid;
+      let contents = inventory.Contents;
+
+      // If inventory doesn't exist (Inventoryid is -1), create a new one
+      if (inventoryId === -1) {
+        const initialContents = Array.from({ length: 16 }, (_, i) => ({
+          slot: i + 1,
+          name: '',
+          description: null,
+        }));
+        const createResponse = await fetch(`/inventory?characterId=${characterId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ characterId, contents: initialContents }),
+        });
+        if (!createResponse.ok) throw new Error(`Failed to create inventory: ${createResponse.statusText}`);
+        const createdInventory: Inventory = await createResponse.json();
+        inventoryId = createdInventory.Inventoryid;
+        contents = createdInventory.Contents;
+        setInventory(createdInventory);
+      }
+
+      // Update the contents to clear the slot
+      const updatedContents = contents.map(item =>
         item.slot === slot ? { slot, name: '', description: null } : item
       );
+
+      // Update the inventory
       const response = await fetch(`/inventory`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inventoryId: inventory.Inventoryid, contents: updatedContents }),
+        body: JSON.stringify({ inventoryId, contents: updatedContents }),
       });
       if (!response.ok) throw new Error(`Failed to clear slot: ${response.statusText}`);
       const updatedInventory: Inventory = await response.json();
@@ -5812,6 +5925,22 @@ export type DMImage = {
     MaxMp: number;
   };
 };
+
+================
+File: app/types/inventory.ts
+================
+// types/inventory.ts
+export interface InventoryItem {
+    slot: number;
+    name: string;
+    description: string | null;
+  }
+  
+  export interface Inventory {
+    Inventoryid: number;
+    CharacterId: number;
+    Contents: InventoryItem[];
+  }
 
 ================
 File: app/types/layerImage.ts
