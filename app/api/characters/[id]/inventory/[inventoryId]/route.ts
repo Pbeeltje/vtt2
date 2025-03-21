@@ -25,9 +25,6 @@ export async function PUT(request: Request, { params }: { params: { id: string; 
     return NextResponse.json(updatedInventory.rows[0]);
   } catch (error) {
     console.error('Error updating inventory:', error);
-    return NextResponse.json(
-      { error: 'Failed to update inventory' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to update inventory' }, { status: 500 });
   }
 }

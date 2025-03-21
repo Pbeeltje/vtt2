@@ -46,6 +46,8 @@ Additional Info:
 Directory Structure
 ================================================================
 .gitignore
+app/api/characters/[id]/inventory/[inventoryId]/route.ts
+app/api/characters/[id]/inventory/route.ts
 app/api/characters/[id]/jobs/[jobId]/route.ts
 app/api/characters/[id]/jobs/route.ts
 app/api/characters/[id]/route.ts
@@ -64,8 +66,13 @@ app/api/scenes/route.ts
 app/api/upload/route.ts
 app/api/user/route.ts
 app/components/BottomBar.tsx
+app/components/character-popup/CharacterPopup.tsx
+app/components/character-popup/EditableField.tsx
+app/components/character-popup/FileUploader.tsx
+app/components/character-popup/InventoryTab.tsx
+app/components/character-popup/JobsTab.tsx
+app/components/character-popup/StatsTab.tsx
 app/components/CharacterList.tsx
-app/components/CharacterPopup.tsx
 app/components/DrawingLayer.tsx
 app/components/DrawingToolbar.tsx
 app/components/EncounterButton.tsx
@@ -79,6 +86,9 @@ app/components/RightSideMenu.tsx
 app/components/ui/button.tsx
 app/components/ui/popover.tsx
 app/globals.css
+app/hooks/useCharacter.ts
+app/hooks/useInventory.ts
+app/hooks/useJobs.ts
 app/layout.tsx
 app/lib/db.ts
 app/lib/prisma.ts
@@ -191,6 +201,161 @@ yarn-error.log*
 next-env.d.ts
 
 ================
+File: app/api/characters/[id]/inventory/[inventoryId]/route.ts
+================
+import { NextResponse } from 'next/server';
+import { createClient } from '@libsql/client';
+
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || '',
+  authToken: process.env.TURSO_AUTH_TOKEN || '',
+});
+
+export async function PUT(request: Request, { params }: { params: { id: string; inventoryId: string } }) {
+  const characterId = parseInt(params.id);
+  const inventoryId = parseInt(params.inventoryId);
+  const { contents } = await request.json();
+  try {
+    const result = await client.execute({
+      sql: 'UPDATE Inventory SET Contents = ? WHERE Inventoryid = ? AND CharacterId = ?',
+      args: [JSON.stringify(contents), inventoryId, characterId],
+    });
+    if (result.rowsAffected === 0) {
+      return NextResponse.json({ error: 'Inventory not found' }, { status: 404 });
+    }
+    const updatedInventory = await client.execute({
+      sql: 'SELECT * FROM Inventory WHERE Inventoryid = ?',
+      args: [inventoryId],
+    });
+    return NextResponse.json(updatedInventory.rows[0]);
+  } catch (error) {
+    console.error('Error updating inventory:', error);
+    return NextResponse.json({ error: 'Failed to update inventory' }, { status: 500 });
+  }
+}
+
+================
+File: app/api/characters/[id]/inventory/route.ts
+================
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@libsql/client';
+
+// Initialize the libSQL client for Turso
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || '', // e.g., "libsql://your-database.turso.io"
+  authToken: process.env.TURSO_AUTH_TOKEN || '',
+});
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const characterId = searchParams.get('characterId');
+
+  if (!characterId || isNaN(parseInt(characterId))) {
+    return NextResponse.json({ error: 'Invalid character ID' }, { status: 400 });
+  }
+
+  const charId = parseInt(characterId);
+
+  try {
+    // Fetch the inventory for the character
+    const result = await client.execute({
+      sql: 'SELECT * FROM inventory WHERE character_id = ?',
+      args: [charId],
+    });
+
+    let inventoryData: {
+      Inventoryid: number;
+      CharacterId: number;
+      Contents: Array<{
+        slot: number;
+        name: string;
+        description: string | null;
+      }>;
+    };
+    if (result.rows.length === 0) {
+      // Initialize the inventory with 16 empty slots
+      const initialContents = Array.from({ length: 16 }, (_, i) => ({
+        slot: i + 1,
+        name: '',
+        description: null,
+      }));
+      await client.execute({
+        sql: 'INSERT INTO inventory (character_id, contents) VALUES (?, ?)',
+        args: [charId, JSON.stringify(initialContents)],
+      });
+
+      // Fetch the newly created inventory
+      const newResult = await client.execute({
+        sql: 'SELECT * FROM inventory WHERE character_id = ?',
+        args: [charId],
+      });
+      inventoryData = {
+        Inventoryid: newResult.rows[0].inventory_id as number,
+        CharacterId: newResult.rows[0].character_id as number,
+        Contents: JSON.parse(newResult.rows[0].contents as string),
+      };
+    } else {
+      inventoryData = {
+        Inventoryid: result.rows[0].inventory_id as number,
+        CharacterId: result.rows[0].character_id as number,
+        Contents: JSON.parse(result.rows[0].contents as string),
+      };
+
+      // Ensure the contents array has exactly 16 slots
+      if (!Array.isArray(inventoryData.Contents) || inventoryData.Contents.length !== 16) {
+        const allSlots = Array.from({ length: 16 }, (_, i) => i + 1);
+        const newContents = allSlots.map(slot => {
+          const existingItem = inventoryData.Contents.find((item: any) => item.slot === slot);
+          return existingItem || { slot, name: '', description: null };
+        });
+        await client.execute({
+          sql: 'UPDATE inventory SET contents = ? WHERE character_id = ?',
+          args: [JSON.stringify(newContents), charId],
+        });
+        inventoryData.Contents = newContents;
+      }
+    }
+
+    // Sort by slot number (should already be in order, but just to be safe)
+    inventoryData.Contents.sort((a: any, b: any) => (a.slot || 0) - (b.slot || 0));
+    return NextResponse.json(inventoryData);
+  } catch (error) {
+    console.error('Error fetching inventory:', error);
+    return NextResponse.json({ error: 'Failed to fetch inventory' }, { status: 500 });
+  }
+}
+
+export async function PUT(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { inventoryId, contents } = body;
+
+    if (!inventoryId || !contents) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    await client.execute({
+      sql: 'UPDATE inventory SET contents = ? WHERE inventory_id = ?',
+      args: [JSON.stringify(contents), inventoryId],
+    });
+
+    const updatedInventory = await client.execute({
+      sql: 'SELECT * FROM inventory WHERE inventory_id = ?',
+      args: [inventoryId],
+    });
+    const updatedData = {
+      Inventoryid: updatedInventory.rows[0].inventory_id as number,
+      CharacterId: updatedInventory.rows[0].character_id as number,
+      Contents: JSON.parse(updatedInventory.rows[0].contents as string),
+    };
+    return NextResponse.json(updatedData);
+  } catch (error) {
+    console.error('Error updating inventory:', error);
+    return NextResponse.json({ error: 'Failed to update inventory' }, { status: 500 });
+  }
+}
+
+================
 File: app/api/characters/[id]/jobs/[jobId]/route.ts
 ================
 import { NextResponse } from 'next/server';
@@ -213,7 +378,7 @@ export async function PUT(
 
   const characterId = parseInt(params.id);
   const jobId = parseInt(params.jobId);
-  const { description } = await request.json();
+  const { name, description, tier } = await request.json();
 
   try {
     const characterCheck = await client.execute({
@@ -221,13 +386,17 @@ export async function PUT(
       args: [characterId],
     });
 
-    if (characterCheck.rows.length === 0 || characterCheck.rows[0].UserId !== user.id) {
-      return NextResponse.json({ error: 'Character not found or not authorized' }, { status: 403 });
+    if (characterCheck.rows.length === 0) {
+      return NextResponse.json({ error: 'Character not found' }, { status: 404 });
+    }
+
+    if (user.role !== 'DM' && characterCheck.rows[0].UserId !== user.id) {
+      return NextResponse.json({ error: 'Not authorized to update this character' }, { status: 403 });
     }
 
     const result = await client.execute({
-      sql: 'UPDATE Job SET Description = ? WHERE JobId = ? AND CharacterId = ?',
-      args: [description, jobId, characterId],
+      sql: 'UPDATE Job SET Name = ?, Description = ?, Tier = ? WHERE JobId = ? AND CharacterId = ?',
+      args: [name, description, tier, jobId, characterId],
     });
 
     if (result.rowsAffected === 0) {
@@ -1290,6 +1459,514 @@ export default function BottomBar({ onDiceRoll, onPhaseChange }: BottomBarProps)
 }
 
 ================
+File: app/components/character-popup/CharacterPopup.tsx
+================
+// components/character-popup/CharacterPopup.tsx
+'use client'
+
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { X } from 'lucide-react';
+import { Character } from '../../types/character';
+import { StatsTab } from './StatsTab';
+import { JobsTab } from './JobsTab';
+import { InventoryTab } from './InventoryTab';
+
+interface CharacterPopupProps {
+  character: Character;
+  onClose: () => void;
+  onUpdate: (updatedCharacter: Character) => void;
+}
+
+export default function CharacterPopup({ character, onClose, onUpdate }: CharacterPopupProps) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white p-6 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto relative z-[101]" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()}>
+        <Button variant="ghost" size="icon" className="absolute top-2 right-2" onClick={onClose}><X className="h-4 w-4" /></Button>
+        <Tabs defaultValue="stats" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()}>
+          <TabsList>
+            <TabsTrigger value="stats">Stats</TabsTrigger>
+            <TabsTrigger value="jobs">Jobs</TabsTrigger>
+            <TabsTrigger value="inventory">Inventory</TabsTrigger>
+          </TabsList>
+          <TabsContent value="stats">
+            <StatsTab character={character} onUpdate={onUpdate} onClose={onClose} />
+          </TabsContent>
+          <TabsContent value="jobs">
+            <JobsTab characterId={character.CharacterId} />
+          </TabsContent>
+          <TabsContent value="inventory">
+            <InventoryTab characterId={character.CharacterId} maxStrength={character.MaxStrength || 0} />
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+}
+
+================
+File: app/components/character-popup/EditableField.tsx
+================
+// components/character-popup/EditableField.tsx
+import { useState, useEffect, useRef } from 'react';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Edit2 } from 'lucide-react';
+
+interface EditableFieldProps {
+  value: string;
+  onChange: (value: string) => void;
+  isTextarea?: boolean;
+  className?: string;
+}
+
+export function EditableField({ value, onChange, isTextarea = false, className }: EditableFieldProps) {
+  const [editing, setEditing] = useState(false);
+  const [tempValue, setTempValue] = useState(value);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [editing]);
+
+  const handleSave = () => {
+    onChange(tempValue);
+    setEditing(false);
+  };
+
+  return (
+    <div className="flex items-center">
+      {editing ? (
+        isTextarea ? (
+          <Textarea
+            ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+            value={tempValue}
+            onChange={(e) => setTempValue(e.target.value)}
+            onBlur={handleSave}
+            className={`mt-1 w-full min-h-[150px] ${className}`}
+          />
+        ) : (
+          <Input
+            ref={inputRef as React.RefObject<HTMLInputElement>}
+            value={tempValue}
+            onChange={(e) => setTempValue(e.target.value)}
+            onBlur={handleSave}
+            className={`mt-1 w-full max-w-xs ${className}`}
+          />
+        )
+      ) : (
+        <>
+          <span className={`mr-2 ${className}`}>{value}</span>
+          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(true); }}>
+            <Edit2 className="h-4 w-4" />
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+================
+File: app/components/character-popup/FileUploader.tsx
+================
+// components/character-popup/FileUploader.tsx
+import { useState, useRef } from 'react';
+import Image from 'next/image';
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/use-toast";
+import { Upload } from 'lucide-react';
+
+interface FileUploaderProps {
+  imageUrl: string | null;
+  onUpload: (url: string) => void;
+  label: string;
+  width: number;
+  height: number;
+  isToken?: boolean;
+}
+
+export function FileUploader({ imageUrl, onUpload, label, width, height, isToken = false }: FileUploaderProps) {
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast({ title: "Error", description: "Image size exceeds 5MB.", variant: "destructive" });
+        return;
+      }
+      setUploading(true);
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const response = await fetch('/api/imgur-upload', { method: 'POST', body: formData });
+        if (!response.ok) throw new Error('Failed to upload image');
+        const { url } = await response.json();
+        onUpload(url);
+        toast({ title: `${label} Uploaded`, description: `${label} uploaded successfully!` });
+      } catch (error) {
+        console.error(`Error uploading ${label.toLowerCase()}:`, error);
+        toast({ title: "Error", description: `Failed to upload ${label.toLowerCase()}.`, variant: "destructive" });
+      } finally {
+        setUploading(false);
+      }
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center">
+      <div className={`w-${width} h-${height} bg-gray-200 rounded-lg overflow-hidden`}>
+        {imageUrl ? (
+          uploading ? (
+            <div className="w-full h-full flex items-center justify-center text-gray-400">Uploading...</div>
+          ) : (
+            <Image src={imageUrl} alt={`${label} of character`} width={width * 4} height={height * 4} style={{ objectFit: isToken ? 'cover' : 'contain' }} />
+          )
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">{`No ${label}`}</div>
+        )}
+      </div>
+      <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" ref={fileInputRef} />
+      <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+        {uploading ? 'Uploading...' : `Upload ${label}`} <Upload className="ml-2 h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
+================
+File: app/components/character-popup/InventoryTab.tsx
+================
+// components/character-popup/InventoryTab.tsx
+import { useInventory } from '../../hooks/useInventory';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Edit2, Trash2 } from 'lucide-react';
+
+interface InventoryTabProps {
+  characterId: number;
+  maxStrength: number;
+}
+
+export function InventoryTab({ characterId, maxStrength }: InventoryTabProps) {
+  const { inventory, editingSlot, inventoryForm, handleInventoryEdit, handleInventoryFormChange, handleInventorySubmit, handleClearSlot } = useInventory(characterId);
+
+  const maxCarrySlots = Math.ceil((maxStrength || 0) / 2);
+  const totalSlots = 16;
+  const availableSlots = Math.min(maxCarrySlots, totalSlots - 4) + 4;
+  const allSlots = Array.from({ length: 16 }, (_, i) => i + 1);
+
+  return (
+    <div className="min-h-[500px]">
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold mb-2">Belt & Hand (Slots 1–4)</h3>
+          <ul className="grid grid-cols-2 gap-4">
+            {allSlots.slice(0, 4).map(slot => {
+              const item = inventory?.Contents.find(item => item.slot === slot) || { slot, name: '', description: null };
+              return (
+                <li key={slot} className="border p-4 rounded-lg">
+                  {editingSlot === slot ? (
+                    <div className="space-y-2">
+                      <div>
+                        <Label htmlFor={`inv-name-${slot}`}>Name</Label>
+                        <Input id={`inv-name-${slot}`} value={inventoryForm?.name || ''} onChange={(e) => handleInventoryFormChange('name', e.target.value)} className="w-full max-w-[200px]" autoFocus />
+                      </div>
+                      <div>
+                        <Label htmlFor={`inv-slot-${slot}`}>Slot</Label>
+                        <Input id={`inv-slot-${slot}`} type="number" value={slot} disabled className="w-16" />
+                      </div>
+                      <div>
+                        <Label htmlFor={`inv-desc-${slot}`}>Description</Label>
+                        <Textarea id={`inv-desc-${slot}`} value={inventoryForm?.description || ''} onChange={(e) => handleInventoryFormChange('description', e.target.value)} className="w-full max-w-[200px] min-h-[100px]" />
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button size="sm" onClick={() => handleInventorySubmit(slot)}>Save</Button>
+                        <Button size="sm" variant="outline" onClick={() => { handleInventoryEdit(0); }}>Cancel</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="font-medium">Slot {slot}: {item.name || 'Empty'}</span>
+                        <p className="text-sm text-muted-foreground mt-1">{item.description || 'No description'}</p>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button variant="ghost" size="sm" onClick={() => handleInventoryEdit(slot)}><Edit2 className="h-4 w-4" /></Button>
+                        {item.name && (
+                          <Button variant="ghost" size="sm" onClick={() => handleClearSlot(slot)}><Trash2 className="h-4 w-4" /></Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold mb-2">Pack (Slots 5–16)</h3>
+          <ul className="grid grid-cols-2 gap-4">
+            {allSlots.slice(4, 16).map(slot => {
+              const item = inventory?.Contents.find(item => item.slot === slot) || { slot, name: '', description: null };
+              const isOverCapacity = slot > availableSlots;
+              return (
+                <li key={slot} className={`border p-4 rounded-lg ${isOverCapacity ? 'bg-red-100' : ''}`}>
+                  {editingSlot === slot ? (
+                    <div className="space-y-2">
+                      <div>
+                        <Label htmlFor={`inv-name-${slot}`}>Name</Label>
+                        <Input id={`inv-name-${slot}`} value={inventoryForm?.name || ''} onChange={(e) => handleInventoryFormChange('name', e.target.value)} className="w-full max-w-[200px]" autoFocus />
+                      </div>
+                      <div>
+                        <Label htmlFor={`inv-slot-${slot}`}>Slot</Label>
+                        <Input id={`inv-slot-${slot}`} type="number" value={slot} disabled className="w-16" />
+                      </div>
+                      <div>
+                        <Label htmlFor={`inv-desc-${slot}`}>Description</Label>
+                        <Textarea id={`inv-desc-${slot}`} value={inventoryForm?.description || ''} onChange={(e) => handleInventoryFormChange('description', e.target.value)} className="w-full max-w-[200px] min-h-[100px]" />
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button size="sm" onClick={() => handleInventorySubmit(slot)}>Save</Button>
+                        <Button size="sm" variant="outline" onClick={() => { handleInventoryEdit(0); }}>Cancel</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="font-medium">Slot {slot}: {item.name || 'Empty'}</span>
+                        <p className="text-sm text-muted-foreground mt-1">{item.description || 'No description'}</p>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button variant="ghost" size="sm" onClick={() => handleInventoryEdit(slot)}><Edit2 className="h-4 w-4" /></Button>
+                        {item.name && (
+                          <Button variant="ghost" size="sm" onClick={() => handleClearSlot(slot)}><Trash2 className="h-4 w-4" /></Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+================
+File: app/components/character-popup/JobsTab.tsx
+================
+// components/character-popup/JobsTab.tsx
+import { useJobs } from '../../hooks/useJobs';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Edit2 } from 'lucide-react';
+
+interface JobsTabProps {
+  characterId: number;
+}
+
+export function JobsTab({ characterId }: JobsTabProps) {
+  const { jobs, newJobName, setNewJobName, editingJob, jobForm, handleAddJob, handleJobEdit, handleJobFormChange, handleJobSubmit } = useJobs(characterId);
+
+  return (
+    <div className="min-h-[500px]">
+      <div className="space-y-4">
+        {jobs.length > 0 ? (
+          <ul className="space-y-4">
+            {jobs.map((job) => (
+              <li key={job.JobId} className="border p-4 rounded-lg">
+                {editingJob === job.JobId ? (
+                  <div className="space-y-2">
+                    <div>
+                      <Label htmlFor={`job-name-${job.JobId}`}>Name</Label>
+                      <Input id={`job-name-${job.JobId}`} value={jobForm?.name || ''} onChange={(e) => handleJobFormChange('name', e.target.value)} className="w-full max-w-xs" autoFocus />
+                    </div>
+                    <div>
+                      <Label htmlFor={`job-tier-${job.JobId}`}>Tier</Label>
+                      <Input id={`job-tier-${job.JobId}`} type="number" value={jobForm?.tier || 0} onChange={(e) => handleJobFormChange('tier', e.target.value)} className="w-16" min={0} />
+                    </div>
+                    <div>
+                      <Label htmlFor={`job-desc-${job.JobId}`}>Description</Label>
+                      <Textarea id={`job-desc-${job.JobId}`} value={jobForm?.description || ''} onChange={(e) => handleJobFormChange('description', e.target.value)} className="w-full min-h-[100px]" />
+                    </div>
+                    <div className="flex space-x-2">
+                      <Button size="sm" onClick={() => handleJobSubmit(job.JobId)}>Save</Button>
+                      <Button size="sm" variant="outline" onClick={() => { handleJobEdit({ ...job, JobId: -1 }); }}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="font-medium">{job.Name} (Tier {job.Tier})</span>
+                      <p className="text-sm text-muted-foreground mt-1">{job.Description || 'No description provided'}</p>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => handleJobEdit(job)} className="ml-2"><Edit2 className="h-4 w-4" /></Button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>Jobless..</p>
+        )}
+        <form onSubmit={handleAddJob} className="mt-4">
+          <div className="flex items-center space-x-2">
+            <Input type="text" placeholder="New Job Name" value={newJobName} onChange={(e) => setNewJobName(e.target.value)} className="w-full max-w-xs" />
+            <Button type="submit" size="sm">Add Job</Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+================
+File: app/components/character-popup/StatsTab.tsx
+================
+// components/character-popup/StatsTab.tsx
+import { Character } from '../../types/character';
+import { useCharacter } from '../../hooks/useCharacter';
+import { EditableField } from './EditableField';
+import { FileUploader } from './FileUploader';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+interface StatsTabProps {
+  character: Character;
+  onUpdate: (updatedCharacter: Character) => void;
+  onClose: () => void;
+}
+
+export function StatsTab({ character, onUpdate, onClose }: StatsTabProps) {
+  const { editedCharacter, setEditedCharacter, handleInputChange, handleSubmit } = useCharacter(character, onUpdate);
+
+  const renderField = (label: string, name: string, type: string = "text", maxField?: string) => (
+    <div className="space-y-1">
+      <Label htmlFor={name}>{label}</Label>
+      <div className="flex items-center space-x-2">
+        <Input
+          id={name}
+          name={name}
+          type={type}
+          value={editedCharacter[name as keyof Character] ?? ''}
+          onChange={handleInputChange}
+          className={type === "number" ? "w-16" : "w-full max-w-xs"}
+          {...(type === "number" ? { min: 0, max: 99 } : {})}
+        />
+        {maxField && (
+          <>
+            <span>/</span>
+            <Input
+              id={maxField}
+              name={maxField}
+              type="number"
+              value={editedCharacter[maxField as keyof Character] ?? ''}
+              onChange={handleInputChange}
+              className="w-16"
+              min={0}
+              max={99}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderPathField = () => (
+    <div className="space-y-1">
+      <Label htmlFor="Path">Path</Label>
+      <select
+        id="Path"
+        name="Path"
+        value={editedCharacter.Path || "Warrior"}
+        onChange={handleInputChange}
+        className="w-full max-w-xs h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+      >
+        <option value="Warrior">Warrior</option>
+        <option value="Magic User">Magic User</option>
+      </select>
+    </div>
+  );
+
+  return (
+    <div className="min-h-[500px]">
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid grid-cols-2 gap-6">
+          <div className="space-y-6">
+            <div>
+              <Label htmlFor="Name">Name</Label>
+              <EditableField
+                value={editedCharacter.Name}
+                onChange={(value) => setEditedCharacter(prev => ({ ...prev, Name: value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {renderField("Level", "Level", "number")}
+              {renderField("Age", "Age", "number")}
+            </div>
+            <div>
+              <Label htmlFor="Description">Description</Label>
+              <EditableField
+                value={editedCharacter.Description || ''}
+                onChange={(value) => setEditedCharacter(prev => ({ ...prev, Description: value }))}
+                isTextarea
+                className="min-h-[150px]"
+              />
+            </div>
+          </div>
+          <div className="space-y-6">
+            <FileUploader
+              imageUrl={editedCharacter.PortraitUrl}
+              onUpload={(url) => setEditedCharacter(prev => ({ ...prev, PortraitUrl: url }))}
+              label="Portrait"
+              width={50}
+              height={50}
+            />
+            <FileUploader
+              imageUrl={editedCharacter.TokenUrl}
+              onUpload={(url) => setEditedCharacter(prev => ({ ...prev, TokenUrl: url }))}
+              label="Token"
+              width={16}
+              height={16}
+              isToken
+            />
+          </div>
+        </div>
+        {renderPathField()}
+        <div className="grid grid-cols-2 gap-4">
+          {renderField("Guard", "Guard", "number", "MaxGuard")}
+          {renderField("Armor", "Armor", "number")}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          {renderField("Strength", "Strength", "number", "MaxStrength")}
+          {renderField("Dexterity", "Dexternity", "number", "MaxDexternity")}
+          {renderField("Mind", "Mind", "number", "MaxMind")}
+          {renderField("Charisma", "Charisma", "number", "MaxCharisma")}
+          {editedCharacter.Path === "Warrior" && renderField("Skill", "Skill", "number", "MaxSkill")}
+          {editedCharacter.Path === "Magic User" && renderField("MP", "Mp", "number", "MaxMp")}
+        </div>
+        <div className="flex justify-end space-x-2 pt-4 border-t">
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit">Save</Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+================
 File: app/components/CharacterList.tsx
 ================
 "use client"
@@ -1300,7 +1977,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Trash2 } from "lucide-react"
-import CharacterPopup from "./CharacterPopup"
+import CharacterPopup from "./character-popup/CharacterPopup"
 import type { Character } from "../types/character"
 
 const CATEGORIES = ["Party", "NPC", "Monster"] as const
@@ -1473,632 +2150,6 @@ export default function CharacterList({
       )}
     </Tabs>
   )
-}
-
-================
-File: app/components/CharacterPopup.tsx
-================
-'use client'
-
-import { useState, useRef, useEffect } from 'react';
-import Image from 'next/image';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "@/components/ui/use-toast";
-import { X, Edit2, Upload } from 'lucide-react';
-import { Textarea } from "@/components/ui/textarea";
-import { Character } from '../types/character';
-
-interface CharacterPopupProps {
-  character: Character;
-  onClose: () => void;
-  onUpdate: (updatedCharacter: Character) => void;
-}
-
-interface Job {
-  JobId: number;
-  Name: string;
-  Description: string | null;
-  Tier: number;
-  CharacterId: number;
-}
-
-export default function CharacterPopup({ character, onClose, onUpdate }: CharacterPopupProps) {
-  const [editedCharacter, setEditedCharacter] = useState<Character>(character);
-  const [editingName, setEditingName] = useState(false);
-  const [editingDescription, setEditingDescription] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadingToken, setUploadingToken] = useState(false);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [newJobName, setNewJobName] = useState('');
-  const [editingJobDescription, setEditingJobDescription] = useState<number | null>(null); // Track which job is being edited
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const tokenFileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setEditedCharacter(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log("Submitting character with Path:", editedCharacter.Path);
-    try {
-      const response = await fetch(`/api/characters/${character.CharacterId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(editedCharacter),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update character');
-      }
-      const updatedCharacter = await response.json();
-      console.log("Character updated successfully:", updatedCharacter);
-      onUpdate(updatedCharacter);
-      toast({
-        title: "Character Updated",
-        description: "Your changes have been saved successfully.",
-      });
-    } catch (error) {
-      console.error('Error updating character:', error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update character. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "Error",
-          description: "Image size exceeds 5MB limit. Please choose a smaller file.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      setUploading(true);
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const response = await fetch('/api/imgur-upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(`Failed to upload image: ${errorData.error || response.statusText}`);
-        }
-
-        const { url } = await response.json();
-        setEditedCharacter(prev => ({ ...prev, PortraitUrl: url }));
-
-        toast({
-          title: "Portrait Uploaded",
-          description: "Your character's portrait has been uploaded successfully. Don't forget to save your changes!",
-        });
-      } catch (error) {
-        console.error('Error uploading portrait:', error);
-        toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to upload portrait. Please try again.",
-          variant: "destructive",
-        });
-      } finally {
-        setUploading(false);
-      }
-    }
-  };
-
-  const handleTokenFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "Error",
-          description: "Image size exceeds 5MB limit. Please choose a smaller file.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      setUploadingToken(true);
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const response = await fetch('/api/imgur-upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(`Failed to upload image: ${errorData.error || response.statusText}`);
-        }
-
-        const { url } = await response.json();
-        setEditedCharacter(prev => ({ ...prev, TokenUrl: url }));
-
-        toast({
-          title: "Token Uploaded",
-          description: "Your character's token has been uploaded successfully. Don't forget to save your changes!",
-        });
-      } catch (error) {
-        console.error('Error uploading token:', error);
-        toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to upload token. Please try again.",
-          variant: "destructive",
-        });
-      } finally {
-        setUploadingToken(false);
-      }
-    }
-  };
-
-  const renderField = (label: string, name: string, type: string = "text", maxField?: string) => (
-    <div className="space-y-1">
-      <Label htmlFor={name}>{label}</Label>
-      <div className="flex items-center space-x-2">
-        <Input
-          id={name}
-          name={name}
-          type={type}
-          value={editedCharacter[name as keyof Character] ?? ''}
-          onChange={handleInputChange}
-          className={type === "number" ? "w-16" : "w-full max-w-xs"}
-          {...(type === "number" ? { min: 0, max: 99 } : {})}
-        />
-        {maxField && (
-          <>
-            <span>/</span>
-            <Input
-              id={maxField}
-              name={maxField}
-              type="number"
-              value={editedCharacter[maxField as keyof Character] ?? ''}
-              onChange={handleInputChange}
-              className="w-16"
-              min={0}
-              max={99}
-            />
-          </>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderPathField = () => (
-    <div className="space-y-1">
-      <Label htmlFor="Path">Path</Label>
-      <select
-        id="Path"
-        name="Path"
-        value={editedCharacter.Path || "Warrior"}
-        onChange={(e) => {
-          console.log("Path changed to:", e.target.value);
-          setEditedCharacter(prev => ({ ...prev, Path: e.target.value }));
-        }}
-        className="w-full max-w-xs h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-      >
-        <option value="Warrior">Warrior</option>
-        <option value="Magic User">Magic User</option>
-      </select>
-    </div>
-  );
-
-  const handleEditClick = (e: React.MouseEvent, field: 'name' | 'description') => {
-    e.stopPropagation();
-    if (field === 'name') setEditingName(true);
-    if (field === 'description') setEditingDescription(true);
-  };
-
-  useEffect(() => {
-    const fetchJobs = async () => {
-      try {
-        const response = await fetch(`/api/characters/${character.CharacterId}/jobs`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch jobs: ${response.statusText}`);
-        }
-        const data: Job[] = await response.json();
-        setJobs(data);
-      } catch (error: any) {
-        console.error("Error fetching jobs:", error);
-        toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to fetch jobs. Please try again.",
-          variant: "destructive",
-        });
-      }
-    };
-    fetchJobs();
-  }, [character.CharacterId]);
-
-  const handleAddJob = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newJobName) {
-      toast({
-        title: "Error",
-        description: "Job name is required.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/characters/${character.CharacterId}/jobs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: newJobName, description: null, tier: 1 }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to add job: ${response.statusText}`);
-      }
-
-      const newJob: Job = await response.json();
-      setJobs([...jobs, newJob]);
-      setNewJobName('');
-
-      toast({
-        title: "Job Added",
-        description: `${newJob.Name} has been added successfully.`,
-      });
-    } catch (error: any) {
-      console.error("Error adding job:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add job. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleJobDescriptionChange = (jobId: number, value: string) => {
-    setJobs(prevJobs =>
-      prevJobs.map(job =>
-        job.JobId === jobId ? { ...job, Description: value } : job
-      )
-    );
-  };
-
-  const handleJobDescriptionSubmit = async (job: Job) => {
-    try {
-      const response = await fetch(`/api/characters/${character.CharacterId}/jobs/${job.JobId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ description: job.Description }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to update job: ${response.statusText}`);
-      }
-
-      const updatedJob: Job = await response.json();
-      setJobs(prevJobs =>
-        prevJobs.map(j => (j.JobId === updatedJob.JobId ? updatedJob : j))
-      );
-      setEditingJobDescription(null);
-
-      toast({
-        title: "Job Updated",
-        description: "Job description has been saved successfully.",
-      });
-    } catch (error: any) {
-      console.error("Error updating job description:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update job description. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      <div
-        className="bg-white p-6 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto relative z-[101]"
-        onClick={e => e.stopPropagation()}
-        onMouseDown={e => e.stopPropagation()}
-        onMouseUp={e => e.stopPropagation()}
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute top-2 right-2"
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-        <Tabs
-          defaultValue="stats"
-          onClick={e => e.stopPropagation()}
-          onMouseDown={e => e.stopPropagation()}
-          onMouseUp={e => e.stopPropagation()}
-        >
-          <TabsList>
-            <TabsTrigger value="stats">Stats</TabsTrigger>
-            <TabsTrigger value="jobs">Jobs</TabsTrigger>
-            <TabsTrigger value="inventory">Inventory</TabsTrigger>
-          </TabsList>
-          <TabsContent value="stats" className="min-h-[500px]">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-6">
-                  <div>
-                    <Label htmlFor="Name">Name</Label>
-                    <div className="flex items-center">
-                      {editingName ? (
-                        <Input
-                          id="Name"
-                          name="Name"
-                          value={editedCharacter.Name}
-                          onChange={handleInputChange}
-                          onBlur={() => setEditingName(false)}
-                          className="mt-1 w-full max-w-xs"
-                          autoFocus
-                        />
-                      ) : (
-                        <>
-                          <span className="mr-2">{editedCharacter.Name}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => handleEditClick(e, 'name')}
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField("Level", "Level", "number")}
-                    {renderField("Age", "Age", "number")}
-                  </div>
-                  <div>
-                    <Label htmlFor="Description">Description</Label>
-                    <div className="flex items-start">
-                      {editingDescription ? (
-                        <Textarea
-                          id="Description"
-                          name="Description"
-                          value={editedCharacter.Description}
-                          onChange={handleInputChange}
-                          onBlur={() => setEditingDescription(false)}
-                          className="mt-1 w-full min-h-[150px]"
-                          autoFocus
-                        />
-                      ) : (
-                        <>
-                          <p className="mr-2 min-h-[150px]">{editedCharacter.Description}</p>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => handleEditClick(e, 'description')}
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-6">
-                  <div className="flex flex-col items-center">
-                    <div className="w-50 h-50 bg-gray-200 rounded-lg overflow-hidden">
-                      {editedCharacter.PortraitUrl ? (
-                        uploading ? (
-                          <div className="w-full h-full flex items-center justify-center text-gray-400">
-                            Uploading...
-                          </div>
-                        ) : (
-                          <Image
-                            src={editedCharacter.PortraitUrl || "/placeholder.svg"}
-                            alt={`Portrait of ${editedCharacter.Name}`}
-                            width={250}
-                            height={250}
-                            style={{ objectFit: 'contain' }}
-                          />
-                        )
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-400">
-                          No Image
-                        </div>
-                      )}
-                    </div>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="hidden"
-                      ref={fileInputRef}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-2"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploading}
-                    >
-                      {uploading ? 'Uploading...' : 'Upload Portrait'}
-                      <Upload className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <div className="w-16 h-16 bg-gray-200 rounded-lg overflow-hidden">
-                      {editedCharacter.TokenUrl ? (
-                        uploadingToken ? (
-                          <div className="w-full h-full flex items-center justify-center text-gray-400">
-                            Uploading...
-                          </div>
-                        ) : (
-                          <Image
-                            src={editedCharacter.TokenUrl}
-                            alt={`Token of ${editedCharacter.Name}`}
-                            width={64}
-                            height={64}
-                            style={{ objectFit: 'cover' }}
-                          />
-                        )
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                          No Token
-                        </div>
-                      )}
-                    </div>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleTokenFileChange}
-                      className="hidden"
-                      ref={tokenFileInputRef}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-2"
-                      onClick={() => tokenFileInputRef.current?.click()}
-                      disabled={uploadingToken}
-                    >
-                      {uploadingToken ? 'Uploading...' : 'Upload Token'}
-                      <Upload className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              {renderPathField()}
-              <div className="grid grid-cols-2 gap-4">
-                {renderField("Guard", "Guard", "number", "MaxGuard")}
-                {renderField("Armor", "Armor", "number")}
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                {renderField("Strength", "Strength", "number", "MaxStrength")}
-                {renderField("Dexterity", "Dexternity", "number", "MaxDexternity")}
-                {renderField("Mind", "Mind", "number", "MaxMind")}
-                {renderField("Charisma", "Charisma", "number", "MaxCharisma")}
-                {editedCharacter.Path === "Warrior" && renderField("Skill", "Skill", "number", "MaxSkill")}
-                {editedCharacter.Path === "Magic User" && renderField("MP", "Mp", "number", "MaxMp")}
-              </div>
-              <div className="flex justify-end space-x-2 pt-4 border-t">
-                <Button type="button" variant="outline" onClick={onClose}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  Save
-                </Button>
-              </div>
-            </form>
-          </TabsContent>
-          <TabsContent value="jobs" className="min-h-[500px]">
-            <div className="space-y-4">
-              {jobs.length > 0 ? (
-                <ul className="space-y-4">
-                  {jobs.map((job) => (
-                    <li key={job.JobId} className="border p-4 rounded-lg">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">{job.Name} (Tier {job.Tier})</span>
-                      </div>
-                      <div className="mt-2">
-                        {editingJobDescription === job.JobId ? (
-                          <div className="space-y-2">
-                            <Textarea
-                              value={job.Description || ''}
-                              onChange={(e) => handleJobDescriptionChange(job.JobId, e.target.value)}
-                              className="w-full min-h-[100px]"
-                              autoFocus
-                            />
-                            <div className="flex space-x-2">
-                              <Button
-                                size="sm"
-                                onClick={() => handleJobDescriptionSubmit(job)}
-                              >
-                                Save
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setEditingJobDescription(null)}
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-start">
-                            <p className="text-sm text-muted-foreground flex-1">
-                              {job.Description || 'No description provided'}
-                            </p>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setEditingJobDescription(job.JobId)}
-                              className="ml-2"
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>Jobless..</p>
-              )}
-              <form onSubmit={handleAddJob} className="mt-4">
-                <div className="flex items-center space-x-2">
-                  <Input
-                    type="text"
-                    placeholder="New Job Name"
-                    value={newJobName}
-                    onChange={(e) => setNewJobName(e.target.value)}
-                    className="w-full max-w-xs"
-                  />
-                  <Button type="submit" size="sm">
-                    Add Job
-                  </Button>
-                </div>
-              </form>
-            </div>
-          </TabsContent>
-          <TabsContent value="inventory" className="min-h-[500px]">
-            <div className="space-y-4">
-              <p>Inventory information coming soon...</p>
-              <div className="h-full flex items-center justify-center text-gray-500">
-                <p>Under construction - Check back later!</p>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
-  );
 }
 
 ================
@@ -5372,6 +5423,267 @@ File: app/globals.css
   body {
     @apply bg-background text-foreground;
   }
+}
+
+================
+File: app/hooks/useCharacter.ts
+================
+// hooks/useCharacter.ts
+import { useState } from 'react';
+import { toast } from "@/components/ui/use-toast";
+import { Character } from '../types/character';
+
+export function useCharacter(initialCharacter: Character, onUpdate: (updatedCharacter: Character) => void) {
+  const [editedCharacter, setEditedCharacter] = useState<Character>(initialCharacter);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setEditedCharacter(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const response = await fetch(`/api/characters/${editedCharacter.CharacterId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editedCharacter),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update character');
+      }
+      const updatedCharacter = await response.json();
+      onUpdate(updatedCharacter);
+      toast({ title: "Character Updated", description: "Your changes have been saved successfully." });
+    } catch (error) {
+      console.error('Error updating character:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update character.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return { editedCharacter, setEditedCharacter, handleInputChange, handleSubmit };
+}
+
+================
+File: app/hooks/useInventory.ts
+================
+// hooks/useInventory.ts
+import { useState, useEffect } from 'react';
+import { toast } from "@/components/ui/use-toast";
+
+interface InventoryItem {
+  slot: number;
+  name: string;
+  description?: string | null;
+}
+
+interface Inventory {
+  Inventoryid: number;
+  Contents: InventoryItem[];
+  CharacterId: number;
+}
+
+export function useInventory(characterId: number) {
+  const [inventory, setInventory] = useState<Inventory | null>(null);
+  const [editingSlot, setEditingSlot] = useState<number | null>(null);
+  const [inventoryForm, setInventoryForm] = useState<{ name: string; description: string | null; slot: number }>({
+    name: '',
+    description: null,
+    slot: 0,
+  });
+
+  useEffect(() => {
+    const fetchInventory = async () => {
+      try {
+        const response = await fetch(`/inventory?characterId=${characterId}`);
+        if (!response.ok) throw new Error(`Failed to fetch inventory: ${response.statusText}`);
+        const data: Inventory = await response.json();
+        setInventory(data);
+        console.log("Fetched inventory:", data.Contents);
+      } catch (error: any) {
+        console.error("Error fetching inventory:", error);
+        toast({ title: "Error", description: "Failed to fetch inventory.", variant: "destructive" });
+        setInventory({
+          Inventoryid: -1,
+          CharacterId: characterId,
+          Contents: Array.from({ length: 16 }, (_, i) => ({
+            slot: i + 1,
+            name: '',
+            description: null,
+          })),
+        });
+      }
+    };
+    fetchInventory();
+  }, [characterId]);
+
+  const handleInventoryEdit = (slot: number) => {
+    setEditingSlot(slot);
+    const item = inventory?.Contents.find(item => item.slot === slot) || { slot, name: '', description: null };
+    setInventoryForm({ name: item.name, description: item.description, slot: item.slot });
+  };
+
+  const handleInventoryFormChange = (field: keyof typeof inventoryForm, value: string | number) => {
+    if (inventoryForm) {
+      setInventoryForm({
+        ...inventoryForm,
+        [field]: field === 'slot' ? parseInt(value as string) || 0 : value,
+      });
+    }
+  };
+
+  const handleInventorySubmit = async (slot: number) => {
+    if (!inventory || !inventoryForm) return;
+    try {
+      const updatedContents = inventory.Contents.map(item =>
+        item.slot === slot
+          ? { slot, name: inventoryForm.name, description: inventoryForm.description }
+          : item
+      );
+      const response = await fetch(`/inventory`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inventoryId: inventory.Inventoryid, contents: updatedContents }),
+      });
+      if (!response.ok) throw new Error(`Failed to update inventory: ${response.statusText}`);
+      const updatedInventory: Inventory = await response.json();
+      setInventory(updatedInventory);
+      setEditingSlot(null);
+      setInventoryForm({ name: '', description: null, slot: 0 });
+      toast({ title: "Inventory Updated", description: `Slot ${slot} saved successfully.` });
+    } catch (error: any) {
+      console.error("Error updating inventory:", error);
+      toast({ title: "Error", description: "Failed to update inventory.", variant: "destructive" });
+    }
+  };
+
+  const handleClearSlot = async (slot: number) => {
+    if (!inventory) return;
+    try {
+      const updatedContents = inventory.Contents.map(item =>
+        item.slot === slot ? { slot, name: '', description: null } : item
+      );
+      const response = await fetch(`/inventory`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inventoryId: inventory.Inventoryid, contents: updatedContents }),
+      });
+      if (!response.ok) throw new Error(`Failed to clear slot: ${response.statusText}`);
+      const updatedInventory: Inventory = await response.json();
+      setInventory(updatedInventory);
+      toast({ title: "Slot Cleared", description: `Slot ${slot} cleared.` });
+    } catch (error: any) {
+      console.error("Error clearing slot:", error);
+      toast({ title: "Error", description: "Failed to clear slot.", variant: "destructive" });
+    }
+  };
+
+  return { inventory, editingSlot, inventoryForm, handleInventoryEdit, handleInventoryFormChange, handleInventorySubmit, handleClearSlot };
+}
+
+================
+File: app/hooks/useJobs.ts
+================
+// hooks/useJobs.ts
+import { useState, useEffect } from 'react';
+import { toast } from "@/components/ui/use-toast";
+
+interface Job {
+  JobId: number;
+  Name: string;
+  Description: string | null;
+  Tier: number;
+  CharacterId: number;
+}
+
+export function useJobs(characterId: number) {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [newJobName, setNewJobName] = useState('');
+  const [editingJob, setEditingJob] = useState<number | null>(null);
+  const [jobForm, setJobForm] = useState<{ name: string; description: string | null; tier: number }>({
+    name: '',
+    description: null,
+    tier: 0,
+  });
+
+  useEffect(() => {
+    const fetchJobs = async () => {
+      try {
+        const response = await fetch(`/api/characters/${characterId}/jobs`);
+        if (!response.ok) throw new Error(`Failed to fetch jobs: ${response.statusText}`);
+        const data: Job[] = await response.json();
+        setJobs(data);
+      } catch (error: any) {
+        console.error("Error fetching jobs:", error);
+        toast({ title: "Error", description: "Failed to fetch jobs.", variant: "destructive" });
+      }
+    };
+    fetchJobs();
+  }, [characterId]);
+
+  const handleAddJob = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newJobName) {
+      toast({ title: "Error", description: "Job name is required.", variant: "destructive" });
+      return;
+    }
+    try {
+      const response = await fetch(`/api/characters/${characterId}/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newJobName, description: null, tier: 1 }),
+      });
+      if (!response.ok) throw new Error(`Failed to add job: ${response.statusText}`);
+      const newJob: Job = await response.json();
+      setJobs([...jobs, newJob]);
+      setNewJobName('');
+      toast({ title: "Job Added", description: `${newJob.Name} added successfully.` });
+    } catch (error: any) {
+      console.error("Error adding job:", error);
+      toast({ title: "Error", description: "Failed to add job.", variant: "destructive" });
+    }
+  };
+
+  const handleJobEdit = (job: Job) => {
+    setEditingJob(job.JobId);
+    setJobForm({ name: job.Name, description: job.Description, tier: job.Tier });
+  };
+
+  const handleJobFormChange = (field: keyof typeof jobForm, value: string | number) => {
+    if (jobForm) {
+      setJobForm({
+        ...jobForm,
+        [field]: field === 'tier' ? parseInt(value as string) || 0 : value,
+      });
+    }
+  };
+
+  const handleJobSubmit = async (jobId: number) => {
+    if (!jobForm) return;
+    try {
+      const response = await fetch(`/api/characters/${characterId}/jobs/${jobId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jobForm),
+      });
+      if (!response.ok) throw new Error(`Failed to update job: ${response.statusText}`);
+      const updatedJob: Job = await response.json();
+      setJobs(prevJobs => prevJobs.map(j => (j.JobId === updatedJob.JobId ? updatedJob : j)));
+      setEditingJob(null);
+      setJobForm({ name: '', description: null, tier: 0 });
+      toast({ title: "Job Updated", description: "Job saved successfully." });
+    } catch (error: any) {
+      console.error("Error updating job:", error);
+      toast({ title: "Error", description: "Failed to update job.", variant: "destructive" });
+    }
+  };
+
+  return { jobs, newJobName, setNewJobName, editingJob, jobForm, handleAddJob, handleJobEdit, handleJobFormChange, handleJobSubmit };
 }
 
 ================

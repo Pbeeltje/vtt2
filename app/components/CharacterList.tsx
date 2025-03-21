@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Trash2 } from "lucide-react"
-import CharacterPopup from "./CharacterPopup"
+import CharacterPopup from "./character-popup/CharacterPopup"
 import type { Character } from "../types/character"
 
 const CATEGORIES = ["Party", "NPC", "Monster"] as const
