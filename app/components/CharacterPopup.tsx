@@ -25,6 +25,18 @@ interface Job {
   CharacterId: number;
 }
 
+interface InventoryItem {
+  name: string;
+  description?: string | null;
+  slot: number;
+}
+
+interface Inventory {
+  Inventoryid: number;
+  Contents: InventoryItem[] | string; // JSON string from DB, parsed to array
+  CharacterId: number;
+}
+
 export default function CharacterPopup({ character, onClose, onUpdate }: CharacterPopupProps) {
   const [editedCharacter, setEditedCharacter] = useState<Character>(character);
   const [editingName, setEditingName] = useState(false);
@@ -33,12 +45,20 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
   const [uploadingToken, setUploadingToken] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [newJobName, setNewJobName] = useState('');
-  const [editingJob, setEditingJob] = useState<number | null>(null); // Track which job is being edited
+  const [editingJob, setEditingJob] = useState<number | null>(null);
   const [jobForm, setJobForm] = useState<{ name: string; description: string | null; tier: number }>({
     name: '',
     description: null,
     tier: 0,
   });
+  const [inventory, setInventory] = useState<Inventory[]>([]);
+  const [editingInventory, setEditingInventory] = useState<number | null>(null);
+  const [inventoryForm, setInventoryForm] = useState<{ name: string; description: string | null; slot: number }>({
+    name: '',
+    description: null,
+    slot: 0,
+  });
+  const [newInventoryName, setNewInventoryName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tokenFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -248,7 +268,32 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
         });
       }
     };
+
+    const fetchInventory = async () => {
+      try {
+        const response = await fetch(`/api/characters/${character.CharacterId}/inventory`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch inventory: ${response.statusText}`);
+        }
+        const data: Inventory[] = await response.json();
+        // Parse Contents if it's a string
+        const parsedData = data.map(item => ({
+          ...item,
+          Contents: typeof item.Contents === 'string' ? JSON.parse(item.Contents) : item.Contents,
+        }));
+        setInventory(parsedData);
+      } catch (error: any) {
+        console.error("Error fetching inventory:", error);
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to fetch inventory. Please try again.",
+          variant: "destructive",
+        });
+      }
+    };
+
     fetchJobs();
+    fetchInventory();
   }, [character.CharacterId]);
 
   const handleAddJob = async (e: React.FormEvent) => {
@@ -343,6 +388,107 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to update job. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleInventoryEdit = (inv: Inventory) => {
+    setEditingInventory(inv.Inventoryid);
+    // Assuming Contents is a single item for simplicity; adjust if multiple items per row
+    const firstItem = Array.isArray(inv.Contents) && inv.Contents.length > 0 ? inv.Contents[0] : { name: '', description: null, slot: 0 };
+    setInventoryForm({ 
+      name: firstItem.name ?? '', 
+      description: firstItem.description ?? null, 
+      slot: firstItem.slot 
+    });
+  };
+
+  const handleInventoryFormChange = (field: keyof typeof inventoryForm, value: string | number) => {
+    if (inventoryForm) {
+      setInventoryForm({
+        ...inventoryForm,
+        [field]: field === 'slot' ? parseInt(value as string) || 0 : value,
+      });
+    }
+  };
+
+  const handleInventorySubmit = async (inventoryId: number) => {
+    if (!inventoryForm) return;
+
+    try {
+      const contents = [inventoryForm]; // Single item per row for now
+      const response = await fetch(`/api/characters/${character.CharacterId}/inventory/${inventoryId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ contents }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to update inventory: ${response.statusText}`);
+      }
+
+      const updatedInventory: Inventory = await response.json();
+      setInventory(prevInventory =>
+        prevInventory.map(i => (i.Inventoryid === updatedInventory.Inventoryid ? { ...updatedInventory, Contents: JSON.parse(updatedInventory.Contents as string) } : i))
+      );
+      setEditingInventory(null);
+      setInventoryForm({ name: '', description: null, slot: 0 });
+
+      toast({
+        title: "Inventory Updated",
+        description: "Inventory item has been saved successfully.",
+      });
+    } catch (error: any) {
+      console.error("Error updating inventory:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update inventory. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAddInventory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newInventoryName) {
+      toast({
+        title: "Error",
+        description: "Item name is required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newItem = { name: newInventoryName, description: null, slot: 0 };
+    try {
+      const response = await fetch(`/api/characters/${character.CharacterId}/inventory`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ contents: [newItem] }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to add inventory item: ${response.statusText}`);
+      }
+
+      const newInventory: Inventory = await response.json();
+      setInventory([...inventory, { ...newInventory, Contents: JSON.parse(newInventory.Contents as string) }]);
+      setNewInventoryName('');
+
+      toast({
+        title: "Item Added",
+        description: `${newItem.name} has been added to inventory successfully.`,
+      });
+    } catch (error: any) {
+      console.error("Error adding inventory item:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add inventory item. Please try again.",
         variant: "destructive",
       });
     }
@@ -649,10 +795,100 @@ export default function CharacterPopup({ character, onClose, onUpdate }: Charact
           </TabsContent>
           <TabsContent value="inventory" className="min-h-[500px]">
             <div className="space-y-4">
-              <p>Inventory information coming soon...</p>
-              <div className="h-full flex items-center justify-center text-gray-500">
-                <p>Under construction - Check back later!</p>
-              </div>
+              {inventory.length > 0 ? (
+                <ul className="space-y-4">
+                  {inventory.map((inv) => {
+                    const items = Array.isArray(inv.Contents) ? inv.Contents : [];
+                    const firstItem = items[0] || { name: 'Unnamed', description: null, slot: 0 };
+                    return (
+                      <li key={inv.Inventoryid} className="border p-4 rounded-lg">
+                        {editingInventory === inv.Inventoryid ? (
+                          <div className="space-y-2">
+                            <div>
+                              <Label htmlFor={`inv-name-${inv.Inventoryid}`}>Name</Label>
+                              <Input
+                                id={`inv-name-${inv.Inventoryid}`}
+                                value={inventoryForm?.name || ''}
+                                onChange={(e) => handleInventoryFormChange('name', e.target.value)}
+                                className="w-full max-w-xs"
+                                autoFocus
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`inv-slot-${inv.Inventoryid}`}>Slot</Label>
+                              <Input
+                                id={`inv-slot-${inv.Inventoryid}`}
+                                type="number"
+                                value={inventoryForm?.slot || 0}
+                                onChange={(e) => handleInventoryFormChange('slot', e.target.value)}
+                                className="w-16"
+                                min={0}
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`inv-desc-${inv.Inventoryid}`}>Description</Label>
+                              <Textarea
+                                id={`inv-desc-${inv.Inventoryid}`}
+                                value={inventoryForm?.description || ''}
+                                onChange={(e) => handleInventoryFormChange('description', e.target.value)}
+                                className="w-full min-h-[100px]"
+                              />
+                            </div>
+                            <div className="flex space-x-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handleInventorySubmit(inv.Inventoryid)}
+                              >
+                                Save
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => { setEditingInventory(null); setInventoryForm({ name: '', description: null, slot: 0 }); }}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="font-medium">{firstItem.name} (Slot {firstItem.slot})</span>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {firstItem.description || 'No description provided'}
+                              </p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleInventoryEdit(inv)}
+                              className="ml-2"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p>No items in inventory.</p>
+              )}
+              <form onSubmit={handleAddInventory} className="mt-4">
+                <div className="flex items-center space-x-2">
+                  <Input
+                    type="text"
+                    placeholder="New Item Name"
+                    value={newInventoryName}
+                    onChange={(e) => setNewInventoryName(e.target.value)}
+                    className="w-full max-w-xs"
+                  />
+                  <Button type="submit" size="sm">
+                    Add Item
+                  </Button>
+                </div>
+              </form>
             </div>
           </TabsContent>
         </Tabs>
