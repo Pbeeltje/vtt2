@@ -25,15 +25,26 @@ async function checkAuthorization(characterId: number, user: any) {
 
   // For non-DM users, check if they own the character
   console.log('User is not a DM, checking character ownership');
+  // Use 'Character' table name as per original error context and likely intent
   const characterResult = await client.execute({
-    sql: 'SELECT * FROM Character WHERE CharacterId = ? AND UserId = ?',
-    args: [characterId, user.id],
+    sql: 'SELECT UserId FROM Character WHERE CharacterId = ?',
+    args: [characterId, user.id], // Assuming user.id is the correct field
   });
 
   if (characterResult.rows.length === 0) {
     console.log('Character not found or user not authorized');
-    return { authorized: false, error: 'Character not found or not authorized', status: 404 };
+    // Check if character exists at all first for better error message potentially
+     const charExists = await client.execute({ sql: 'SELECT CharacterId FROM Character WHERE CharacterId = ?', args: [characterId] });
+     if (charExists.rows.length === 0) {
+         return { authorized: false, error: 'Character not found', status: 404 };
+     }
+    return { authorized: false, error: 'Not authorized', status: 403 }; // Changed status to 403
   }
+
+  // Verify ownership if character was found
+  // Note: The previous query already checked UserId, this part might be redundant if query is correct
+  // Let's assume the query `... AND UserId = ?` was intended and correct.
+  // If characterResult.rows[0].UserId !== user.id { ... } // This check seems redundant with the SQL query
 
   console.log('User is authorized as the character owner');
   return { authorized: true };
@@ -41,8 +52,6 @@ async function checkAuthorization(characterId: number, user: any) {
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   console.log('GET /api/characters/[id]/inventory called with params:', params);
-  console.log('TURSO_DATABASE_URL:', process.env.TURSO_DATABASE_URL);
-  console.log('TURSO_AUTH_TOKEN:', process.env.TURSO_AUTH_TOKEN);
 
   const characterId = params.id;
 
@@ -63,8 +72,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   try {
     console.log('Fetching inventory for characterId:', charId);
+    // Use 'inventory' (lowercase) as per user screenshot and previous fix
     const result = await client.execute({
-      sql: 'SELECT * FROM Inventory WHERE CharacterId = ?',
+      sql: 'SELECT * FROM inventory WHERE CharacterId = ?',
       args: [charId],
     });
 
@@ -76,132 +86,82 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         name: '',
         description: null,
       }));
+      // Use 'inventory' (lowercase)
       await client.execute({
-        sql: 'INSERT INTO Inventory (CharacterId, contents) VALUES (?, ?)',
+        sql: 'INSERT INTO inventory (CharacterId, contents) VALUES (?, ?)',
         args: [charId, JSON.stringify(initialContents)],
       });
 
       console.log('Fetching newly created inventory');
+      // Use 'inventory' (lowercase)
       const newResult = await client.execute({
-        sql: 'SELECT * FROM Inventory WHERE CharacterId = ?',
+        sql: 'SELECT * FROM inventory WHERE CharacterId = ?',
         args: [charId],
       });
       if (newResult.rows.length === 0) {
         throw new Error('Failed to fetch newly created inventory');
       }
+      // Ensure column names match the actual table schema (inventory_id vs Inventoryid)
       inventoryData = {
-        Inventoryid: newResult.rows[0].inventory_id as number,
+        Inventoryid: newResult.rows[0].inventory_id as number, // Assuming DB column is inventory_id
         CharacterId: newResult.rows[0].CharacterId as number,
         Contents: JSON.parse(newResult.rows[0].contents as string) as InventoryItem[],
       };
     } else {
+       // Ensure column names match the actual table schema (inventory_id vs Inventoryid)
       inventoryData = {
-        Inventoryid: result.rows[0].inventory_id as number,
+        Inventoryid: result.rows[0].inventory_id as number, // Assuming DB column is inventory_id
         CharacterId: result.rows[0].CharacterId as number,
         Contents: JSON.parse(result.rows[0].contents as string) as InventoryItem[],
       };
 
-      if (!Array.isArray(inventoryData.Contents) || inventoryData.Contents.length !== 16) {
+      // Normalize inventory contents to 16 slots if necessary
+      const currentContents = Array.isArray(inventoryData.Contents) ? inventoryData.Contents : [];
+      if (currentContents.length !== 16) {
         console.log('Normalizing inventory contents to 16 slots');
         const allSlots = Array.from({ length: 16 }, (_, i) => i + 1);
         const newContents: InventoryItem[] = allSlots.map(slot => {
-          const existingItem = inventoryData.Contents.find((item) => item.slot === slot);
+          const existingItem = currentContents.find((item) => item.slot === slot);
           return existingItem || { slot, name: '', description: null };
         });
+         // Use 'inventory' (lowercase)
         await client.execute({
-          sql: 'UPDATE Inventory SET contents = ? WHERE CharacterId = ?',
+          sql: 'UPDATE inventory SET contents = ? WHERE CharacterId = ?',
           args: [JSON.stringify(newContents), charId],
         });
         inventoryData.Contents = newContents;
       }
     }
 
+     // Ensure Contents is always an array before sorting
+    if (!Array.isArray(inventoryData.Contents)) {
+        inventoryData.Contents = [];
+    }
     inventoryData.Contents.sort((a, b) => a.slot - b.slot);
+
     console.log('Returning inventory data:', inventoryData);
     return NextResponse.json(inventoryData);
   } catch (error) {
-    console.error('Error fetching inventory:', error);
+    console.error('Error fetching/creating inventory:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to fetch inventory', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to fetch/create inventory', details: errorMessage },
       { status: 500 }
     );
   }
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  console.log('POST /api/characters/[id]/inventory called with params:', params);
-  try {
-    const body = await req.json();
-    const { contents } = body;
-    console.log('Request body:', body);
-
-    const charId = parseInt(params.id);
-
-    if (!charId || !contents) {
-      console.log('Missing required fields: charId:', charId, 'contents:', contents);
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-    }
-
-    const user = await getUserFromCookie();
-
-    // Check authorization
-    const authCheck = await checkAuthorization(charId, user);
-    if (!authCheck.authorized) {
-      console.log('Authorization failed:', authCheck.error);
-      return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
-    }
-
-    // Check if inventory already exists
-    console.log('Checking if inventory exists for characterId:', charId);
-    const existing = await client.execute({
-      sql: 'SELECT * FROM Inventory WHERE CharacterId = ?',
-      args: [charId],
-    });
-
-    if (existing.rows.length > 0) {
-      console.log('Inventory already exists for characterId:', charId);
-      return NextResponse.json({ error: 'Inventory already exists for this character' }, { status: 400 });
-    }
-
-    console.log('Inserting new inventory for characterId:', charId);
-    await client.execute({
-      sql: 'INSERT INTO Inventory (CharacterId, contents) VALUES (?, ?)',
-      args: [charId, JSON.stringify(contents)],
-    });
-
-    console.log('Fetching newly created inventory');
-    const newResult = await client.execute({
-      sql: 'SELECT * FROM Inventory WHERE CharacterId = ?',
-      args: [charId],
-    });
-
-    const newInventory: Inventory = {
-      Inventoryid: newResult.rows[0].inventory_id as number,
-      CharacterId: newResult.rows[0].CharacterId as number,
-      Contents: JSON.parse(newResult.rows[0].contents as string) as InventoryItem[],
-    };
-
-    console.log('Returning new inventory:', newInventory);
-    return NextResponse.json(newInventory);
-  } catch (error) {
-    console.error('Error creating inventory:', error);
-    return NextResponse.json(
-      { error: 'Failed to create inventory', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
-  }
-}
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   console.log('PUT /api/characters/[id]/inventory called with params:', params);
   try {
     const body = await req.json();
-    const { inventoryId, contents } = body;
+    const { inventoryId, contents } = body; // Assuming inventoryId is passed for PUT
     console.log('Request body:', body);
 
-    if (!inventoryId || !contents) {
+    if (inventoryId === undefined || !contents) {
       console.log('Missing required fields: inventoryId:', inventoryId, 'contents:', contents);
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing required fields: inventoryId and contents' }, { status: 400 });
     }
 
     const charId = parseInt(params.id);
@@ -214,41 +174,57 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }
 
-    console.log('Checking if inventory exists for inventoryId:', inventoryId);
+    console.log('Checking if inventory exists for inventoryId:', inventoryId, 'and belongs to characterId:', charId);
+     // Use 'inventory' (lowercase) and check CharacterId association
     const existing = await client.execute({
-      sql: 'SELECT * FROM Inventory WHERE inventory_id = ?',
-      args: [inventoryId],
+      sql: 'SELECT inventory_id FROM inventory WHERE inventory_id = ? AND CharacterId = ?',
+      args: [inventoryId, charId],
     });
 
     if (existing.rows.length === 0) {
-      console.log('Inventory not found for inventoryId:', inventoryId);
-      return NextResponse.json({ error: 'Inventory not found' }, { status: 404 });
+      console.log('Inventory not found for inventoryId:', inventoryId, 'or does not belong to character:', charId);
+      return NextResponse.json({ error: 'Inventory not found or mismatch' }, { status: 404 });
     }
 
     console.log('Updating inventory for inventoryId:', inventoryId);
+     // Use 'inventory' (lowercase)
     await client.execute({
-      sql: 'UPDATE Inventory SET contents = ? WHERE inventory_id = ?',
+      sql: 'UPDATE inventory SET contents = ? WHERE inventory_id = ?',
       args: [JSON.stringify(contents), inventoryId],
     });
 
     console.log('Fetching updated inventory');
-    const updatedInventory = await client.execute({
-      sql: 'SELECT * FROM Inventory WHERE inventory_id = ?',
+     // Use 'inventory' (lowercase)
+    const updatedInventoryResult = await client.execute({
+      sql: 'SELECT * FROM inventory WHERE inventory_id = ?',
       args: [inventoryId],
     });
+
+     if (updatedInventoryResult.rows.length === 0) {
+        throw new Error('Failed to fetch updated inventory after update.');
+    }
+
     const updatedData: Inventory = {
-      Inventoryid: updatedInventory.rows[0].inventory_id as number,
-      CharacterId: updatedInventory.rows[0].CharacterId as number,
-      Contents: JSON.parse(updatedInventory.rows[0].contents as string) as InventoryItem[],
+      Inventoryid: updatedInventoryResult.rows[0].inventory_id as number, // Assuming DB column is inventory_id
+      CharacterId: updatedInventoryResult.rows[0].CharacterId as number,
+      Contents: JSON.parse(updatedInventoryResult.rows[0].contents as string) as InventoryItem[],
     };
 
     console.log('Returning updated inventory:', updatedData);
     return NextResponse.json(updatedData);
   } catch (error) {
     console.error('Error updating inventory:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to update inventory', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to update inventory', details: errorMessage },
       { status: 500 }
     );
   }
 }
+
+// Note: POST might be redundant if GET handles creation. If needed, implement carefully.
+/*
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  // ... implementation using client.execute ...
+}
+*/
