@@ -316,10 +316,13 @@ export default function ImageList({
               <Input
                 id="scale"
                 type="number"
-                min="0.1"
                 step="0.1"
                 value={sceneScale}
-                onChange={(e) => setSceneScale(parseFloat(e.target.value) || 1)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  const parsedValue = parseFloat(value);
+                  setSceneScale(isNaN(parsedValue) ? 0 : parsedValue);
+                }}
                 className="col-span-3"
               />
             </div>

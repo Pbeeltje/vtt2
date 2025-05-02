@@ -463,7 +463,6 @@ export default function Home() {
       if (updatedToken?.character) {
         return {
           ...char,
-          ...updatedToken.character
         }
       }
       return char
@@ -680,21 +679,25 @@ export default function Home() {
     }
   }
 
-  const handleUpdateSceneScale = async (image: DMImage, scale: number) => {
-    if (!image.SceneData) {
-      toast({ title: "Error", description: "No scene data found.", variant: "destructive" })
-      return
-    }
+  const handleGridColorChangeAndSave = (color: string) => {
+    setGridColor(color);
+  };
 
+  useEffect(() => {
+    // Save the scene whenever gridColor changes
+    handleSaveScene();
+  }, [gridColor]);
+
+  const handleUpdateSceneScale = async (image: DMImage, scale: number) => {
     try {
-      // Parse existing scene data
-      const sceneData = JSON.parse(image.SceneData)
+      // Parse existing scene data, or create a default if it doesn't exist
+      let sceneData = image.SceneData ? JSON.parse(image.SceneData) : {};
       
       // Update the scale
       const updatedSceneData = {
         ...sceneData,
         scale: scale
-      }
+      };
 
       // Save the updated scene data
       const response = await fetch("/api/scenes", {
@@ -704,7 +707,7 @@ export default function Home() {
           sceneId: image.Id,
           sceneData: updatedSceneData
         })
-      })
+      });
 
       if (!response.ok) {
         throw new Error("Failed to update scene scale")
@@ -727,6 +730,14 @@ export default function Home() {
       console.error("Error updating scene scale:", error)
       toast({ title: "Error", description: "Failed to update scene scale.", variant: "destructive" })
       throw error
+    }
+  }
+
+  function handleClearTokens() {
+    if (confirm("Are you sure you want to clear the map?")) {
+      setTopLayerImages([]);
+      // Optionally save the scene after clearing tokens
+      handleSaveScene();
     }
   }
 
@@ -789,7 +800,7 @@ export default function Home() {
               gridSize={gridSize}
               gridColor={gridColor}
               onGridSizeChange={setGridSize}
-              onGridColorChange={setGridColor}
+              onGridColorChange={handleGridColorChangeAndSave}
               currentTool={currentTool}
               onToolChange={setCurrentTool}
               currentColor={currentColor}
