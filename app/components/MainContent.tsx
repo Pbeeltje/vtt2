@@ -845,7 +845,7 @@ export default function MainContent({
               <div
                 key={img.id}
                 className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-                style={{ left: img.x, top: img.y, zIndex: 10 }}
+                style={{ left: img.x, top: img.y, zIndex: 25 }}
                 draggable={true}
                 onDragStart={(e) => handleItemDragStart(e, img, false)}
                 onDrag={(e) => handleItemDrag(e)}
