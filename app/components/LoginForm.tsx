@@ -11,6 +11,7 @@ interface LoginFormProps {
 }
 
 export default function LoginForm({ onLogin }: LoginFormProps) {
+  console.log("LoginForm component rendered");
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -22,10 +23,11 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
     try {
       const result = await loginUser(username, password)
       if (result.success) {
-        onLogin(username, result.role)
+        onLogin(username, result.role || "player")
+        const userRole = result.role || "player"; // Provide a fallback in case, though types should prevent
         toast({
           title: "Login Successful",
-          description: `Welcome back, ${username}! You are logged in as a ${result.role}.`,
+          description: `Welcome back, ${username}! You are logged in as a ${userRole}.`,
         })
       } else {
         throw new Error(result.error || "Login failed")
@@ -45,8 +47,10 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
   const handleDMLogin = async (e: React.MouseEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    console.log("Attempting DM login...")
     try {
       const result = await loginDM()
+      console.log("loginDM result:", result)
       if (result.success) {
         onLogin("DM_User", "DM")
         toast({
@@ -87,15 +91,14 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
       <Button type="submit" className="w-full" disabled={isLoading}>
         {isLoading ? "Logging in..." : "Login"}
       </Button>
-      <Button
+      <button
         type="button"
         onClick={handleDMLogin}
-        className="w-full mt-2 bg-red-500 hover:bg-red-600 text-white"
+        className="w-full mt-2 bg-red-500 hover:bg-red-600 text-white p-2 rounded" // Added some basic styling to make it visible
         disabled={isLoading}
       >
         DM Login (Testing)
-      </Button>
+      </button>
     </form>
   )
 }
-

@@ -5,8 +5,8 @@ import bcrypt from "bcryptjs"
 import { createClient } from "@libsql/client"
 
 const client = createClient({
-  url: process.env.TURSO_DATABASE_URL || "",
-  authToken: process.env.TURSO_AUTH_TOKEN || "",
+  url: "file:./vttdatabase.db", // Explicitly use the local database file
+  authToken: "", // No auth token needed for local file
 })
 
 export async function setUserCookie(user: { id: number; username: string; role: string }) {
@@ -56,10 +56,21 @@ export async function clearUserCookie() {
   }
 }
 
-export async function loginUser(username: string, password: string) {
+interface LoginResult {
+  success: boolean;
+  error?: string;
+  role?: string; // Keep as optional for potential errors
+}
+
+interface SuccessfulLoginResult extends LoginResult {
+  success: true;
+  role: string; // Explicitly a string on success
+}
+
+export async function loginUser(username: string, password: string): Promise<LoginResult | SuccessfulLoginResult> {
   try {
     const result = await client.execute({
-      sql: "SELECT * FROM User WHERE Username = ?",
+      sql: "SELECT * FROM user WHERE Username = ?",
       args: [username],
     })
 
@@ -68,16 +79,16 @@ export async function loginUser(username: string, password: string) {
     }
 
     const user = result.rows[0]
-    const isMatch = await bcrypt.compare(password, user.Password)
+    const isMatch = await bcrypt.compare(password, user.Password as string)
 
     if (!isMatch) {
       return { success: false, error: "Invalid credentials" }
     }
 
     const userForCookie = {
-      id: user.UserId,
-      username: user.Username,
-      role: user.Role || "player",
+      id: user.UserId as number,
+      username: user.Username as string,
+      role: (user.Role as string) || "player",
     }
 
     await setUserCookie(userForCookie)
@@ -103,4 +114,3 @@ export async function loginDM() {
     return { success: false, error: "An error occurred during DM login" }
   }
 }
-

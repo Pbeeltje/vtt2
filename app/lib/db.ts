@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
 
-const db = new Database('./database.db')
+const db = new Database('./vttdatabase.db')
 
-export { db } 
+export { db }

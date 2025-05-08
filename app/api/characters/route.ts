@@ -3,8 +3,8 @@ import { createClient } from "@libsql/client"
 import { getUserFromCookie } from "@/lib/auth"
 
 const client = createClient({
-  url: process.env.TURSO_DATABASE_URL || "",
-  authToken: process.env.TURSO_AUTH_TOKEN || "",
+  url: "file:./vttdatabase.db", // Explicitly use the local database file
+  authToken: "", // No auth token needed for local file
 })
 
 export async function GET(req: Request) {
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   try {
     console.log("Fetching all characters for the user")
     const result = await client.execute({
-      sql: "SELECT * FROM Character WHERE UserId = ?",
+      sql: "SELECT * FROM character WHERE UserId = ?",
       args: [user.id],
     })
 
@@ -70,22 +70,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Category is required" }, { status: 400 })
     }
 
-    console.log("Executing SQL insert")
-    const result = await client.execute({
-      sql: "INSERT INTO Character (Name, Description, Path, Category, UserId) VALUES (?, ?, ?, ?, ?)",
-      args: [`New ${category}`, "Description placeholder", "Warrior", category, user.id],
+    console.log("Creating new inventory for the character")
+    const inventoryResult = await client.execute({
+      sql: "INSERT INTO inventory DEFAULT VALUES",
+      args: [],
+    });
+
+    if (!inventoryResult.lastInsertRowid) {
+      throw new Error("Failed to create new inventory");
+    }
+
+    const newInventoryId = inventoryResult.lastInsertRowid;
+    console.log("New inventory created with ID:", newInventoryId);
+
+    console.log("Executing SQL insert for character with inventory ID")
+    const characterResult = await client.execute({
+      sql: "INSERT INTO character (Name, Description, Path, Category, UserId, InventoryId) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [`New ${category}`, "Description placeholder", "Warrior", category, user.id, newInventoryId],
     })
 
-    console.log("SQL insert result:", result)
+    console.log("SQL insert result:", characterResult)
 
-    if (!result.lastInsertRowid) {
+    if (!characterResult.lastInsertRowid) {
       throw new Error("Failed to insert new character")
     }
 
     console.log("Fetching newly inserted character")
     const newCharacter = await client.execute({
-      sql: "SELECT * FROM Character WHERE CharacterId = ?",
-      args: [result.lastInsertRowid],
+      sql: "SELECT * FROM character WHERE CharacterId = ?",
+      args: [characterResult.lastInsertRowid],
     })
 
     console.log("New character fetched:", newCharacter.rows[0])
@@ -99,4 +112,3 @@ export async function POST(req: Request) {
     )
   }
 }
-
