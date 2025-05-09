@@ -33,6 +33,11 @@ export const initSocketIO = (httpServer: HttpServerNode): SocketIOServer => {
       console.log(`Socket ${socket.id} joined scene room: ${sceneId}`);
     });
 
+    socket.on('leave_scene', (sceneId: string) => {
+      socket.leave(sceneId);
+      console.log(`Socket ${socket.id} left scene room: ${sceneId}`);
+    });
+
     socket.on('disconnect', () => {
       console.log('Socket.IO: User disconnected:', socket.id);
     });
