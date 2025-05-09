@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node", // Override for CommonJS compatibility
+    "outDir": ".next/server_custom_build",
+    "rootDir": ".", 
+    "noEmit": false, // Ensure this allows emitting JS files
+    "skipLibCheck": true // Often useful to inherit or set
+  },
+  "include": [
+    "server.ts",
+    "lib/socket.ts"
+    // Add any other server-specific .ts files if needed
+  ],
+  "exclude": [
+    "node_modules"
+    // Add other client-specific paths if they cause issues during server build
+  ]
+}

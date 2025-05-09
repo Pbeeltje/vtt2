@@ -10,6 +10,7 @@ interface DrawingLayerProps {
   onDrawingSelect: (drawing: DrawingObject | null) => void;
   onDrawingDelete: (drawing: DrawingObject) => void;
   selectedDrawing: DrawingObject | null;
+  currentSceneId: number | null | undefined; // Added prop
 }
 
 export interface DrawingObject {
@@ -18,6 +19,7 @@ export interface DrawingObject {
   color: string;
   createdBy: number;
   createdAt: string;
+  sceneId: number; // Added sceneId
 }
 
 export default function DrawingLayer({
@@ -28,7 +30,8 @@ export default function DrawingLayer({
   onDrawingComplete,
   onDrawingSelect,
   onDrawingDelete,
-  selectedDrawing
+  selectedDrawing,
+  currentSceneId // Destructure new prop
 }: DrawingLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -121,15 +124,20 @@ export default function DrawingLayer({
     if (!isDrawing) return;
 
     setIsDrawing(false);
-    if (currentPath) {
+    if (currentPath && currentSceneId !== null && currentSceneId !== undefined) { // Ensure sceneId is valid
       onDrawingComplete({
-        id: Date.now().toString(),
+        id: Date.now().toString(), // This will be replaced by server-generated ID on confirmation
         path: currentPath,
         color: currentColor,
-        createdBy: 0, // TODO: Get actual user ID
-        createdAt: new Date().toISOString()
+        createdBy: 0, // TODO: Get actual user ID, will be set by server or Home component
+        createdAt: new Date().toISOString(),
+        sceneId: currentSceneId 
       });
       setCurrentPath('');
+    } else if (currentPath) {
+      // Handle case where drawing finishes but sceneId is not available (should ideally not happen)
+      console.warn("Drawing stopped but currentSceneId is not available. Drawing not completed.");
+      setCurrentPath(''); // Still clear the path
     }
   };
 
@@ -170,4 +178,4 @@ export default function DrawingLayer({
       style={{ zIndex: 15 }}
     />
   );
-} 
+}

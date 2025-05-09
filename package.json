@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "tsc --project tsconfig.server.json && nodemon .next/server_custom_build/server.js",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production node .next/server/server.js",
     "lint": "next lint"
   },
   "dependencies": {
@@ -69,12 +69,18 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@swc/core": "^1.11.24",
     "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^22",
+    "@types/node": "^22.15.17",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/socket.io": "^3.0.1",
+    "nodemon": "^3.1.10",
     "postcss": "^8",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   }
 }
