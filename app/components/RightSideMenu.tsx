@@ -22,7 +22,7 @@ import { DMImage } from "../types/image"
 
 interface RightSideMenuProps {
   messages: ChatMessage[]
-  addMessage: (type: MessageType, content: string, username: string) => void
+  addMessage: (type: MessageType, content: string) => void // Username will be derived from user prop in Home
   user: {
     id: number;
     username: string;
@@ -95,7 +95,7 @@ export default function RightSideMenu({
 
   const handleSendMessage = () => {
     if (inputMessage.trim()) {
-      addMessage("user", inputMessage, user.username)
+      addMessage("user", inputMessage) // Pass only type and content
       setInputMessage("")
     }
   }

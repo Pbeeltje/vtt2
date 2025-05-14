@@ -183,6 +183,19 @@ export default function Home() {
         setDrawings((prev) => prev.filter(d => d.id !== drawingId));
       }
     });
+
+    socket.on('new_message', (newMessage: ChatMessage) => {
+      console.log('Socket.IO: new_message received', newMessage);
+      // Add message to state, preventing duplicates if optimistic update already added it
+      // Note: ChatMessage from server should have MessageId
+      setMessages((prevMessages) => {
+        if (prevMessages.find(msg => msg.MessageId === newMessage.MessageId)) {
+          return prevMessages; // Already exists
+        }
+        return [...prevMessages, newMessage];
+      });
+    });
+
     return () => { if (socketRef.current) { socketRef.current.disconnect(); socketRef.current = null; } };
   }, []); 
 
@@ -320,6 +333,40 @@ export default function Home() {
     }
   };
   
+  const addMessage = async (type: MessageType, content: string) => {
+    if (!user) {
+      toast({ title: "Error", description: "You must be logged in to send messages.", variant: "destructive" });
+      return;
+    }
+    // Optimistic update can be done here, but for now, rely on API response + socket broadcast
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, content }), // Server will use user from cookie for username/userId
+      });
+
+      if (response.ok) {
+        const savedMessage = await response.json();
+        // Optimistically add to local state. Socket event will update other clients.
+        // The socket listener for 'new_message' on this client should handle potential duplicates.
+        setMessages((prevMessages) => {
+           // Check if the message (by MessageId) is already in the state
+          if (prevMessages.find(msg => msg.MessageId === savedMessage.MessageId)) {
+            return prevMessages; // Already added, possibly by socket event if it arrived super fast
+          }
+          return [...prevMessages, savedMessage];
+        });
+      } else {
+        const errorResult = await response.json().catch(() => ({ error: "Failed to send message." }));
+        toast({ title: "Error", description: errorResult.error || "Failed to send message.", variant: "destructive" });
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+      toast({ title: "Network Error", description: "Could not send message.", variant: "destructive" });
+    }
+  };
+  
   const handleLogout = async () => {
     try {
       await fetch('/api/logout', { method: 'POST', credentials: 'include' });
@@ -350,7 +397,6 @@ export default function Home() {
     }
   };
 
-  const addMessage = async (type:MessageType,content:string,username:string) => {};
   const handleDiceRoll = (sides:number,result:number,numberOfDice:number,individualRolls:number[]) => {};
   const handlePhaseChange = (phase:string,color:string) => {}; const handleAddCharacter = async (category:string) => {};
   const handleUpdateCharacter = async (updatedCharacter:Character) => {}; const handleDeleteCharacter = async (character:Character) => {};

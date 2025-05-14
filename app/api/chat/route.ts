@@ -76,8 +76,22 @@ export async function POST(req: Request) {
       args: [result.lastInsertRowid],
     })
 
-    console.log("New chat message saved:", newMessage.rows[0])
-    return NextResponse.json(newMessage.rows[0])
+    const savedMessageObject = newMessage.rows[0]
+    console.log("New chat message saved:", savedMessageObject)
+
+    // Emit event for new chat message
+    try {
+      const { getIO } = await import('../../../lib/socket'); // Dynamically import to avoid issues in non-socket environments if any
+      const io = getIO();
+      // For now, emitting globally. If chat becomes scene-specific, this needs a room.
+      // Also, ensure the client side is prepared to handle the structure of savedMessageObject
+      io.emit('new_message', savedMessageObject); 
+      console.log(`Socket.IO: Emitted new_message globally`, savedMessageObject);
+    } catch (socketError) {
+      console.error("Socket.IO emit error in POST /api/chat:", socketError);
+    }
+
+    return NextResponse.json(savedMessageObject)
   } catch (error) {
     console.error("Error saving chat message:", error)
     return NextResponse.json(
