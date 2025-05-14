@@ -51,6 +51,8 @@ interface RightSideMenuProps {
   setImages: (images: DMImage[]) => void
   onClearSceneElements?: () => void;
   onMakeSceneActive?: (sceneId: number) => void;
+  activeTab?: string;
+  setActiveTab?: (tabName: string) => void;
 }
 
 export default function RightSideMenu({
@@ -76,10 +78,11 @@ export default function RightSideMenu({
   setImages,
   onClearSceneElements,
   onMakeSceneActive,
+  activeTab,
+  setActiveTab,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
-  const [activeSection, setActiveSection] = useState<"chat" | "characters" | "maps">("chat")
   const [selectedSpeaker, setSelectedSpeaker] = useState<{ name: string; type: 'user' | 'character' }>({ name: user.username, type: 'user' });
 
   // Log characters whenever RightSideMenu re-renders
@@ -87,17 +90,17 @@ export default function RightSideMenu({
   // console.log("[RightSideMenu.tsx] Current user role:", user?.role);
 
   useEffect(() => {
-    if (user?.role !== 'DM' && activeSection === 'maps') {
-      setActiveSection('chat');
+    if (user?.role !== 'DM' && activeTab === 'maps' && setActiveTab) {
+      setActiveTab('chat');
     }
-  }, [user?.role, activeSection]);
+  }, [user?.role, activeTab, setActiveTab]);
 
   useEffect(() => {
     setSelectedSpeaker({ name: user.username, type: 'user' });
   }, [user.username]);
 
   useEffect(() => {
-    if (activeSection === "maps" && user?.role === 'DM') {
+    if (activeTab === "maps" && user?.role === 'DM') {
       const refreshImages = async () => {
         try {
           const response = await fetch("/api/images", { credentials: "include" });
@@ -111,7 +114,7 @@ export default function RightSideMenu({
       };
       refreshImages();
     }
-  }, [activeSection, user?.role, setImages]);
+  }, [activeTab, user?.role, setImages]);
 
   const handleSendMessage = () => {
     if (inputMessage.trim()) {
@@ -160,7 +163,11 @@ export default function RightSideMenu({
   return (
     <div className="w-[40rem] bg-white border-l flex flex-col" style={{ backgroundImage: 'url("images/rightsidemenu.jpeg")', backgroundSize: '100% auto', backgroundRepeat: 'repeat-y' }}>
       <div className="p-4 border-b w-full">
-        <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as "chat" | "characters" | "maps")} className="w-full">
+        <Tabs 
+          value={activeTab || 'chat'} 
+          onValueChange={(value) => setActiveTab ? setActiveTab(value) : null} 
+          className="w-full"
+        >
           <TabsList className={`grid w-full ${user?.role === 'DM' ? 'grid-cols-3' : 'grid-cols-2'} bg-stone-300`}>
             <TabsTrigger value="chat" title="Chat"><MessageSquare className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Chat</span></TabsTrigger>
             <TabsTrigger value="characters" title="Characters"><Users className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Characters</span></TabsTrigger>

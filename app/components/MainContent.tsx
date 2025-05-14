@@ -35,6 +35,7 @@ interface MainContentProps {
   onPlayerPlaceToken?: (token: LayerImage, sceneId: number) => void;
   onPlayerRequestTokenDelete?: (tokenId: string) => void;
   onPlayerUpdateTokenPosition?: (token: LayerImage, sceneId: number) => void;
+  onOpenCharacterSheet?: (characterData: any) => void;
 }
 
 
@@ -64,6 +65,7 @@ export default function MainContent({
   onPlayerPlaceToken,
   onPlayerRequestTokenDelete,
   onPlayerUpdateTokenPosition,
+  onOpenCharacterSheet,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -432,6 +434,24 @@ export default function MainContent({
     }
   }, [drawings, currentUserRole, onDrawingsDelete]);
 
+  const handleTokenDoubleClick = (item: LayerImage) => {
+    if (!item.character || !item.characterId) {
+      return;
+    }
+
+    if (currentUserRole === 'DM') {
+      onOpenCharacterSheet?.(item.character);
+    } else if (currentUserRole === 'player') {
+      if (item.character.userId === currentUserId) {
+        onOpenCharacterSheet?.(item.character);
+      } else {
+        toast({ title: "Permission Denied", description: "You can only view details for your own characters.", variant: "destructive" });
+      }
+    } else {
+        toast({ title: "Permission Denied", description: "You do not have permission to view character details.", variant: "destructive" });
+    }
+  };
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => { handleDelete(e); handleKeyDown(e) }
     window.addEventListener("mousemove", handleResizeMove); window.addEventListener("mouseup", handleResizeEnd)
@@ -574,6 +594,7 @@ export default function MainContent({
                 onDrag={(e) => handleItemDrag(e)}
                 onDragEnd={handleItemDragEnd}
                 onClick={(e) => handleItemClick(e, img)}
+                onDoubleClick={() => handleTokenDoubleClick(img)}
               >
                 <div className="relative">
                   <Image src={img.url} alt="Token" width={gridSize} height={gridSize} style={{ objectFit: 'contain' }} className="token-image" />

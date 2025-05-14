@@ -16,6 +16,7 @@ import ErrorBoundary from "./ErrorBoundary";
 import type { DMImage } from "../types/image";
 import type { LayerImage } from "../types/layerImage";
 import DrawingLayer, { DrawingObject } from './DrawingLayer'; 
+import CharacterPopup from "./character-popup/CharacterPopup";
 
 // Define NewDrawingData here for now, ensure MainContent can import it or define its own.
 export type NewDrawingData = Omit<DrawingObject, 'id' | 'createdAt' | 'createdBy' | 'sceneId'>;
@@ -55,6 +56,8 @@ export default function Home() {
   const [selectedDrawing, setSelectedDrawing] = useState<DrawingObject | null>(null);
   const [sceneScale, setSceneScale] = useState<number>(1);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [activeRightMenuTab, setActiveRightMenuTab] = useState<string>('chat');
+  const [characterSheetModal, setCharacterSheetModal] = useState<Character | null>(null);
   
   const socketRef = useRef<Socket | null>(null);
   const currentSceneIdRef: React.MutableRefObject<number | null> = useRef<number | null>(null);
@@ -594,6 +597,7 @@ export default function Home() {
             char.CharacterId === savedCharacter.CharacterId ? savedCharacter : char
           )
         );
+        setCharacterSheetModal(savedCharacter);
         toast({ title: "Character Updated", description: `${savedCharacter.Name} has been updated.` });
       } else {
         const errorResult = await response.json().catch(() => ({ error: "Failed to update character." }));
@@ -920,6 +924,10 @@ export default function Home() {
     }
   };
 
+  const handleOpenCharacterSheet = (characterData: Character) => {
+    setCharacterSheetModal(characterData);
+  };
+
   // Effect to log characters state when it actually changes
   useEffect(() => {
     if (isInitialized) { // Avoid logging during initial empty state if possible
@@ -976,6 +984,7 @@ export default function Home() {
               onPlayerPlaceToken={handlePlayerPlaceToken}
               onPlayerRequestTokenDelete={handlePlayerRequestTokenDelete}
               onPlayerUpdateTokenPosition={handlePlayerUpdateTokenPosition}
+              onOpenCharacterSheet={handleOpenCharacterSheet}
             />
           </div>
           <RightSideMenu
@@ -987,6 +996,8 @@ export default function Home() {
             onDeleteSceneData={handleDeleteSceneData} onUpdateSceneScale={handleUpdateSceneScale} setImages={setImages}
             onClearSceneElements={handleClearSceneElements}
             onMakeSceneActive={handleMakeSceneActive}
+            activeTab={activeRightMenuTab}
+            setActiveTab={setActiveRightMenuTab}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />
@@ -1004,6 +1015,13 @@ export default function Home() {
           currentSceneId={selectedScene?.Id}
         />
       </div>
+      {characterSheetModal && (
+        <CharacterPopup
+          character={characterSheetModal}
+          onClose={() => setCharacterSheetModal(null)}
+          onUpdate={handleUpdateCharacter} // Use handleUpdateCharacter directly
+        />
+      )}
     </ErrorBoundary>
   )
 }

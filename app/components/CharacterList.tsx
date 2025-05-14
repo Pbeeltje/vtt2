@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback, memo } from "react"
+import { useState, useMemo, useCallback, memo, useEffect } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -85,7 +85,7 @@ export default function CharacterList({
   onUpdateCharacter,
   onDeleteCharacter,
   currentUser,
-  isDM
+  isDM,
 }: CharacterListProps) {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null)
   const [activeCategory, setActiveCategory] = useState<string>(CATEGORIES_FOR_DM[0]) // Default for DM
