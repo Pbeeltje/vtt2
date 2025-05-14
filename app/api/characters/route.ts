@@ -20,14 +20,28 @@ export async function GET(req: Request) {
   console.log("User authenticated:", user)
 
   try {
-    console.log("Fetching all characters for the user")
-    const result = await client.execute({
-      sql: "SELECT * FROM character WHERE UserId = ?",
-      args: [user.id],
-    })
+    let sqlQuery: string;
+    let queryArgs: any[] = [];
 
-    console.log("Characters fetched:", result.rows)
-    return NextResponse.json(result.rows)
+    if (user.role === 'DM') {
+      console.log("User is DM, fetching all characters");
+      sqlQuery = "SELECT c.*, u.Username as ownerUsername FROM character c LEFT JOIN User u ON c.UserId = u.UserId";
+    } else {
+      console.log("User is Player, fetching their characters");
+      sqlQuery = "SELECT c.*, u.Username as ownerUsername FROM character c LEFT JOIN User u ON c.UserId = u.UserId WHERE c.UserId = ?";
+      queryArgs = [user.id];
+    }
+
+    // Log the SQL query and arguments
+    console.log("Executing SQL:", sqlQuery, "with args:", queryArgs);
+
+    const result = await client.execute({
+      sql: sqlQuery,
+      args: queryArgs,
+    });
+
+    console.log("Characters fetched:", result.rows);
+    return NextResponse.json(result.rows);
   } catch (error) {
     console.error("Error fetching characters:", error)
     return NextResponse.json(

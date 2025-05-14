@@ -15,5 +15,6 @@ export type LayerImage = {
       MaxStrength: number
       Mp: number
       MaxMp: number
+      userId?: number; // Added character's userId
     }
   }

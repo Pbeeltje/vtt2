@@ -5,7 +5,7 @@ export interface Character {
   Path: string
   Category?: string // Capitalized (optional)
   category?: string // Lowercase (optional, for safety)
-  UserId: number
+  userId: number
   PortraitUrl?: string
   TokenUrl?: string
   Age?: number

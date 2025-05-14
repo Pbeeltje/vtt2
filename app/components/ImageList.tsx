@@ -5,7 +5,7 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Trash2, Pencil } from "lucide-react"
+import { Plus, Trash2, Pencil, Play } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import type { DMImage } from "../types/image"
 import type { Character } from "../types/character"
@@ -25,11 +25,14 @@ interface ImageListProps {
   onAddImage: (category: string, file: File) => Promise<void>
   onDeleteImage: (image: DMImage) => Promise<void>
   onDragStart?: (e: React.DragEvent<HTMLLIElement>, image: DMImage) => void
-  onSceneClick?: (url: string) => void
+  onSceneClick?: (scene: DMImage) => void
   onDeleteSceneData?: (image: DMImage) => Promise<void>
   onRenameImage?: (image: DMImage, newName: string) => Promise<void>
   onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
   characters?: Character[]
+  currentUserRole?: string
+  onDropImage?: (category: string, image: DMImage, x: number, y: number) => void
+  onMakeSceneActive?: (sceneId: number) => void
 }
 
 export default function ImageList({
@@ -42,6 +45,9 @@ export default function ImageList({
   onRenameImage,
   onUpdateSceneScale,
   characters = [],
+  currentUserRole,
+  onDropImage,
+  onMakeSceneActive,
 }: ImageListProps) {
   const [activeCategory, setActiveCategory] = useState<string>("Scene")
   const [uploading, setUploading] = useState(false)
@@ -60,48 +66,48 @@ export default function ImageList({
 
   const handleImageClick = (image: DMImage) => {
     if (image.Category === "Scene") {
-      onSceneClick?.(image.Link);
+      onSceneClick?.(image)
     } else {
-      const newSelectedImage = selectedImage?.Id === image.Id ? null : image;
-      setSelectedImage(newSelectedImage);
+      const newSelectedImage = selectedImage?.Id === image.Id ? null : image
+      setSelectedImage(newSelectedImage)
     }
   }
 
   const handleUpload = async (category: string) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "image/*"
     input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
+      const file = (e.target as HTMLInputElement).files?.[0]
       if (file) {
         if (file.size > 5 * 1024 * 1024) {
           toast({
             title: "Error",
             description: "Image size exceeds 5MB limit.",
             variant: "destructive",
-          });
-          return;
+          })
+          return
         }
-        setUploading(true);
+        setUploading(true)
         try {
-          await onAddImage(category, file);
+          await onAddImage(category, file)
           toast({
             title: "Image Uploaded",
             description: `${file.name} added to ${category}.`,
-          });
+          })
         } catch (error) {
           toast({
             title: "Error",
             description: error instanceof Error ? error.message : "Failed to upload image.",
             variant: "destructive",
-          });
+          })
         } finally {
-          setUploading(false);
+          setUploading(false)
         }
       }
-    };
-    input.click();
-  };
+    }
+    input.click()
+  }
 
   const handleRenameImage = async (image: DMImage) => {
     if (image.Category === "Scene") {
@@ -176,7 +182,13 @@ export default function ImageList({
   const getNameClass = (name: string) => {
     // Default Tailwind text size is text-base (16px), reduce to text-sm (14px) if long
     return name.length > 10 ? "text-sm break-words" : "text-base"
-  };
+  }
+
+  const getCategoryStyle = (category: string) => {
+    // Implement the logic to determine the style based on the category
+    // This is a placeholder and should be replaced with the actual implementation
+    return ""
+  }
 
   return (
     <>
@@ -243,15 +255,29 @@ export default function ImageList({
                         )}
                       </div>
                       
-                      <div className="flex gap-1 flex-shrink-0 ml-auto" style={{ minWidth: '80px' }}>
+                      <div className="flex gap-1 flex-shrink-0 ml-auto" style={{ minWidth: '100px' }}>
+                        {image.Category === "Scene" && onMakeSceneActive && currentUserRole === 'DM' && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onMakeSceneActive(image.Id);
+                            }}
+                            className="text-green-500 hover:text-green-700 h-7 w-7"
+                            title="Make Active Scene for Players"
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                        )}
                         {image.Category === "Scene" && image.SceneData && (
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={(e) => {
-                              e.stopPropagation();
+                              e.stopPropagation()
                               if (window.confirm("Are you sure you want to clear this scene's data?")) {
-                                onDeleteSceneData?.(image);
+                                onDeleteSceneData?.(image)
                               }
                             }}
                             className="text-blue-500 hover:text-blue-700 h-7 w-7"
@@ -264,8 +290,8 @@ export default function ImageList({
                           variant="ghost"
                           size="icon"
                           onClick={(e) => {
-                            e.stopPropagation();
-                            handleRenameImage(image);
+                            e.stopPropagation()
+                            handleRenameImage(image)
                           }}
                           title="Rename"
                           className="h-7 w-7"
@@ -276,8 +302,8 @@ export default function ImageList({
                           variant="ghost"
                           size="icon"
                           onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteImage(image);
+                            e.stopPropagation()
+                            handleDeleteImage(image)
                           }}
                           title="Delete Image"
                           className="text-gray-700 hover:text-gray-900 h-7 w-7"
@@ -320,9 +346,9 @@ export default function ImageList({
                 step="0.1"
                 value={sceneScale}
                 onChange={(e) => {
-                  const value = e.target.value;
-                  const parsedValue = parseFloat(value);
-                  setSceneScale(isNaN(parsedValue) ? 0 : parsedValue);
+                  const value = e.target.value
+                  const parsedValue = parseFloat(value)
+                  setSceneScale(isNaN(parsedValue) ? 0 : parsedValue)
                 }}
                 className="col-span-3"
               />
@@ -336,3 +362,4 @@ export default function ImageList({
     </>
   )
 }
+

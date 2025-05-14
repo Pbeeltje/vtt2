@@ -8,18 +8,18 @@ const client = createClient({
 })
 
 export async function GET(req: Request) {
-  console.log("Entering GET /api/chat")
+  // console.log("Entering GET /api/chat") // Removed
 
   const user = await getUserFromCookie()
   if (!user) {
-    console.log("User not authenticated")
+    // console.log("User not authenticated") // Removed
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
 
   try {
     const result = await client.execute({
-      sql: "SELECT * FROM ChatMessage WHERE UserId = ? ORDER BY Timestamp ASC",
-      args: [user.id],
+      sql: "SELECT MessageId, Type, Content, Timestamp, Username, UserId, SenderType, SenderRole FROM ChatMessage ORDER BY Timestamp ASC",
+      args: [],
     })
     return NextResponse.json(result.rows)
   } catch (error) {
@@ -32,26 +32,26 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  console.log("Entering POST /api/chat")
+  // console.log("Entering POST /api/chat") // Removed
 
   const user = await getUserFromCookie()
   if (!user) {
-    console.log("User not authenticated")
+    // console.log("User not authenticated") // Removed
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
 
   try {
-    const { type, content } = await req.json()
-    if (!type || !content) {
-      return NextResponse.json({ error: "Type and content are required" }, { status: 400 })
+    const { type, content, speakerName, senderType } = await req.json()
+    if (!type || !content || !speakerName || !senderType) {
+      return NextResponse.json({ error: "Type, content, speakerName, and senderType are required" }, { status: 400 })
     }
 
     const timestamp = new Date().toISOString()
-    const username = user.username
+    const senderRole = user.role // Get sender's role
 
     const result = await client.execute({
-      sql: "INSERT INTO ChatMessage (Type, Content, Timestamp, Username, UserId) VALUES (?, ?, ?, ?, ?)",
-      args: [type, content, timestamp, username, user.id],
+      sql: "INSERT INTO ChatMessage (Type, Content, Timestamp, Username, UserId, SenderType, SenderRole) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      args: [type, content, timestamp, speakerName, user.id, senderType, senderRole],
     })
 
     if (!result.lastInsertRowid) {
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     }
 
     const newMessage = await client.execute({
-      sql: "SELECT * FROM ChatMessage WHERE MessageId = ?",
+      sql: "SELECT MessageId, Type, Content, Timestamp, Username, UserId, SenderType, SenderRole FROM ChatMessage WHERE MessageId = ?",
       args: [result.lastInsertRowid],
     })
 

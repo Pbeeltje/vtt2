@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@libsql/client'
 
 const client = createClient({
-  url: 'libsql://machiovttdb-pbeeltje.aws-eu-west-1.turso.io',
-  authToken: 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3MzY0MTc0NDksImlkIjoiMzhhZDhmZDYtZmMwMy00M2NjLWFjZjktMWJiMTNiZDZiY2U0IiwicmlkIjoiMDU3M2UyZmYtZTg1MS00NDhlLThmNmItMzY5MTEwODZjOTZmIn0.NYSv79DSUMoo6MTDrjjrag2qL2YN_x7VvabUBnEqPUMXKafJkaJt5tyVDLIEuAEka1lg2dbU-7BlUIyCpU6OBw'
+  url: "file:./vttdatabase.db",
+  authToken: "",
 })
 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {

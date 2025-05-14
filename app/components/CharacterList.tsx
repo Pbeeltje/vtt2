@@ -9,15 +9,14 @@ import { Plus, Trash2 } from "lucide-react"
 import CharacterPopup from "./character-popup/CharacterPopup"
 import type { Character } from "../types/character"
 
-const CATEGORIES = ["Party", "NPC", "Monster"] as const
+const CATEGORIES_FOR_DM = ["Party", "NPC", "Monster"] as const;
 
 interface CharacterListProps {
-  categories: string[]
   characters: Character[]
   onAddCharacter: (category: string) => void
   onUpdateCharacter: (updatedCharacter: Character) => void
   onDeleteCharacter: (character: Character) => void
-  currentUser: number
+  currentUser: number // ID of the logged-in user
   isDM: boolean
 }
 
@@ -39,7 +38,9 @@ const CharacterListItem = memo(({
 }) => {
   const imageUrl = character.TokenUrl || character.PortraitUrl || "/placeholder.svg"
   const imageAlt = `${character.TokenUrl ? 'Token' : 'Portrait'} of ${character.Name}`
-  const canDrag = isDM || (character.Category === "Party" && character.UserId === currentUser)
+  
+  const characterCategory = character.Category || character.category;
+  const canDrag = isDM || (characterCategory === "Party" && character.userId === currentUser)
 
   return (
     <li
@@ -56,7 +57,6 @@ const CharacterListItem = memo(({
               width={48}
               height={48}
               className="object-cover"
-              priority={false}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
@@ -68,9 +68,11 @@ const CharacterListItem = memo(({
           {character.Name}
         </button>
       </div>
-      <Button variant="ghost" size="icon" onClick={() => onDelete(character)}>
-        <Trash2 className="h-4 w-4" />
-      </Button>
+      {(isDM || character.userId === currentUser) && (
+        <Button variant="ghost" size="icon" onClick={() => onDelete(character)} title={`Delete ${character.Name}`}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      )}
     </li>
   )
 })
@@ -78,7 +80,7 @@ const CharacterListItem = memo(({
 CharacterListItem.displayName = "CharacterListItem"
 
 export default function CharacterList({
-  characters,
+  characters, // For players, this will be pre-filtered
   onAddCharacter,
   onUpdateCharacter,
   onDeleteCharacter,
@@ -86,7 +88,7 @@ export default function CharacterList({
   isDM
 }: CharacterListProps) {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null)
-  const [activeCategory, setActiveCategory] = useState<string>("Party")
+  const [activeCategory, setActiveCategory] = useState<string>(CATEGORIES_FOR_DM[0]) // Default for DM
 
   const handleDeleteCharacter = useCallback((character: Character) => {
     if (window.confirm(`Are you sure you want to delete ${character.Name}?`)) {
@@ -96,7 +98,7 @@ export default function CharacterList({
 
   const handleDragStart = useCallback((e: React.DragEvent<HTMLLIElement>, character: Character) => {
     e.dataTransfer.setData("imageId", character.CharacterId.toString())
-    e.dataTransfer.setData("category", "Token")
+    e.dataTransfer.setData("category", "Token") // Always "Token" when dragging from character list
     e.dataTransfer.setData("url", character.TokenUrl || character.PortraitUrl || "/placeholder.png")
     e.dataTransfer.setData("characterId", character.CharacterId.toString())
     e.dataTransfer.setData("character", JSON.stringify({
@@ -107,7 +109,8 @@ export default function CharacterList({
       Strength: character.Strength ?? 0,
       MaxStrength: character.MaxStrength ?? 0,
       Mp: character.Mp ?? 0,
-      MaxMp: character.MaxMp ?? 0
+      MaxMp: character.MaxMp ?? 0,
+      userId: character.userId
     }))
   }, [])
 
@@ -117,59 +120,98 @@ export default function CharacterList({
 
   const handleUpdateCharacter = useCallback((updatedCharacter: Character) => {
     onUpdateCharacter(updatedCharacter)
-    setSelectedCharacter(null)
   }, [onUpdateCharacter])
 
-  // Memoize the filtered characters for each category
-  const filteredCharactersByCategory = useMemo(() => {
-    return CATEGORIES.reduce((acc, category) => {
+  // Memoize the filtered characters for each category (DM view)
+  const filteredCharactersByCategoryForDM = useMemo(() => {
+    if (!isDM) return {}; // Not used by players
+    return CATEGORIES_FOR_DM.reduce((acc: Record<string, Character[]>, category: string) => {
       acc[category] = characters.filter(
-        (character) => (character.Category || character.category)?.toLowerCase() === category.toLowerCase()
+        (character: Character) => (character.Category || character.category)?.toLowerCase() === category.toLowerCase()
       )
       return acc
-    }, {} as Record<string, Character[]>)
-  }, [characters])
+    }, {} as Record<string, Character[]>);
+  }, [characters, isDM]);
 
+  if (!isDM) {
+    // Player View: Single list of their characters
+    return (
+      <>
+        <ScrollArea className="h-[calc(100vh-250px)] pr-4"> {/* Adjust height as needed */}
+          {characters.length > 0 ? (
+            <ul className="space-y-2">
+              {characters.map((character) => (
+                <CharacterListItem
+                  key={character.CharacterId}
+                  character={character}
+                  onDragStart={handleDragStart}
+                  onSelect={handleSelectCharacter}
+                  onDelete={handleDeleteCharacter}
+                  currentUser={currentUser}
+                  isDM={isDM} // Will be false
+                />
+              ))}
+            </ul>
+          ) : (
+            <p className="p-2 text-gray-500">You have no characters assigned to you.</p>
+          )}
+        </ScrollArea>
+        {selectedCharacter && (
+          <CharacterPopup
+            character={selectedCharacter}
+            onClose={() => setSelectedCharacter(null)}
+            onUpdate={handleUpdateCharacter}
+          />
+        )}
+      </>
+    );
+  }
+
+  // DM View: Tabbed interface
   return (
-    <Tabs value={activeCategory} onValueChange={setActiveCategory}>
-      <TabsList className="grid w-full grid-cols-3">
-        {CATEGORIES.map((category) => (
-          <TabsTrigger key={category} value={category}>
-            {category}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      {CATEGORIES.map((category) => {
-        const filteredCharacters = filteredCharactersByCategory[category]
-        return (
-          <TabsContent key={category} value={category}>
-            <ScrollArea className="h-[calc(100vh-250px)] pr-4">
-              <ul className="space-y-2">
-                {filteredCharacters.map((character) => (
-                  <CharacterListItem
-                    key={character.CharacterId}
-                    character={character}
-                    onDragStart={handleDragStart}
-                    onSelect={handleSelectCharacter}
-                    onDelete={handleDeleteCharacter}
-                    currentUser={currentUser}
-                    isDM={isDM}
-                  />
-                ))}
-                {filteredCharacters.length === 0 && (
-                  <li className="p-2 text-gray-500">No characters in this category</li>
+    <>
+      <Tabs value={activeCategory} onValueChange={setActiveCategory}>
+        <TabsList className="grid w-full grid-cols-3">
+          {CATEGORIES_FOR_DM.map((category) => (
+            <TabsTrigger key={category} value={category}>
+              {category}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {CATEGORIES_FOR_DM.map((category) => {
+          const filteredCharacters = filteredCharactersByCategoryForDM[category] || [];
+          return (
+            <TabsContent key={category} value={category}>
+              <ScrollArea className="h-[calc(100vh-280px)] pr-4"> {/* Adjusted height for DM view with Add button */}
+                <ul className="space-y-2">
+                  {filteredCharacters.map((character) => (
+                    <CharacterListItem
+                      key={character.CharacterId}
+                      character={character}
+                      onDragStart={handleDragStart}
+                      onSelect={handleSelectCharacter}
+                      onDelete={handleDeleteCharacter}
+                      currentUser={currentUser}
+                      isDM={isDM} // Will be true
+                    />
+                  ))}
+                  {filteredCharacters.length === 0 && (
+                    <li className="p-2 text-gray-500">No characters in this category</li>
+                  )}
+                </ul>
+                {isDM && (
+                  <Button
+                    className="w-full mt-4"
+                    onClick={() => onAddCharacter(category)}
+                  >
+                    <Plus className="w-4 h-4 mr-2" /> Add {category}
+                  </Button>
                 )}
-              </ul>
-              <Button
-                className="w-full mt-4"
-                onClick={() => onAddCharacter(category)}
-              >
-                <Plus className="w-4 h-4 mr-2" /> Add {category}
-              </Button>
-            </ScrollArea>
-          </TabsContent>
-        )
-      })}
+              </ScrollArea>
+            </TabsContent>
+          )
+        })}
+      </Tabs>
       {selectedCharacter && (
         <CharacterPopup
           character={selectedCharacter}
@@ -177,6 +219,6 @@ export default function CharacterList({
           onUpdate={handleUpdateCharacter}
         />
       )}
-    </Tabs>
+    </>
   )
 }

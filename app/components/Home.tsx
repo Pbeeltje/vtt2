@@ -21,15 +21,17 @@ import DrawingLayer, { DrawingObject } from './DrawingLayer';
 export type NewDrawingData = Omit<DrawingObject, 'id' | 'createdAt' | 'createdBy' | 'sceneId'>;
 
 
-export type MessageType = "user" | "system";
+export type MessageType = "user" | "system" | "diceRoll";
 
 export interface ChatMessage {
   MessageId?: number;
-  type: MessageType;
+  type: string;
   content: string;
   timestamp: string;
   username: string;
+  senderType?: 'user' | 'character';
   UserId?: number;
+  senderRole?: string;
 }
 
 export default function Home() {
@@ -56,6 +58,16 @@ export default function Home() {
   
   const socketRef = useRef<Socket | null>(null);
   const currentSceneIdRef: React.MutableRefObject<number | null> = useRef<number | null>(null);
+  const isSocketUpdateRef = useRef(false); // Ref to track socket updates
+
+  // Refs for state accessed in socket handlers
+  const userRef = useRef(user);
+  const scenesRef = useRef(scenes);
+  const selectedSceneRef = useRef(selectedScene);
+  // Effect to keep refs updated
+  useEffect(() => { userRef.current = user; }, [user]);
+  useEffect(() => { scenesRef.current = scenes; }, [scenes]);
+  useEffect(() => { selectedSceneRef.current = selectedScene; }, [selectedScene]);
 
   const findMostRecentScene = (scenesToSearch: DMImage[]): DMImage | null => {
     let mostRecent = null;
@@ -80,16 +92,10 @@ export default function Home() {
     if (!scene || !scene.Id) {
       setSelectedScene(null); setBackgroundImage("");
       setMiddleLayerImages([]); setTopLayerImages([]); setDrawings([]);
-      currentSceneIdRef.current = null;
-      if (socketRef.current && socketRef.current.connected && currentSceneIdRef.current) {
-          if (currentSceneIdRef.current !== null) {
-            socketRef.current.emit('leave_scene', currentSceneIdRef.current !== null ? currentSceneIdRef.toString() : "");
-          }
-      }
       return;
     }
     setSelectedScene(scene); setBackgroundImage(scene.Link);
-    currentSceneIdRef.current = scene.Id;
+
     if (scene.SceneData) {
       try {
         const sceneData = JSON.parse(scene.SceneData);
@@ -149,7 +155,18 @@ export default function Home() {
             fetch("/api/scenes", { credentials: "include" }).then(res => res.ok ? res.json() : [])
           ]);
           setCharacters(characterData);
-          setMessages(chatData.map((msg: any) => ({ MessageId: msg.MessageId, type: msg.Type as MessageType, content: msg.Content, timestamp: msg.Timestamp, username: msg.Username, UserId: msg.UserId })));
+          setMessages(chatData.map((msg: any) => {
+            return { 
+              MessageId: msg.MessageId, 
+              type: msg.Type as string, 
+              content: msg.Content, 
+              timestamp: msg.Timestamp, 
+              username: msg.Username, 
+              UserId: msg.UserId,
+              senderType: msg.SenderType as 'user' | 'character', 
+              senderRole: msg.SenderRole as string, 
+            };
+          }));
           setScenes(userScenesData);
           if (userData.role === "DM") await fetchImages();
           if (!initialSceneToLoad && userScenesData.length > 0) {
@@ -172,9 +189,12 @@ export default function Home() {
     socket.on('connect_error', (err) => { console.error('Socket.IO: Connection Error:', err); });
     
     socket.on('drawing_added', (newDrawing: DrawingObject) => {
-      console.log('Socket.IO: drawing_added received', newDrawing);
+      console.log(`[Socket.IO Home] drawing_added received. Current scene: ${currentSceneIdRef.current}. User: ${user?.username}`, newDrawing);
       if (String(newDrawing.sceneId) === String(currentSceneIdRef.current)) {
+        console.log(`[Socket.IO Home] drawing_added: Scene IDs match. User: ${user?.username}`);
         setDrawings((prev) => prev.find(d => d.id === newDrawing.id) ? prev : [...prev, newDrawing]);
+      } else {
+        console.log(`[Socket.IO Home] drawing_added: Scene IDs do NOT match. Ignoring. User: ${user?.username}`);
       }
     });
     socket.on('drawing_removed', (drawingId: string, sceneId: number) => {
@@ -189,11 +209,13 @@ export default function Home() {
       // Map properties from incomingMessage (which might have uppercase) to ChatMessage interface
       const formattedNewMessage: ChatMessage = {
         MessageId: incomingMessage.MessageId,
-        type: incomingMessage.Type as MessageType,
+        type: incomingMessage.Type as string,
         content: incomingMessage.Content,
-        timestamp: incomingMessage.Timestamp, // Map from Timestamp
-        username: incomingMessage.Username,   // Map from Username
+        timestamp: incomingMessage.Timestamp,
+        username: incomingMessage.Username,
+        senderType: incomingMessage.SenderType as 'user' | 'character',
         UserId: incomingMessage.UserId,
+        senderRole: incomingMessage.SenderRole as string,
       };
       setMessages((prevMessages) => {
         if (prevMessages.find(msg => msg.MessageId === formattedNewMessage.MessageId)) {
@@ -203,19 +225,117 @@ export default function Home() {
       });
     });
 
+    socket.on('player_token_placed', (receivedSceneId: number, placedTokenData: LayerImage) => {
+      const currentUser = userRef.current;
+      const currentSceneId = currentSceneIdRef.current; // currentSceneIdRef is already a ref and updated by useEffect
+      console.log(`[Socket.IO Home] player_token_placed received for scene ${receivedSceneId}. Current scene: ${currentSceneId}. User: ${currentUser?.username}`, placedTokenData);
+      if (String(receivedSceneId) === String(currentSceneId)) {
+        console.log(`[Socket.IO Home] player_token_placed: Scene IDs match. Setting isSocketUpdateRef = true (as it modifies topLayerImages). User: ${currentUser?.username}`);
+        isSocketUpdateRef.current = true; // Because this event will change topLayerImages, which is a dependency of the save useEffect
+        setTopLayerImages((prevTopLayer) => {
+          // Avoid duplicates if the player placing the token also gets this event
+          if (prevTopLayer.find(token => token.id === placedTokenData.id)) {
+            return prevTopLayer.map(token => token.id === placedTokenData.id ? placedTokenData : token);
+          }
+          return [...prevTopLayer, placedTokenData];
+        });
+      } else {
+        console.log(`[Socket.IO Home] player_token_placed: Scene IDs do NOT match. Ignoring. User: ${currentUser?.username}`);
+      }
+    });
+
+    socket.on('scene_updated', (receivedSceneId: number, elementsUpdate: { middleLayer: LayerImage[], topLayer: LayerImage[] }) => {
+      const currentUser = userRef.current;
+      const currentSceneId = currentSceneIdRef.current;
+      console.log(`[Socket.IO Home] scene_updated received for scene ${receivedSceneId}. Current scene: ${currentSceneId}. current user: ${currentUser?.username}`, elementsUpdate);
+      if (String(receivedSceneId) === String(currentSceneId)) {
+        console.log(`[Socket.IO Home] scene_updated: Scene IDs match. Setting isSocketUpdateRef = true. User: ${currentUser?.username}`);
+        isSocketUpdateRef.current = true;
+        setMiddleLayerImages(elementsUpdate.middleLayer || []);
+        setTopLayerImages(elementsUpdate.topLayer || []);
+      } else {
+        console.log(`[Socket.IO Home] scene_updated: Scene IDs do NOT match. Ignoring. User: ${currentUser?.username}`);
+      }
+    });
+
+    socket.on('force_scene_change', (newSceneId: number | string) => {
+      const currentUser = userRef.current;
+      const currentScenes = scenesRef.current;
+      const currentSelectedScene = selectedSceneRef.current;
+
+      console.log(`[Socket.IO Home] Received \'force_scene_change\' to scene ID: ${newSceneId}. Current user in handler: ${currentUser?.username}, Role: ${currentUser?.role}`);
+
+      if (String(currentSelectedScene?.Id) === String(newSceneId)) {
+        console.log(`[Socket.IO Home] User ${currentUser?.username} already on scene ${newSceneId}, no forced change needed.`);
+        return;
+      }
+
+      let sceneToLoad = currentScenes.find(s => String(s.Id) === String(newSceneId));
+
+      if (sceneToLoad) {
+        console.log(`[Socket.IO Home] User ${currentUser?.username} is now loading scene (from local list): ${sceneToLoad.Name} (ID: ${newSceneId}) due to force_scene_change.`);
+        handleLoadScene(sceneToLoad);
+      } else {
+        console.warn(`[Socket.IO Home] Scene ID ${newSceneId} for force_scene_change not found in user ${currentUser?.username}\'s scenes list. Attempting to fetch directly.`);
+        
+        const fetchSceneDetailsAndLoad = async (id: string | number) => {
+          try {
+            const response = await fetch(`/api/scenes/${id}`); // Uses the new GET /api/scenes/[id]
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              let errorMessage = `Failed to fetch scene ${id}`;
+              if (errorData.error) errorMessage += `: ${errorData.error}`;
+              else errorMessage += ` (Status: ${response.status})`;
+              throw new Error(errorMessage);
+            }
+            const fetchedScene: DMImage = await response.json();
+            if (fetchedScene && fetchedScene.Id) {
+              console.log(`[Socket.IO Home] Successfully fetched scene ${fetchedScene.Name} (ID: ${id}). Loading it now.`);
+              // Optionally, add to the main \`scenes\` state if desired for future use.
+              // This might be good so it's in their list if they navigate away and back.
+              setScenes(prevScenes => {
+                const exists = prevScenes.find(s => s.Id === fetchedScene.Id);
+                return exists ? prevScenes : [...prevScenes, fetchedScene];
+              });
+              handleLoadScene(fetchedScene);
+            } else {
+              throw new Error(`Scene data for ID ${id} is invalid or not found after fetch.`);
+            }
+          } catch (error) {
+            console.error(`[Socket.IO Home] Error fetching or loading scene ${id} directly:`, error);
+            toast({
+              title: "Scene Load Error",
+              description: `Could not load forced scene (ID: ${id}). ${error instanceof Error ? error.message : 'Unknown error'}`,
+              variant: "destructive",
+            });
+          }
+        };
+        fetchSceneDetailsAndLoad(newSceneId);
+      }
+    });
+
     return () => { if (socketRef.current) { socketRef.current.disconnect(); socketRef.current = null; } };
-  }, []); 
+  }, []); // KEEP DEPS ARRAY EMPTY: Refs handle access to current state values.
 
   useEffect(() => {
     const socket = socketRef.current;
     const newSceneId = selectedScene?.Id;
-    const oldSceneId = currentSceneIdRef.current;
+    const oldSceneIdForEffect = currentSceneIdRef.current; // Capture before it's updated
+
+    console.log(`[Socket.IO Home Scene Switch Effect] newSceneId: ${newSceneId}, oldSceneIdForEffect: ${oldSceneIdForEffect}, socketConnected: ${socket?.connected}, user: ${user?.username}`);
+
     if (socket && socket.connected) {
-      if (oldSceneId && oldSceneId !== newSceneId) { socket.emit('leave_scene', String(oldSceneId)); }
-      if (newSceneId && newSceneId !== oldSceneId) { socket.emit('join_scene', String(newSceneId)); }
+      if (oldSceneIdForEffect && oldSceneIdForEffect !== newSceneId) {
+        socket.emit('leave_scene', String(oldSceneIdForEffect));
+        console.log(`[Socket.IO Home Scene Switch Effect] Emitted 'leave_scene' for room: ${String(oldSceneIdForEffect)}, user: ${user?.username}`);
+      }
+      if (newSceneId && newSceneId !== oldSceneIdForEffect) {
+        socket.emit('join_scene', String(newSceneId));
+        console.log(`[Socket.IO Home Scene Switch Effect] Emitted 'join_scene' for room: ${String(newSceneId)}, user: ${user?.username}`);
+      }
     }
     currentSceneIdRef.current = newSceneId ?? null;
-  }, [selectedScene?.Id]);
+  }, [selectedScene?.Id, socketRef.current?.connected]); // user?.username is not a direct dependency for join/leave but good for logging
 
   // Stubs for other functions - to be filled in later or kept if not related to current task
   const fetchCharacters = async () => {
@@ -240,7 +360,18 @@ export default function Home() {
       const res = await fetch("/api/chat", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setMessages(data.map((msg: any) => ({ MessageId: msg.MessageId, type: msg.Type as MessageType, content: msg.Content, timestamp: msg.Timestamp, username: msg.Username, UserId: msg.UserId })));
+        setMessages(data.map((msg: any) => {
+          return { 
+            MessageId: msg.MessageId, 
+            type: msg.Type as string, 
+            content: msg.Content, 
+            timestamp: msg.Timestamp, 
+            username: msg.Username, 
+            UserId: msg.UserId,
+            senderType: msg.SenderType as 'user' | 'character', 
+            senderRole: msg.SenderRole as string, 
+          };
+        }));
       } else {
         console.error("Failed to fetch chat messages");
         setMessages([]);
@@ -295,13 +426,41 @@ export default function Home() {
 
   const loadUserData = async (loggedInUser: User) => {
     setUser(loggedInUser); // Set user state first
-    await Promise.all([
-      fetchCharacters(),
-      fetchChatMessages(),
-      fetchScenes(),
-      loggedInUser.role === "DM" ? fetchImages() : Promise.resolve(),
+    console.log("[Home.tsx] loadUserData for:", loggedInUser.username, "Role:", loggedInUser.role);
+
+    const [characterApiData, chatData, userScenesData] = await Promise.all([
+      fetch(`/api/characters`, { credentials: "include" }).then(res => {
+        if (!res.ok) { console.error("Failed to fetch characters in loadUserData"); return []; }
+        return res.json();
+      }),
+      fetch("/api/chat", { credentials: "include" }).then(res => res.ok ? res.json() : []).catch(() => { console.error("Chat fetch failed in loadUserData"); return []; }),
+      fetch("/api/scenes", { credentials: "include" }).then(res => res.ok ? res.json() : []).catch(() => { console.error("Scenes fetch failed in loadUserData"); return []; })
     ]);
-     // After fetching scenes, if no scene is selected, try to load the most recent user scene
+
+    console.log("[Home.tsx] Fetched character API data:", characterApiData);
+    setCharacters(characterApiData);
+    // console.log("[Home.tsx] Characters state after setCharacters:", characters); // Removed this immediate log, new useEffect handles it
+
+    setMessages(chatData.map((msg: any) => {
+        return { 
+          MessageId: msg.MessageId, 
+          type: msg.Type as string,
+          content: msg.Content, 
+          timestamp: msg.Timestamp, 
+          username: msg.Username, 
+          senderType: msg.SenderType as 'user' | 'character', 
+          UserId: msg.UserId,
+          senderRole: msg.SenderRole as string,
+        };
+    }));
+    setScenes(userScenesData);
+
+    if (loggedInUser.role === "DM") {
+      console.log("[Home.tsx] User is DM, fetching all images.");
+      await fetchImages();
+    }
+    
+    // After fetching scenes, if no scene is selected, try to load the most recent user scene
     if (!selectedScene && scenes.length > 0) {
         const mostRecentUserScene = findMostRecentScene(scenes);
         if (mostRecentUserScene) {
@@ -340,7 +499,7 @@ export default function Home() {
     }
   };
   
-  const addMessage = async (type: MessageType, content: string) => {
+  const addMessage = async (type: string, content: string, speakerName: string, senderType: 'user' | 'character') => {
     if (!user) {
       toast({ title: "Error", description: "You must be logged in to send messages.", variant: "destructive" });
       return;
@@ -349,7 +508,7 @@ export default function Home() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, content }),
+        body: JSON.stringify({ type, content, speakerName, senderType }),
       });
 
       if (response.ok) {
@@ -357,11 +516,13 @@ export default function Home() {
         // Map properties from savedMessageFromServer to ChatMessage interface
         const formattedSavedMessage: ChatMessage = {
           MessageId: savedMessageFromServer.MessageId,
-          type: savedMessageFromServer.Type as MessageType,
+          type: savedMessageFromServer.Type as string,
           content: savedMessageFromServer.Content,
-          timestamp: savedMessageFromServer.Timestamp, // Map from Timestamp
-          username: savedMessageFromServer.Username,   // Map from Username
+          timestamp: savedMessageFromServer.Timestamp,
+          username: savedMessageFromServer.Username,
+          senderType: savedMessageFromServer.SenderType as 'user' | 'character',
           UserId: savedMessageFromServer.UserId,
+          senderRole: savedMessageFromServer.SenderRole as string,
         };
         
         setMessages((prevMessages) => {
@@ -412,15 +573,111 @@ export default function Home() {
 
   const handleDiceRoll = (sides:number,result:number,numberOfDice:number,individualRolls:number[]) => {};
   const handlePhaseChange = (phase:string,color:string) => {}; const handleAddCharacter = async (category:string) => {};
-  const handleUpdateCharacter = async (updatedCharacter:Character) => {}; const handleDeleteCharacter = async (character:Character) => {};
+  
+  const handleUpdateCharacter = async (updatedCharacter: Character) => {
+    if (!user) {
+      toast({ title: "Error", description: "You must be logged in to update characters.", variant: "destructive" });
+      return;
+    }
+    try {
+      console.log("[Home.tsx] Attempting to update character:", updatedCharacter);
+      const response = await fetch(`/api/characters/${updatedCharacter.CharacterId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedCharacter),
+      });
+
+      if (response.ok) {
+        const savedCharacter = await response.json();
+        setCharacters((prevCharacters) =>
+          prevCharacters.map((char) =>
+            char.CharacterId === savedCharacter.CharacterId ? savedCharacter : char
+          )
+        );
+        toast({ title: "Character Updated", description: `${savedCharacter.Name} has been updated.` });
+      } else {
+        const errorResult = await response.json().catch(() => ({ error: "Failed to update character." }));
+        toast({ title: "Error Updating Character", description: errorResult.error || "Server error occurred.", variant: "destructive" });
+        console.error("Failed to update character:", errorResult);
+      }
+    } catch (error) {
+      console.error("Error updating character:", error);
+      toast({ title: "Network Error", description: "Could not update character.", variant: "destructive" });
+    }
+  }; 
+  
+  const handleDeleteCharacter = async (character:Character) => {};
   const handleAddImage = async (category:string,file:File) => {};
   const handleDeleteImage = async (image:DMImage) => {}; const handleRenameImage = async (image:DMImage,newName:string) => {};
   const handleSetBackground = async (url:string) => { const sceneImage=images.find(img=>img.Link===url); await handleLoadScene(sceneImage||null);};
   const handleDropImage = (category:string,image:DMImage,x:number,y:number) => {};
-  const handleUpdateImages = (middleLayer:LayerImage[],topLayer:LayerImage[]) => {setMiddleLayerImages(middleLayer); setTopLayerImages(topLayer);};
-  const handleSaveScene = async () => {}; const handleDeleteSceneData = async (image:DMImage) => {};
-  const handleGridColorChangeAndSave = (color: string) => { setGridColor(color); };
-  useEffect(() => { if(isInitialized && user) handleSaveScene(); }, [gridColor, middleLayerImages, topLayerImages, sceneScale, isInitialized, user]);
+  const handleUpdateImages = (middleLayer:LayerImage[],topLayer:LayerImage[]) => {
+    setMiddleLayerImages(middleLayer);
+    setTopLayerImages(topLayer);
+    if (user?.role === 'DM') handleSaveScene();
+  };
+  const handleDeleteSceneData = async (image:DMImage) => {};
+
+  const handleSaveScene = async () => {
+    if (!selectedScene || !user || user.role !== 'DM') {
+      // console.warn("Cannot save scene: No selected scene, user, or user is not DM.");
+      return;
+    }
+
+    console.log(`Attempting to save scene: ${selectedScene.Id}`);
+
+    const sceneDataToSave = {
+      gridSize,
+      gridColor,
+      elements: {
+        middleLayer: middleLayerImages,
+        topLayer: topLayerImages,
+      },
+      scale: sceneScale,
+      savedAt: new Date().toISOString(),
+    };
+
+    try {
+      const response = await fetch('/api/scenes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sceneId: selectedScene.Id,
+          sceneData: sceneDataToSave,
+        }),
+      });
+
+      if (response.ok) {
+        const savedScene = await response.json();
+        setSelectedScene(prev => prev ? { ...prev, SceneData: JSON.stringify(savedScene.SceneData || sceneDataToSave) } : null);
+        setScenes(prevScenes => prevScenes.map(s => s.Id === savedScene.Id ? savedScene : s));
+      } else {
+        const errorResult = await response.json().catch(() => ({ error: "Failed to save scene." }));
+        toast({ title: "Save Error", description: errorResult.error || "Failed to save scene data.", variant: "destructive" });
+        console.error("Failed to save scene:", errorResult);
+      }
+    } catch (error) {
+      toast({ title: "Network Error", description: "Could not save scene.", variant: "destructive" });
+      console.error("Error saving scene:", error);
+    }
+  };
+
+  const handleGridColorChangeAndSave = (color: string) => { 
+    setGridColor(color); 
+    if (user?.role === 'DM') handleSaveScene();
+  };
+
+  useEffect(() => { 
+    console.log(`[Home.tsx useEffect Save Check] isInitialized: ${isInitialized}, user: ${user?.username}, role: ${user?.role}, isSocketUpdateRef: ${isSocketUpdateRef.current}`);
+    if (isSocketUpdateRef.current) {
+      console.log("[Home.tsx useEffect Save Check] Socket update detected, resetting flag and skipping save.");
+      isSocketUpdateRef.current = false;
+    } else if (isInitialized && user && user.role === 'DM') {
+      console.log("[Home.tsx useEffect Save Check] User-initiated or non-socket change detected. Calling handleSaveScene.");
+      handleSaveScene();
+    }
+  }, [middleLayerImages, topLayerImages, gridColor, sceneScale, isInitialized, user, selectedScene?.Id]);
+  
   const handleUpdateSceneScale = async (image: DMImage, scale: number) => {};
   function handleClearTokens() {}
   
@@ -444,7 +701,7 @@ export default function Home() {
       console.log("Clearing scene elements (tokens and images).");
       setMiddleLayerImages([]);
       setTopLayerImages([]);
-      // The useEffect listening to middleLayerImages and topLayerImages changes should trigger handleSaveScene.
+      if (user?.role === 'DM') handleSaveScene();
       toast({ title: "Scene Cleared", description: "All tokens and images have been removed from the scene and changes are being saved." });
     }
   };
@@ -535,6 +792,141 @@ export default function Home() {
     if (selectedScene?.Id) handleApiDrawingAdd(drawing as NewDrawingData);
   };
 
+  const handlePlayerPlaceToken = async (tokenData: LayerImage, sceneId: number) => {
+    if (!user || user.role !== 'player') {
+      console.warn("[Home.tsx] handlePlayerPlaceToken called by non-player or no user.");
+      return;
+    }
+    if (tokenData.character?.userId !== user.id) {
+      console.warn("[Home.tsx] Player attempting to place a token that is not their own.");
+      toast({ title: "Error", description: "You can only place your own character tokens.", variant: "destructive" });
+      return;
+    }
+    console.log(`[Home.tsx] Player ${user.username} (ID: ${user.id}) attempting to save token for char ID: ${tokenData.characterId} on scene ${sceneId}. Token data:`, tokenData);
+
+    try {
+      const response = await fetch('/api/scenes/player-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sceneId, tokenData }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        toast({ title: "Token Saved", description: `Token ${result.tokenData?.character?.Name || 'Unknown'} placed successfully on the scene.` });
+        // The socket event 'player_token_placed' from the API should handle updating other clients.
+        // The current client already has an optimistic update from MainContent's onUpdateImages.
+        // If we need to ensure the *saved* data from server is used, we could update here:
+        // setTopLayerImages(prev => prev.map(t => t.id === result.tokenData.id ? result.tokenData : t));
+      } else {
+        const errorResult = await response.json().catch(() => ({ error: "Failed to save token placement." }));
+        toast({ title: "Error Saving Token", description: errorResult.error || "Server error occurred.", variant: "destructive" });
+        console.error("Failed to save player token:", errorResult);
+        // Potentially revert optimistic update if needed, though complex.
+      }
+    } catch (error) {
+      console.error("Error in handlePlayerPlaceToken API call:", error);
+      toast({ title: "Network Error", description: "Could not save token placement.", variant: "destructive" });
+    }
+  };
+
+  const handlePlayerRequestTokenDelete = async (tokenId: string) => {
+    if (!user || user.role !== 'player') {
+      console.warn("[Home.tsx] handlePlayerRequestTokenDelete called by non-player or no user.");
+      return;
+    }
+    if (!selectedSceneRef.current?.Id) {
+      toast({ title: "Error", description: "No active scene selected to delete token from.", variant: "destructive" });
+      return;
+    }
+    const sceneId = selectedSceneRef.current.Id;
+
+    console.log(`[Home.tsx] Player ${user.username} (ID: ${user.id}) requesting to delete token ID: ${tokenId} from scene ${sceneId}.`);
+
+    // Note: Optimistic update is already handled in MainContent.tsx by modifying its local state
+    // and calling onUpdateImages. Home.tsx will receive the updated topLayerImages.
+    // This function is purely for the API call.
+
+    try {
+      const response = await fetch(`/api/scenes/player-token?sceneId=${sceneId}&tokenId=${tokenId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        // Server will emit 'scene_updated' which will refresh all clients' token lists.
+        toast({ title: "Token Deletion Requested", description: `Your request to delete the token has been sent.` });
+      } else {
+        const errorResult = await response.json().catch(() => ({ error: "Failed to request token deletion." }));
+        toast({ title: "Error Deleting Token", description: errorResult.error || "Server error occurred.", variant: "destructive" });
+        console.error("Failed to delete player token:", errorResult);
+        // Here, we might need to trigger a state refresh or revert the optimistic update if the API fails,
+        // though that can be complex. For now, rely on 'scene_updated' for eventual consistency or error toast for user.
+      }
+    } catch (error) {
+      console.error("Error in handlePlayerRequestTokenDelete API call:", error);
+      toast({ title: "Network Error", description: "Could not request token deletion.", variant: "destructive" });
+    }
+  };
+
+  const handlePlayerUpdateTokenPosition = async (tokenData: LayerImage, sceneId: number) => {
+    if (!userRef.current || userRef.current.role !== 'player') {
+      console.warn("[Home.tsx] handlePlayerUpdateTokenPosition called by non-player or no user.");
+      return;
+    }
+    if (tokenData.character?.userId !== userRef.current.id) {
+      console.warn("[Home.tsx] Player attempting to update position of a token that is not their own.");
+      toast({ title: "Error", description: "You can only update your own character tokens.", variant: "destructive" });
+      return;
+    }
+    if (!selectedSceneRef.current?.Id || selectedSceneRef.current.Id !== sceneId) {
+      toast({ title: "Error", description: "Scene context mismatch for token update.", variant: "destructive" });
+      return;
+    }
+
+    console.log(`[Home.tsx] Player ${userRef.current.username} updating token ID: ${tokenData.id} on scene ${sceneId}. New position: x=${tokenData.x}, y=${tokenData.y}`);
+
+    try {
+      const response = await fetch('/api/scenes/player-token', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sceneId, tokenData }), // Sending full tokenData for potential replacement/update logic on server
+      });
+
+      if (response.ok) {
+        // Server will emit 'scene_updated' (or specific token_moved event) which will refresh clients.
+        // toast({ title: "Token Moved", description: `Token position update sent.` }); // Optional toast
+      } else {
+        const errorResult = await response.json().catch(() => ({ error: "Failed to update token position." }));
+        toast({ title: "Error Moving Token", description: errorResult.error || "Server error occurred.", variant: "destructive" });
+        console.error("Failed to update player token position:", errorResult);
+        // Consider reverting optimistic update if API fails - more complex
+      }
+    } catch (error) {
+      console.error("Error in handlePlayerUpdateTokenPosition API call:", error);
+      toast({ title: "Network Error", description: "Could not update token position.", variant: "destructive" });
+    }
+  };
+
+  const handleMakeSceneActive = (sceneId: number) => {
+    if (user?.role === 'DM' && socketRef.current?.connected) {
+      console.log(`[Home.tsx DM] Emitting 'dm_set_active_scene' for scene ID: ${sceneId}`);
+      socketRef.current.emit('dm_set_active_scene', sceneId);
+      // Optionally, DM loads this scene too. For now, let player 'force_scene_change' handle DM if needed.
+      // const sceneToLoad = scenes.find(s => s.Id === sceneId);
+      // if (sceneToLoad && selectedScene?.Id !== sceneId) {
+      //   handleLoadScene(sceneToLoad);
+      // }
+    }
+  };
+
+  // Effect to log characters state when it actually changes
+  useEffect(() => {
+    if (isInitialized) { // Avoid logging during initial empty state if possible
+        console.log("[Home.tsx] Characters state has changed to:", characters);
+    }
+  }, [characters, isInitialized]);
+
   if (isLoading || !isInitialized) { return <div className="flex items-center justify-center min-h-screen">Loading...</div> }
 
   if (!user) {
@@ -581,6 +973,9 @@ export default function Home() {
               drawings={drawings} 
               onDrawingAdd={handleApiDrawingAdd}
               onDrawingsDelete={handleApiDrawingsDelete} 
+              onPlayerPlaceToken={handlePlayerPlaceToken}
+              onPlayerRequestTokenDelete={handlePlayerRequestTokenDelete}
+              onPlayerUpdateTokenPosition={handlePlayerUpdateTokenPosition}
             />
           </div>
           <RightSideMenu
@@ -591,6 +986,7 @@ export default function Home() {
             scenes={scenes} onLoadScene={handleLoadScene}
             onDeleteSceneData={handleDeleteSceneData} onUpdateSceneScale={handleUpdateSceneScale} setImages={setImages}
             onClearSceneElements={handleClearSceneElements}
+            onMakeSceneActive={handleMakeSceneActive}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />

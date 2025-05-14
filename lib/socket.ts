@@ -38,6 +38,12 @@ export const initSocketIO = (httpServer: HttpServerNode): SocketIOServer => {
       console.log(`Socket ${socket.id} left scene room: ${sceneId}`);
     });
 
+    socket.on('dm_set_active_scene', (sceneId: string | number) => {
+      console.log(`Socket ${socket.id} (DM) initiated 'dm_set_active_scene' for scene ${sceneId}. Broadcasting 'force_scene_change' to all.`);
+      // Emit to all connected clients, including the sender (DM)
+      io.emit('force_scene_change', sceneId);
+    });
+
     socket.on('disconnect', () => {
       console.log('Socket.IO: User disconnected:', socket.id);
     });

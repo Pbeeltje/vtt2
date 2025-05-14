@@ -46,6 +46,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Scene not found" }, { status: 404 });
     }
 
+    // Emit socket event for scene update
+    try {
+      const { getIO } = await import('../../../lib/socket'); // Adjusted path
+      const io = getIO();
+      // Send only the necessary parts of sceneData to avoid large payloads if full sceneData is huge
+      const elementsUpdate = {
+        middleLayer: sceneData.elements?.middleLayer || [],
+        topLayer: sceneData.elements?.topLayer || [],
+      };
+      io.to(String(sceneId)).emit('scene_updated', sceneId, elementsUpdate);
+      console.log(`[API /scenes POST] Emitted 'scene_updated' for scene ${sceneId}`);
+    } catch (socketError) {
+      console.error("[API /scenes POST] Socket.IO emit error:", socketError);
+    }
+
     return NextResponse.json(result.rows[0]);
   } catch (error) {
     return NextResponse.json({ error: "Failed to save scene" }, { status: 500 });

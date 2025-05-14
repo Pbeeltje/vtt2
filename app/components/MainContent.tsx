@@ -32,6 +32,9 @@ interface MainContentProps {
   drawings: DrawingObject[];
   onDrawingAdd: (data: NewDrawingData) => void | Promise<void>;
   onDrawingsDelete: (ids: string[]) => void | Promise<void>;
+  onPlayerPlaceToken?: (token: LayerImage, sceneId: number) => void;
+  onPlayerRequestTokenDelete?: (tokenId: string) => void;
+  onPlayerUpdateTokenPosition?: (token: LayerImage, sceneId: number) => void;
 }
 
 
@@ -57,7 +60,10 @@ export default function MainContent({
   currentUserRole,
   drawings, 
   onDrawingAdd, 
-  onDrawingsDelete
+  onDrawingsDelete,
+  onPlayerPlaceToken,
+  onPlayerRequestTokenDelete,
+  onPlayerUpdateTokenPosition,
 }: MainContentProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -116,12 +122,163 @@ export default function MainContent({
   const snapToGrid = useCallback((layer: LayerImage[], newGridSize: number) => { return layer.map((item) => ({ ...item, x: Math.floor(item.x / newGridSize) * newGridSize, y: Math.floor(item.y / newGridSize) * newGridSize, ...(item.width === gridSize && item.height === gridSize ? { width: newGridSize, height: newGridSize } : {}), })) }, [gridSize])
   const updateItemPosition = useCallback((id: string, dx: number, dy: number) => { const updateLayer = (layer: LayerImage[]) => layer.map((item) => draggingIds?.includes(item.id) ? { ...item, x: Math.floor((item.x + dx) / gridSize) * gridSize, y: Math.floor((item.y + dy) / gridSize) * gridSize } : item ); const newMiddleLayer = updateLayer(middleLayerImages); const newTopLayer = updateLayer(topLayerImages); return { middleLayer: newMiddleLayer, topLayer: newTopLayer }; }, [draggingIds, gridSize, middleLayerImages, topLayerImages])
   const updateItemSize = useCallback((id: string, width: number, height: number) => { const updateLayer = (layer: LayerImage[]) => layer.map((item) => (item.id === id ? { ...item, width, height } : item)); const newMiddleLayer = updateLayer(middleLayerImages); return { middleLayer: newMiddleLayer, topLayer: topLayerImages }; }, [middleLayerImages, topLayerImages])
-  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); const imageId = e.dataTransfer.getData("imageId"); const category = e.dataTransfer.getData("category"); const url = e.dataTransfer.getData("url"); const characterId = e.dataTransfer.getData("characterId"); const characterData = e.dataTransfer.getData("character"); const rect = gridRef.current?.getBoundingClientRect(); if (!rect) return; const adjustedX = (e.clientX - rect.left) / zoomLevel; const adjustedY = (e.clientY - rect.top) / zoomLevel; const x = Math.floor(adjustedX / gridSize) * gridSize; const y = Math.floor(adjustedY / gridSize) * gridSize; const image = new window.Image(); image.src = url; await new Promise((resolve) => { image.onload = resolve }); const uniqueId = generateUniqueId(imageId); const imageData: LayerImage = { id: uniqueId, url: url || "", x, y }; if (category === "Image") { imageData.width = image.width; imageData.height = image.height; } else if (category === "Token") { imageData.width = gridSize; imageData.height = gridSize; if (characterId && characterData) { try { const parsedCharacter = JSON.parse(characterData); imageData.characterId = parseInt(characterId); imageData.character = { Name: parsedCharacter.Name, Path: parsedCharacter.Path, Guard: parsedCharacter.Guard ?? 0, MaxGuard: parsedCharacter.MaxGuard ?? 0, Strength: parsedCharacter.Strength ?? 0, MaxStrength: parsedCharacter.MaxStrength ?? 0, Mp: parsedCharacter.Mp ?? 0, MaxMp: parsedCharacter.MaxMp ?? 0 } } catch (error) { console.error('MainContent - Error parsing character data:', error); } } } if (category === "Image") { onUpdateImages?.([...middleLayerImages, imageData], topLayerImages) } else if (category === "Token") { onUpdateImages?.(middleLayerImages, [...topLayerImages, imageData]) } }, [gridSize, adjustImageSize, generateUniqueId, middleLayerImages, topLayerImages, onUpdateImages, zoomLevel])
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const imageId = e.dataTransfer.getData("imageId");
+    const category = e.dataTransfer.getData("category");
+    const url = e.dataTransfer.getData("url");
+    const characterIdStr = e.dataTransfer.getData("characterId");
+    const characterData = e.dataTransfer.getData("character");
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect || !currentSceneId) {
+      console.warn("Drop aborted: Missing grid ref or currentSceneId");
+      return;
+    }
+
+    const adjustedX = (e.clientX - rect.left) / zoomLevel;
+    const adjustedY = (e.clientY - rect.top) / zoomLevel;
+    const x = Math.floor(adjustedX / gridSize) * gridSize;
+    const y = Math.floor(adjustedY / gridSize) * gridSize;
+
+    const image = new window.Image();
+    image.src = url;
+    await new Promise((resolve) => { image.onload = resolve });
+
+    const uniqueId = generateUniqueId(imageId);
+
+    const imageData: LayerImage = {
+      id: uniqueId,
+      url: url || "",
+      x,
+      y,
+    };
+
+    if (category === "Image") {
+      imageData.width = image.width; 
+      imageData.height = image.height;
+    } else if (category === "Token") {
+      imageData.width = gridSize;
+      imageData.height = gridSize;
+      if (characterIdStr && characterData) {
+        try {
+          const parsedCharacter = JSON.parse(characterData);
+          imageData.characterId = parseInt(characterIdStr);
+          imageData.character = { 
+            Name: parsedCharacter.Name,
+            Path: parsedCharacter.Path,
+            Guard: parsedCharacter.Guard ?? 0,
+            MaxGuard: parsedCharacter.MaxGuard ?? 0,
+            Strength: parsedCharacter.Strength ?? 0,
+            MaxStrength: parsedCharacter.MaxStrength ?? 0,
+            Mp: parsedCharacter.Mp ?? 0,
+            MaxMp: parsedCharacter.MaxMp ?? 0,
+            userId: parsedCharacter.userId,
+          }
+        } catch (error) {
+          console.error('MainContent - Error parsing character data:', error);
+        }
+      }
+    }
+
+    if (category === "Image") {
+      onUpdateImages?.([...middleLayerImages, imageData], topLayerImages)
+    } else if (category === "Token") {
+      onUpdateImages?.(middleLayerImages, [...topLayerImages, imageData])
+    }
+
+    if (category === "Token" && currentUserRole === 'player' && imageData.character?.userId === currentUserId && currentSceneId) {
+      console.log("[MainContent.tsx] Player dropped their own token. Calling onPlayerPlaceToken.", imageData);
+      onPlayerPlaceToken?.(imageData, currentSceneId);
+    }
+
+  }, [gridSize, generateUniqueId, middleLayerImages, topLayerImages, onUpdateImages, zoomLevel, currentUserRole, currentUserId, currentSceneId, onPlayerPlaceToken]);
+
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => { e.preventDefault() }, [])
-  const handleItemDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => { let dragIds = selectedIds; if (selectedIds.length === 0) { setSelectedIds([item.id]); dragIds = [item.id]; } else if (!selectedIds.includes(item.id)) { return; } setDraggingIds(dragIds); const rect = e.currentTarget.getBoundingClientRect(); setDragOffset({ x: (e.clientX - rect.left), y: (e.clientY - rect.top), }); const canvas = document.createElement("canvas"); const ctx = canvas.getContext("2d"); if (ctx) { canvas.width = item.width || gridSize; canvas.height = item.height || gridSize; const img = new window.Image(); img.src = item.url; img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); e.dataTransfer.setDragImage(canvas, canvas.width / 2, canvas.height / 2); } } }, [selectedIds, gridSize])
+  const handleItemDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => { 
+    // Permission check for dragging
+    if (isToken && currentUserRole === 'player' && item.character?.userId !== currentUserId) {
+      toast({ title: "Permission Denied", description: "You can only drag your own character tokens.", variant: "destructive" });
+      e.preventDefault(); // Prevent drag operation
+      return;
+    }
+    if (!isToken && currentUserRole === 'player') {
+      toast({ title: "Permission Denied", description: "Players cannot drag map images.", variant: "destructive" });
+      e.preventDefault(); // Prevent drag operation
+      return;
+    }
+
+    let dragIds = selectedIds; 
+    if (selectedIds.length === 0) { 
+      setSelectedIds([item.id]); 
+      dragIds = [item.id]; 
+    } else if (!selectedIds.includes(item.id)) { 
+      // If multiple items are selected, only allow dragging if the clicked item is part of the selection.
+      // This prevents accidental drags of unselected items when a group is selected.
+      e.preventDefault();
+      return; 
+    } 
+    setDraggingIds(dragIds); 
+    const rect = e.currentTarget.getBoundingClientRect(); 
+    setDragOffset({ x: (e.clientX - rect.left), y: (e.clientY - rect.top), }); 
+    const canvas = document.createElement("canvas"); 
+    const ctx = canvas.getContext("2d"); 
+    if (ctx) { 
+      canvas.width = item.width || gridSize; 
+      canvas.height = item.height || gridSize; 
+      const img = new window.Image(); 
+      img.src = item.url; 
+      img.onload = () => { 
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height); 
+        try {
+          e.dataTransfer.setDragImage(canvas, canvas.width / 2, canvas.height / 2); 
+        } catch (error) {
+          // This can happen in some browsers if the drag was cancelled by e.preventDefault() almost immediately.
+          // Or if the canvas is too large or complex.
+          console.warn("Error setting drag image, drag might have been cancelled or image too complex.", error);
+        }
+      } 
+    } 
+  }, [selectedIds, gridSize, currentUserRole, currentUserId, toast]);
   const handleItemDrag = useCallback((e: React.DragEvent<HTMLDivElement>) => { if (!draggingIds || !dragOffset || e.clientX === 0 || e.clientY === 0) return; const rect = gridRef.current?.getBoundingClientRect(); if (!rect) return; const referenceItem = middleLayerImages.find((i) => i.id === draggingIds[0]) || topLayerImages.find((i) => i.id === draggingIds[0]); if (!referenceItem) return; const adjustedX = (e.clientX - rect.left) / zoomLevel; const adjustedY = (e.clientY - rect.top) / zoomLevel; const newX = Math.floor((adjustedX - dragOffset.x / zoomLevel) / gridSize) * gridSize; const newY = Math.floor((adjustedY - dragOffset.y / zoomLevel) / gridSize) * gridSize; const dx = newX - referenceItem.x; const dy = newY - referenceItem.y; const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy); onUpdateImages?.(middleLayer, topLayer); }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages, zoomLevel])
-  const handleItemDragEnd = useCallback(() => { setDraggingIds(null); setDragOffset(null); onUpdateImages?.(middleLayerImages, topLayerImages); }, [middleLayerImages, topLayerImages, onUpdateImages])
-  const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => { e.preventDefault(); e.stopPropagation(); setResizingId(item.id); setResizeStart({ x: e.clientX, y: e.clientY, width: item.width || gridSize, height: item.height || gridSize, }); }, [gridSize])
+  const handleItemDragEnd = useCallback(() => {
+    const draggedItem = draggingIds && (middleLayerImages.find(img => img.id === draggingIds[0]) || topLayerImages.find(img => img.id === draggingIds[0]));
+
+    if (currentUserRole === 'player' && 
+        draggedItem && 
+        topLayerImages.some(token => token.id === draggedItem.id) && // Check if it's a token
+        draggedItem.character?.userId === currentUserId && 
+        currentSceneId) {
+      // Player finished dragging their own token
+      console.log("[MainContent.tsx] Player finished dragging their own token. Calling onPlayerUpdateTokenPosition.", draggedItem);
+      onPlayerUpdateTokenPosition?.(draggedItem, currentSceneId);
+    } else if (currentUserRole === 'DM') {
+      // DM finished dragging, onUpdateImages will trigger save via Home.tsx
+      onUpdateImages?.(middleLayerImages, topLayerImages);
+    }
+    // For players, if it wasn't their token, or not a token, no server update is called here.
+    // The onUpdateImages in handleItemDrag provided local visual feedback.
+    // If DM, onUpdateImages is called to potentially trigger a save in Home.tsx.
+
+    setDraggingIds(null); 
+    setDragOffset(null); 
+    // No longer universally call onUpdateImages for players here, as it might trigger incorrect save attempts in Home.tsx
+    // The specific player update is handled by onPlayerUpdateTokenPosition.
+    // DM changes are handled by their onUpdateImages call above.
+  }, [draggingIds, middleLayerImages, topLayerImages, onUpdateImages, currentUserRole, currentUserId, currentSceneId, onPlayerUpdateTokenPosition]);
+  const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => { 
+    // Permission check for resizing
+    // Assuming only non-token images (middle layer) have resize handles and players cannot resize them.
+    // Tokens are typically fixed to gridSize.
+    if (currentUserRole === 'player') {
+      toast({ title: "Permission Denied", description: "Players cannot resize map images.", variant: "destructive" });
+      e.preventDefault();
+      return;
+    }
+    e.preventDefault(); 
+    e.stopPropagation(); 
+    setResizingId(item.id); 
+    setResizeStart({ x: e.clientX, y: e.clientY, width: item.width || gridSize, height: item.height || gridSize, }); 
+  }, [gridSize, currentUserRole, toast]);
   const handleResizeMove = useCallback((e: MouseEvent) => { if (!resizingId || !resizeStart) return; const dx = (e.clientX - resizeStart.x) / zoomLevel; const dy = (e.clientY - resizeStart.y) / zoomLevel; const newWidth = Math.max(gridSize, Math.floor((resizeStart.width + dx) / gridSize) * gridSize); const newHeight = Math.max(gridSize, Math.floor((resizeStart.height + dy) / gridSize) * gridSize); const { middleLayer, topLayer } = updateItemSize(resizingId, newWidth, newHeight); onUpdateImages?.(middleLayer, topLayer); }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages, zoomLevel])
   const handleResizeEnd = useCallback(() => { setResizingId(null); setResizeStart(null); onUpdateImages?.(middleLayerImages, topLayerImages); }, [middleLayerImages, topLayerImages, onUpdateImages])
 
@@ -143,19 +300,67 @@ export default function MainContent({
           toast({ title: "Permission Denied", description: `You cannot delete drawings you didn't create. (${nonPermissibleSelections.length} item(s))`, variant: "destructive" });
       }
       if (permissibleIdsToDelete.length > 0) {
-        // Call the prop function to handle deletion via Home.tsx
         onDrawingsDelete(permissibleIdsToDelete);
-        // Optimistically update UI or rely on Home.tsx to update drawings prop
-        // For now, clear selection, Home.tsx will update the drawings array via socket
       }
-      setSelectedDrawingIds([]); setSelectedIds([]);
+      setSelectedDrawingIds([]); 
+      setSelectedIds([]);
     } else if (selectedIds.length > 0) { 
-      const newMiddleLayer = middleLayerImages.filter((img) => !selectedIds.includes(img.id));
-      const newTopLayer = topLayerImages.filter((img) => !selectedIds.includes(img.id));
+      let newMiddleLayer = [...middleLayerImages];
+      let newTopLayer = [...topLayerImages];
+      const playerTokensToDelete: string[] = [];
+      const nonPermissibleTokens: string[] = [];
+
+      selectedIds.forEach(id => {
+        const token = topLayerImages.find(img => img.id === id);
+        if (token) {
+          if (currentUserRole === 'DM') {
+            // DM can delete any token, will be filtered out later
+          } else if (currentUserRole === 'player') {
+            if (token.character?.userId === currentUserId) {
+              playerTokensToDelete.push(id);
+            } else {
+              nonPermissibleTokens.push(id);
+            }
+          }
+        } else {
+          // It's an image from middleLayer (or not found in topLayer)
+          // For now, assume only DMs can delete middleLayer images
+          if (currentUserRole !== 'DM') {
+            // If it's a middle layer image and user is not DM
+            const middleImage = middleLayerImages.find(img => img.id === id);
+            if (middleImage) { // Check if it actually exists in middle layer
+                 nonPermissibleTokens.push(id); // Add to non-permissible if player tries to delete middle layer
+            }
+          }
+        }
+      });
+
+      if (nonPermissibleTokens.length > 0) {
+        toast({ title: "Permission Denied", description: `You do not have permission to delete some selected items. (${nonPermissibleTokens.length} item(s))`, variant: "destructive" });
+      }
+
+      // Call API for player-owned tokens
+      playerTokensToDelete.forEach(tokenId => {
+        onPlayerRequestTokenDelete?.(tokenId);
+      });
+
+      // Optimistic UI update
+      // DM can delete any selected item (tokens or middle layer images)
+      // Player can only delete their own tokens (API call initiated) and no middle layer images
+      
+      if (currentUserRole === 'DM') {
+        newMiddleLayer = middleLayerImages.filter((img) => !selectedIds.includes(img.id));
+        newTopLayer = topLayerImages.filter((img) => !selectedIds.includes(img.id));
+      } else if (currentUserRole === 'player') {
+        // Player only deletes their own tokens from top layer, middle layer remains untouched by player delete actions
+        newTopLayer = topLayerImages.filter((img) => !playerTokensToDelete.includes(img.id));
+        // Middle layer images are not modified by player delete attempts here
+      }
+      
       onUpdateImages?.(newMiddleLayer, newTopLayer);
       setSelectedIds([]);
     }
-  }, [selectedIds, middleLayerImages, topLayerImages, onUpdateImages, selectedDrawingIds, drawings, currentUserRole, currentUserId, onDrawingsDelete]);
+  }, [selectedIds, middleLayerImages, topLayerImages, onUpdateImages, selectedDrawingIds, drawings, currentUserRole, currentUserId, onDrawingsDelete, onPlayerRequestTokenDelete]);
 
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => { const target = e.target as HTMLElement; const isClickingToken = target.classList.contains('token-image') || target.closest('.token-image') || target.closest('[draggable="true"]'); if (!isClickingToken && currentTool !== 'brush') { setSelectedIds([]); setSelectedDrawingIds([]); } }, [currentTool]);
   const handleItemClick = useCallback((e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => { e.stopPropagation(); if (currentTool === 'brush') return; if (e.shiftKey) { setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]); } else { setSelectedIds([item.id]); } setSelectedDrawingIds([]); }, [currentTool])

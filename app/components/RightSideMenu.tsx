@@ -8,14 +8,17 @@ import { MessageSquare, Users, Map, Settings, LogOut, Trash2, Save, Upload } fro
 import CharacterList from "./CharacterList"
 import ImageList from "./ImageList"
 import { toast } from "@/components/ui/use-toast"
-type MessageType = "user" | "system"
+// import MapList from "./MapList"
 
 interface ChatMessage {
   MessageId?: number;
-  type: MessageType
-  content: string
-  timestamp: string
-  username: string
+  type: string;
+  content: string;
+  timestamp: string;
+  username: string;
+  senderType?: 'user' | 'character';
+  senderRole?: string;
+  UserId?: number;
 }
 
 import { Character } from "../types/character"
@@ -23,7 +26,7 @@ import { DMImage } from "../types/image"
 
 interface RightSideMenuProps {
   messages: ChatMessage[]
-  addMessage: (type: MessageType, content: string) => void // Username will be derived from user prop in Home
+  addMessage: (type: string, content: string, speakerName: string, senderType: 'user' | 'character') => void
   user: {
     id: number;
     username: string;
@@ -40,13 +43,14 @@ interface RightSideMenuProps {
   onDeleteImage: (image: DMImage) => Promise<void>
   onRenameImage: (image: DMImage, newName: string) => Promise<void>
   onSetBackground: (url: string) => void
-  onDropImage: (category: string, image: DMImage, x: number, y: number) => void
   scenes: DMImage[]
   onLoadScene: (scene: DMImage) => void
+  onDropImage: (category: string, image: DMImage, x: number, y: number) => void
   onDeleteSceneData: (image: DMImage) => Promise<void>
   onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
   setImages: (images: DMImage[]) => void
   onClearSceneElements?: () => void;
+  onMakeSceneActive?: (sceneId: number) => void;
 }
 
 export default function RightSideMenu({
@@ -64,27 +68,42 @@ export default function RightSideMenu({
   onDeleteImage,
   onRenameImage,
   onSetBackground,
+  scenes,
+  onLoadScene,
+  onDropImage,
   onDeleteSceneData,
   onUpdateSceneScale,
   setImages,
   onClearSceneElements,
+  onMakeSceneActive,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const [activeSection, setActiveSection] = useState<"chat" | "characters" | "maps">("chat")
+  const [selectedSpeaker, setSelectedSpeaker] = useState<{ name: string; type: 'user' | 'character' }>({ name: user.username, type: 'user' });
 
-  // Add effect to refresh images when switching to maps tab
+  // Log characters whenever RightSideMenu re-renders
+  // console.log("[RightSideMenu.tsx] Characters state:", characters);
+  // console.log("[RightSideMenu.tsx] Current user role:", user?.role);
+
   useEffect(() => {
-    if (activeSection === "maps") {
-      // Simple direct refresh of images when switching to maps tab
+    if (user?.role !== 'DM' && activeSection === 'maps') {
+      setActiveSection('chat');
+    }
+  }, [user?.role, activeSection]);
+
+  useEffect(() => {
+    setSelectedSpeaker({ name: user.username, type: 'user' });
+  }, [user.username]);
+
+  useEffect(() => {
+    if (activeSection === "maps" && user?.role === 'DM') {
       const refreshImages = async () => {
         try {
           const response = await fetch("/api/images", { credentials: "include" });
           if (response.ok) {
             const updatedImages = await response.json();
-            // Directly update the images state in the parent component
             setImages(updatedImages);
-            console.log("Images refreshed when switching to maps tab");
           }
         } catch (error) {
           console.error("Error refreshing images:", error);
@@ -92,11 +111,11 @@ export default function RightSideMenu({
       };
       refreshImages();
     }
-  }, [activeSection, setImages]);
+  }, [activeSection, user?.role, setImages]);
 
   const handleSendMessage = () => {
     if (inputMessage.trim()) {
-      addMessage("user", inputMessage) // Pass only type and content
+      addMessage("user", inputMessage, selectedSpeaker.name, selectedSpeaker.type)
       setInputMessage("")
     }
   }
@@ -135,20 +154,19 @@ export default function RightSideMenu({
     }
   }
 
+  const filteredCharsForDropdown = characters.filter(char => char.userId === user.id);
+  // console.log(`[RightSideMenu.tsx] Filtered characters for dropdown (user ID: ${user.id}):`, filteredCharsForDropdown);
+
   return (
     <div className="w-[40rem] bg-white border-l flex flex-col" style={{ backgroundImage: 'url("images/rightsidemenu.jpeg")', backgroundSize: '100% auto', backgroundRepeat: 'repeat-y' }}>
       <div className="p-4 border-b w-full">
         <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as "chat" | "characters" | "maps")} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 bg-stone-300">
-            <TabsTrigger value="chat">
-              <MessageSquare className="h-4 w-4" />
-            </TabsTrigger>
-            <TabsTrigger value="characters">
-              <Users className="h-4 w-4" />
-            </TabsTrigger>
-            <TabsTrigger value="maps">
-              <Map className="h-4 w-4" />
-            </TabsTrigger>
+          <TabsList className={`grid w-full ${user?.role === 'DM' ? 'grid-cols-3' : 'grid-cols-2'} bg-stone-300`}>
+            <TabsTrigger value="chat" title="Chat"><MessageSquare className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Chat</span></TabsTrigger>
+            <TabsTrigger value="characters" title="Characters"><Users className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Characters</span></TabsTrigger>
+            {user?.role === 'DM' && (
+              <TabsTrigger value="maps" title="Maps"><Map className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Maps</span></TabsTrigger>
+            )}
           </TabsList>
           <TabsContent value="chat" className="w-full">
             <div className="flex flex-col h-[calc(100vh-8rem)] w-full">
@@ -190,7 +208,16 @@ export default function RightSideMenu({
 
                     // Use MessageId for the key if available, otherwise fall back to index.
                     // Ensure ChatMessage interface in this file and Home.tsx includes MessageId.
-                    const key = message.MessageId || `msg-${index}`;
+                    const key = message.MessageId !== undefined ? message.MessageId : `msg-${index}-${message.timestamp}`;
+
+                    let usernameColor = 'black'; // Default for player, non-character messages
+                    if (message.type === 'system') {
+                      usernameColor = 'blue';
+                    } else if (message.senderType === 'character') {
+                      usernameColor = 'darkgreen';
+                    } else if (message.senderRole === 'DM') { // Check if the sender was a DM
+                      usernameColor = 'red';
+                    } // Else, it remains 'black' for non-DM users sending as themselves
 
                     return (
                       <div key={key}>
@@ -202,10 +229,12 @@ export default function RightSideMenu({
                         <div className="text-sm flex">
                           <span className="text-xs text-gray-400 mr-2 self-center min-w-[40px]">{formattedTime}</span>
                           <div className="flex-grow">
-                            {message.type === "user" ? (
-                              <span className="font-semibold">{message.username}:</span>
+                            {message.type === "user" || message.type === "diceRoll" ? (
+                              <span style={{ color: usernameColor, fontWeight: '600' }}>{message.username}:</span>
+                            ) : message.type === "system" ? (
+                              <span style={{ color: usernameColor, fontWeight: '600' }}>System:</span>
                             ) : (
-                              <span className="font-semibold text-blue-600">System:</span>
+                              <span style={{ color: usernameColor, fontWeight: '600' }}>{message.username || 'Unknown'}:</span> // Fallback for other types
                             )}{" "}
                             <span dangerouslySetInnerHTML={{ __html: message.content }} />
                           </div>
@@ -216,7 +245,21 @@ export default function RightSideMenu({
                 </div>
               </div>
               <div className="p-2 border-t">
-                <div className="flex h-10">
+                <div className="flex items-center h-10">
+                  <select 
+                    value={`${selectedSpeaker.type}-${selectedSpeaker.name}`}
+                    onChange={(e) => {
+                      const [type, name] = e.target.value.split('-');
+                      setSelectedSpeaker({ name, type: type as 'user' | 'character' });
+                    }}
+                    className="mr-2 p-2 h-full border rounded-md bg-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    title="Speak as"
+                  >
+                    <option value={`user-${user.username}`}>{user.username} (You)</option>
+                    {filteredCharsForDropdown.map(char => (
+                        <option key={char.CharacterId} value={`character-${char.Name}`}>{char.Name} (Character)</option>
+                    ))}
+                  </select>
                   <Input
                     type="text"
                     value={inputMessage}
@@ -233,53 +276,62 @@ export default function RightSideMenu({
           <TabsContent value="characters" className="w-full">
             <div className="p-4 w-full">
               <h2 className="text-lg text-white font-semibold mb-4">Characters</h2>
-              <CharacterList
-                categories={["Party", "NPC", "Monster"]}
-                characters={characters}
-                onAddCharacter={onAddCharacter}
-                onUpdateCharacter={onUpdateCharacter}
-                onDeleteCharacter={onDeleteCharacter}
-                currentUser={user.id}
-                isDM={user.role === "DM"}
-              />
+              {user.role === 'DM' ? (
+                <CharacterList
+                  characters={characters}
+                  onAddCharacter={onAddCharacter}
+                  onUpdateCharacter={onUpdateCharacter}
+                  onDeleteCharacter={onDeleteCharacter}
+                  currentUser={user.id}
+                  isDM={true}
+                />
+              ) : (
+                <CharacterList
+                  characters={characters.filter(char => char.userId === user.id)}
+                  onAddCharacter={onAddCharacter}
+                  onUpdateCharacter={onUpdateCharacter}
+                  onDeleteCharacter={onDeleteCharacter}
+                  currentUser={user.id}
+                  isDM={false}
+                />
+              )}
             </div>
           </TabsContent>
-          <TabsContent value="maps" className="w-full">
-            <div className="p-4 w-full">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg text-white font-semibold">Images</h3>
-                <div className="space-x-2">
-                  {user.role === 'DM' && onClearSceneElements && (
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={onClearSceneElements}
-                      title="Clear All Tokens and Images from Current Scene"
-                    >
-                      <Trash2 className="w-4 h-4 mr-1" /> Clear Items
-                    </Button>
-                  )}
-                  <Button onClick={() => onAddImage("Scene", new File([], ""))} size="sm">
-                   Upload
-                  </Button>
+          {user?.role === 'DM' && (
+            <TabsContent value="maps" className="w-full">
+              <div className="p-4 w-full">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg text-white font-semibold">Images & Scenes</h3>
+                  <div className="space-x-2">
+                    {onClearSceneElements && (
+                      <Button
+                        variant="destructive"
+                        onClick={onClearSceneElements}
+                        title="Clear All Tokens & Images from Scene"
+                      >
+                        Clear Scene Items
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="mt-4">
                 <ImageList
                   images={images}
                   categories={["Scene", "Image", "Token"]}
                   onAddImage={onAddImage}
                   onDeleteImage={onDeleteImage}
-                  onDragStart={handleDragStart}
-                  onSceneClick={onSetBackground}
-                  onDeleteSceneData={onDeleteSceneData}
                   onRenameImage={onRenameImage}
+                  onDragStart={handleDragStart}
+                  onSceneClick={onLoadScene}
+                  onDeleteSceneData={onDeleteSceneData}
                   onUpdateSceneScale={onUpdateSceneScale}
                   characters={characters}
+                  currentUserRole={user?.role}
+                  onDropImage={onDropImage}
+                  onMakeSceneActive={onMakeSceneActive}
                 />
               </div>
-            </div>
-          </TabsContent>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>
