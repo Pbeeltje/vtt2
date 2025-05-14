@@ -3,7 +3,7 @@ import { createClient } from "@libsql/client"
 import { getUserFromCookie } from "@/lib/auth"
 
 const client = createClient({
-  url: "file:./vttdatabase.db", // Explicitly use the local database file
+  url: "file:./vttdatabase.db", // Changed to local DB
   authToken: "", // No auth token needed for local file
 })
 

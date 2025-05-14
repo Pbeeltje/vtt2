@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { db } from '../../lib/db'; // Import the local db instance
+// import { db } from '../../lib/db'; // Removed better-sqlite3 import
 import { setUserCookie } from "@/lib/auth";
+import { createClient } from "@libsql/client"; // Corrected import
+
+const client = createClient({
+  url: "file:./vttdatabase.db",
+  authToken: "", // No auth token needed for local file
+});
 
 export async function POST(req: Request) {
+  // Removed Turso environment check
   try {
     const { username, password, isTestLogin = false } = await req.json();
 
@@ -32,9 +39,16 @@ export async function POST(req: Request) {
     }
     // --- End Test DM Login ---
 
-    // --- Regular User Login (Use local DB) ---
-    const stmt = db.prepare("SELECT id, Username, Password, Role FROM User WHERE Username = ?");
-    const user = stmt.get(username) as any; // Cast to any or define a User type
+    // --- Regular User Login (Use @libsql/client) ---
+    // const stmt = db.prepare("SELECT id, Username, Password, Role FROM User WHERE Username = ?"); // Old better-sqlite3 code
+    // const user = stmt.get(username) as any; // Old better-sqlite3 code
+
+    const dbResult = await client.execute({
+        sql: "SELECT id, Username, Password, Role FROM User WHERE Username = ?",
+        args: [username],
+    });
+
+    const user = dbResult.rows.length > 0 ? dbResult.rows[0] as any : null; // Cast to any or define a User type
 
     if (!user) {
       console.log(`Login failed: User "${username}" not found.`);

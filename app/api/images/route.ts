@@ -5,8 +5,8 @@ import { getUserFromCookie } from "@/lib/auth";
 const IMGUR_CLIENT_ID = process.env.IMGUR_CLIENT_ID || "missing-client-id";
 
 const client = createClient({
-  url: process.env.TURSO_DATABASE_URL || "",
-  authToken: process.env.TURSO_AUTH_TOKEN || "",
+  url: "file:./vttdatabase.db",
+  authToken: "",
 });
 
 export async function GET(req: Request) {

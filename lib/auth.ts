@@ -1,11 +1,11 @@
 "use server"
 
 import { cookies } from "next/headers"
-import bcrypt from "bcryptjs"
+import bcrypt from "bcryptjs" // Re-added bcryptjs import
 import { createClient } from "@libsql/client"
 
 const client = createClient({
-  url: "file:./vttdatabase.db", // Explicitly use the local database file
+  url: "file:./vttdatabase.db", // Changed to local DB
   authToken: "", // No auth token needed for local file
 })
 

@@ -17,8 +17,8 @@ interface Job {
 }
 
 const client = createClient({
-  url: process.env.TURSO_DATABASE_URL || '',
-  authToken: process.env.TURSO_AUTH_TOKEN || '',
+  url: "file:./vttdatabase.db", // Changed to local DB
+  authToken: "", // No auth token needed for local file
 });
 
 // Helper function to check if the user is authorized (either owner or DM)
