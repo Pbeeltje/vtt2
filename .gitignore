@@ -25,3 +25,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+#database
+vttdatabase.db
+vttdatabase.db-shm
+vttdatabase.db-wal
