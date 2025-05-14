@@ -3,8 +3,8 @@ import { createClient } from "@libsql/client";
 import { getUserFromCookie } from "@/lib/auth";
 
 const client = createClient({
-  url: process.env.TURSO_DATABASE_URL || "",
-  authToken: process.env.TURSO_AUTH_TOKEN || "",
+  url: "file:./vttdatabase.db",
+  authToken: "", // No auth token needed for local file
 });
 
 export async function GET(req: Request) {

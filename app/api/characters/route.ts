@@ -10,11 +10,6 @@ const client = createClient({
 export async function GET(req: Request) {
   console.log("Entering GET function in /api/characters/route.ts")
 
-  if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
-    console.error("Database configuration is missing")
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
-  }
-
   const user = await getUserFromCookie()
 
   if (!user) {
@@ -47,11 +42,6 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   console.log("Entering POST function in /api/characters/route.ts")
-
-  if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
-    console.error("Database configuration is missing")
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
-  }
 
   const user = await getUserFromCookie()
 
