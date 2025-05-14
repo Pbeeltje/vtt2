@@ -7,6 +7,7 @@ export type LayerImage = {
     height?: number // Optional for images, not used for tokens
     characterId?: number // Optional: ID of the character this token represents
     character?: {
+      CharacterId?: number; // Add CharacterId here
       Name: string
       Path: string
       Guard: number

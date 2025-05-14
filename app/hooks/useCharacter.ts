@@ -13,27 +13,11 @@ export function useCharacter(initialCharacter: Character, onUpdate: (updatedChar
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      const response = await fetch(`/api/characters/${editedCharacter.CharacterId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editedCharacter),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update character');
-      }
-      const updatedCharacter = await response.json();
-      onUpdate(updatedCharacter);
-      toast({ title: "Character Updated", description: "Your changes have been saved successfully." });
-    } catch (error) {
-      console.error('Error updating character:', error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update character.",
-        variant: "destructive",
-      });
-    }
+    // The API call will be handled by the onUpdate callback (Home.tsx's handleUpdateCharacter)
+    onUpdate(editedCharacter);
+    // Optionally, you might want to move the success toast to Home.tsx after its API call succeeds.
+    // For now, let's assume onUpdate will handle feedback or the existing toast in Home.tsx is sufficient.
+    // toast({ title: "Character Updated", description: "Your changes have been submitted." }); 
   };
 
   return { editedCharacter, setEditedCharacter, handleInputChange, handleSubmit };

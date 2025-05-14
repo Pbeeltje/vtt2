@@ -166,6 +166,7 @@ export default function MainContent({
           const parsedCharacter = JSON.parse(characterData);
           imageData.characterId = parseInt(characterIdStr);
           imageData.character = { 
+            CharacterId: imageData.characterId,
             Name: parsedCharacter.Name,
             Path: parsedCharacter.Path,
             Guard: parsedCharacter.Guard ?? 0,

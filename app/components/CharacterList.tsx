@@ -102,6 +102,7 @@ export default function CharacterList({
     e.dataTransfer.setData("url", character.TokenUrl || character.PortraitUrl || "/placeholder.png")
     e.dataTransfer.setData("characterId", character.CharacterId.toString())
     e.dataTransfer.setData("character", JSON.stringify({
+      CharacterId: character.CharacterId,
       Name: character.Name,
       Path: character.Path,
       Guard: character.Guard ?? 0,
