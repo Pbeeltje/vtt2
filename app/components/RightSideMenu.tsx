@@ -11,6 +11,7 @@ import { toast } from "@/components/ui/use-toast"
 type MessageType = "user" | "system"
 
 interface ChatMessage {
+  MessageId?: number;
   type: MessageType
   content: string
   timestamp: string
@@ -155,33 +156,68 @@ export default function RightSideMenu({
               <div ref={chatContainerRef} className={`flex-grow px-4 ${chatBackgroundColor} overflow-y-auto rounded bg-opacity-80`}>
                 <div className="space-y-2 pb-4">
                   {messages.map((message, index) => {
-                    const currentDate = new Date(message.timestamp).toLocaleDateString("en-GB", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric"
-                    });
+                    console.log(
+                      "RightSideMenu rendering message:",
+                      {
+                        username: message.username,
+                        timestamp_val: message.timestamp,
+                        timestamp_type: typeof message.timestamp,
+                        message_id: message.MessageId
+                      }
+                    );
+                    const messageDate = new Date(message.timestamp);
+                    let formattedTime = "Time N/A";
+                    let currentDateString = "Date N/A";
+
+                    if (!isNaN(messageDate.getTime())) {
+                      formattedTime = messageDate.toLocaleTimeString("en-GB", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+                      currentDateString = messageDate.toLocaleDateString("en-GB", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      });
+                    }
+
                     const prevMessage = index > 0 ? messages[index - 1] : null;
-                    const prevDate = prevMessage ? new Date(prevMessage.timestamp).toLocaleDateString("en-GB", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric"
-                    }) : null;
-                    const showDateSeparator = prevDate && currentDate !== prevDate;
+                    let prevDateString = null;
+                    if (prevMessage) {
+                      const prevMessageDate = new Date(prevMessage.timestamp);
+                      if (!isNaN(prevMessageDate.getTime())) {
+                        prevDateString = prevMessageDate.toLocaleDateString("en-GB", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                        });
+                      }
+                    }
+                    
+                    // Show date separator if the current date is valid and different from the previous valid date.
+                    const showDateSeparator = currentDateString !== "Date N/A" && (!prevDateString || currentDateString !== prevDateString);
+
+                    // Use MessageId for the key if available, otherwise fall back to index.
+                    // Ensure ChatMessage interface in this file and Home.tsx includes MessageId.
+                    const key = message.MessageId || `msg-${index}`;
 
                     return (
-                      <div key={index}>
+                      <div key={key}>
                         {showDateSeparator && (
-                          <div className="text-center text-sm text-gray-500 my-2">
-                            {currentDate}
+                          <div className="text-center text-sm text-gray-500 my-2 pt-2">
+                            {currentDateString}
                           </div>
                         )}
-                        <div className="text-sm">
-                          {message.type === "user" ? (
-                            <span className="font-semibold">{message.username}:</span>
-                          ) : (
-                            <span className="font-semibold text-blue-600">System:</span>
-                          )}{" "}
-                          <span dangerouslySetInnerHTML={{ __html: message.content }} />
+                        <div className="text-sm flex">
+                          <span className="text-xs text-gray-400 mr-2 self-center min-w-[40px]">{formattedTime}</span>
+                          <div className="flex-grow">
+                            {message.type === "user" ? (
+                              <span className="font-semibold">{message.username}:</span>
+                            ) : (
+                              <span className="font-semibold text-blue-600">System:</span>
+                            )}{" "}
+                            <span dangerouslySetInnerHTML={{ __html: message.content }} />
+                          </div>
                         </div>
                       </div>
                     );

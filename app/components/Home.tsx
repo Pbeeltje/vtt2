@@ -184,15 +184,22 @@ export default function Home() {
       }
     });
 
-    socket.on('new_message', (newMessage: ChatMessage) => {
-      console.log('Socket.IO: new_message received', newMessage);
-      // Add message to state, preventing duplicates if optimistic update already added it
-      // Note: ChatMessage from server should have MessageId
+    socket.on('new_message', (incomingMessage: any) => {
+      console.log('Socket.IO: new_message received', incomingMessage);
+      // Map properties from incomingMessage (which might have uppercase) to ChatMessage interface
+      const formattedNewMessage: ChatMessage = {
+        MessageId: incomingMessage.MessageId,
+        type: incomingMessage.Type as MessageType,
+        content: incomingMessage.Content,
+        timestamp: incomingMessage.Timestamp, // Map from Timestamp
+        username: incomingMessage.Username,   // Map from Username
+        UserId: incomingMessage.UserId,
+      };
       setMessages((prevMessages) => {
-        if (prevMessages.find(msg => msg.MessageId === newMessage.MessageId)) {
+        if (prevMessages.find(msg => msg.MessageId === formattedNewMessage.MessageId)) {
           return prevMessages; // Already exists
         }
-        return [...prevMessages, newMessage];
+        return [...prevMessages, formattedNewMessage];
       });
     });
 
@@ -338,24 +345,30 @@ export default function Home() {
       toast({ title: "Error", description: "You must be logged in to send messages.", variant: "destructive" });
       return;
     }
-    // Optimistic update can be done here, but for now, rely on API response + socket broadcast
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, content }), // Server will use user from cookie for username/userId
+        body: JSON.stringify({ type, content }),
       });
 
       if (response.ok) {
-        const savedMessage = await response.json();
-        // Optimistically add to local state. Socket event will update other clients.
-        // The socket listener for 'new_message' on this client should handle potential duplicates.
+        const savedMessageFromServer = await response.json();
+        // Map properties from savedMessageFromServer to ChatMessage interface
+        const formattedSavedMessage: ChatMessage = {
+          MessageId: savedMessageFromServer.MessageId,
+          type: savedMessageFromServer.Type as MessageType,
+          content: savedMessageFromServer.Content,
+          timestamp: savedMessageFromServer.Timestamp, // Map from Timestamp
+          username: savedMessageFromServer.Username,   // Map from Username
+          UserId: savedMessageFromServer.UserId,
+        };
+        
         setMessages((prevMessages) => {
-           // Check if the message (by MessageId) is already in the state
-          if (prevMessages.find(msg => msg.MessageId === savedMessage.MessageId)) {
-            return prevMessages; // Already added, possibly by socket event if it arrived super fast
+          if (prevMessages.find(msg => msg.MessageId === formattedSavedMessage.MessageId)) {
+            return prevMessages; 
           }
-          return [...prevMessages, savedMessage];
+          return [...prevMessages, formattedSavedMessage];
         });
       } else {
         const errorResult = await response.json().catch(() => ({ error: "Failed to send message." }));
