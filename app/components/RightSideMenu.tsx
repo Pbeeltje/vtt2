@@ -42,11 +42,11 @@ interface RightSideMenuProps {
   onSetBackground: (url: string) => void
   onDropImage: (category: string, image: DMImage, x: number, y: number) => void
   scenes: DMImage[]
-  onSaveScene: () => void
   onLoadScene: (scene: DMImage) => void
   onDeleteSceneData: (image: DMImage) => Promise<void>
   onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
   setImages: (images: DMImage[]) => void
+  onClearSceneElements?: () => void;
 }
 
 export default function RightSideMenu({
@@ -64,10 +64,10 @@ export default function RightSideMenu({
   onDeleteImage,
   onRenameImage,
   onSetBackground,
-  onSaveScene,
   onDeleteSceneData,
   onUpdateSceneScale,
   setImages,
+  onClearSceneElements,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -156,15 +156,6 @@ export default function RightSideMenu({
               <div ref={chatContainerRef} className={`flex-grow px-4 ${chatBackgroundColor} overflow-y-auto rounded bg-opacity-80`}>
                 <div className="space-y-2 pb-4">
                   {messages.map((message, index) => {
-                    console.log(
-                      "RightSideMenu rendering message:",
-                      {
-                        username: message.username,
-                        timestamp_val: message.timestamp,
-                        timestamp_type: typeof message.timestamp,
-                        message_id: message.MessageId
-                      }
-                    );
                     const messageDate = new Date(message.timestamp);
                     let formattedTime = "Time N/A";
                     let currentDateString = "Date N/A";
@@ -258,10 +249,16 @@ export default function RightSideMenu({
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg text-white font-semibold">Images</h3>
                 <div className="space-x-2">
-                  <Button onClick={onSaveScene} size="sm" variant="ghost" title="Save Scene" className="bg-white">
-                     <Save className="h-4 w-4" />
-                    
-                  </Button>
+                  {user.role === 'DM' && onClearSceneElements && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={onClearSceneElements}
+                      title="Clear All Tokens and Images from Current Scene"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" /> Clear Items
+                    </Button>
+                  )}
                   <Button onClick={() => onAddImage("Scene", new File([], ""))} size="sm">
                    Upload
                   </Button>

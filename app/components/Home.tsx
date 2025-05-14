@@ -185,7 +185,7 @@ export default function Home() {
     });
 
     socket.on('new_message', (incomingMessage: any) => {
-      console.log('Socket.IO: new_message received', incomingMessage);
+      // console.log('Socket.IO: new_message received', incomingMessage); // Removed as per user request
       // Map properties from incomingMessage (which might have uppercase) to ChatMessage interface
       const formattedNewMessage: ChatMessage = {
         MessageId: incomingMessage.MessageId,
@@ -424,6 +424,31 @@ export default function Home() {
   const handleUpdateSceneScale = async (image: DMImage, scale: number) => {};
   function handleClearTokens() {}
   
+  const handleClearSceneElements = () => {
+    if (user?.role !== 'DM') {
+      toast({ title: "Permission Denied", description: "Only DMs can clear scene elements.", variant: "destructive" });
+      return;
+    }
+
+    if (!selectedScene) {
+      toast({ title: "No Scene Selected", description: "Please select a scene first.", variant: "default" });
+      return;
+    }
+
+    if (middleLayerImages.length === 0 && topLayerImages.length === 0) {
+      toast({ title: "Scene Empty", description: "There are no tokens or images on the current scene to clear.", variant: "default" });
+      return;
+    }
+
+    if (window.confirm("Are you sure you want to clear all tokens and images from the current scene? This cannot be undone.")) {
+      console.log("Clearing scene elements (tokens and images).");
+      setMiddleLayerImages([]);
+      setTopLayerImages([]);
+      // The useEffect listening to middleLayerImages and topLayerImages changes should trigger handleSaveScene.
+      toast({ title: "Scene Cleared", description: "All tokens and images have been removed from the scene and changes are being saved." });
+    }
+  };
+
   const handleApiDrawingAdd = async (drawingData: NewDrawingData) => {
     if (!selectedScene?.Id || !user) { 
       toast({ title: "Error", description: "Cannot save drawing: No active scene or user.", variant: "destructive" }); 
@@ -477,11 +502,11 @@ export default function Home() {
       console.warn("Cannot delete drawing: No user or selected scene.");
       return;
     }
-    const sceneIdForBroadcast = selectedScene.Id;
 
-    // Optimistic update can be done here, but for simplicity,
-    // we'll rely on the server broadcast 'drawing_removed' to update the state.
-    // setDrawings(prevDrawings => prevDrawings.filter(d => !drawingIds.includes(d.id)));
+    // Optimistic update: Remove drawings from local state immediately.
+    setDrawings((prevDrawings) => prevDrawings.filter(d => !drawingIds.includes(d.id)));
+
+    const sceneIdForBroadcast = selectedScene.Id;
 
     for (const drawingId of drawingIds) {
       try {
@@ -563,8 +588,9 @@ export default function Home() {
             characters={characters} onAddCharacter={handleAddCharacter} onUpdateCharacter={handleUpdateCharacter} onDeleteCharacter={handleDeleteCharacter}
             onLogout={handleLogout} images={images} onAddImage={handleAddImage} onDeleteImage={handleDeleteImage}
             onRenameImage={handleRenameImage} onSetBackground={handleSetBackground} onDropImage={handleDropImage}
-            scenes={scenes} onSaveScene={handleSaveScene} onLoadScene={handleLoadScene}
+            scenes={scenes} onLoadScene={handleLoadScene}
             onDeleteSceneData={handleDeleteSceneData} onUpdateSceneScale={handleUpdateSceneScale} setImages={setImages}
+            onClearSceneElements={handleClearSceneElements}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />

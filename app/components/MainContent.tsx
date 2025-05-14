@@ -211,6 +211,22 @@ export default function MainContent({
   
   const handleMouseLeave = useCallback(() => { if (isDrawing) { endDrawing(); } }, [isDrawing, endDrawing]);
 
+  const handleDeleteAllDrawings = useCallback(() => {
+    if (currentUserRole !== 'DM') {
+      toast({ title: "Permission Denied", description: "Only DMs can delete all drawings.", variant: "destructive" });
+      return;
+    }
+    if (drawings && drawings.length > 0) {
+      if (window.confirm(`Are you sure you want to delete all ${drawings.length} drawings on this scene? This cannot be undone.`)) {
+        const allDrawingIds = drawings.map(d => d.id);
+        onDrawingsDelete(allDrawingIds);
+        toast({ title: "Drawings Cleared", description: "All drawings on the scene have been queued for deletion." });
+      }
+    } else {
+      toast({ title: "No Drawings", description: "There are no drawings on the scene to delete." });
+    }
+  }, [drawings, currentUserRole, onDrawingsDelete]);
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => { handleDelete(e); handleKeyDown(e) }
     window.addEventListener("mousemove", handleResizeMove); window.addEventListener("mouseup", handleResizeEnd)
@@ -247,6 +263,8 @@ export default function MainContent({
               onColorChange={onColorChange}
               gridColor={gridColor}
               onGridColorChange={onGridColorChange}
+              currentUserRole={currentUserRole}
+              onDeleteAllDrawings={handleDeleteAllDrawings}
             />
             <div className="flex items-center space-x-2">
               <button onClick={handleZoomOut} className="w-6 h-6 flex items-center justify-center bg-stone-300 hover:stone-500 rounded-full" title="Zoom Out">

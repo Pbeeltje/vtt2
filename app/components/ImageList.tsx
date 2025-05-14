@@ -188,6 +188,7 @@ export default function ImageList({
             </TabsTrigger>
           ))}
         </TabsList>
+
         {categories.map((category) => (
           <TabsContent key={category} value={category}>
             <ScrollArea className="h-[calc(100vh-250px)]">
