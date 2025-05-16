@@ -23,15 +23,12 @@ interface ChatMessage {
 
 import { Character } from "../types/character"
 import { DMImage } from "../types/image"
+import type { User } from "../types/user"; // Import User type
 
 interface RightSideMenuProps {
   messages: ChatMessage[]
   addMessage: (type: string, content: string, speakerName: string, senderType: 'user' | 'character') => void
-  user: {
-    id: number;
-    username: string;
-    role: string;
-  }
+  user: User
   chatBackgroundColor: string
   characters: Character[]
   onAddCharacter: (category: string) => void
@@ -53,6 +50,7 @@ interface RightSideMenuProps {
   onMakeSceneActive?: (sceneId: number) => void;
   activeTab?: string;
   setActiveTab?: (tabName: string) => void;
+  allUsers?: User[]; // Add allUsers prop
 }
 
 export default function RightSideMenu({
@@ -80,6 +78,7 @@ export default function RightSideMenu({
   onMakeSceneActive,
   activeTab,
   setActiveTab,
+  allUsers, // Destructure allUsers
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -291,6 +290,7 @@ export default function RightSideMenu({
                   onDeleteCharacter={onDeleteCharacter}
                   currentUser={user.id}
                   isDM={true}
+                  allUsers={allUsers} // Pass allUsers to CharacterList for DMs
                 />
               ) : (
                 <CharacterList
@@ -300,6 +300,7 @@ export default function RightSideMenu({
                   onDeleteCharacter={onDeleteCharacter}
                   currentUser={user.id}
                   isDM={false}
+                  // allUsers is not passed for non-DMs, CharacterListProps.allUsers should be optional
                 />
               )}
             </div>

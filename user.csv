@@ -1,0 +1,7 @@
+UserId,Username,Password,Role
+0,DMTestBoy,none,DM
+1,jon,$2a$10$......................ag5wYQzapzOPY1VGiDJqT3BOgyirBIO,player
+2,John,$2a$10$......................gM.kW1N0FI/h7mgqwqmhJ4mbzSAKZGq,player
+3,NewUser,$2a$10$......................zU3j5QzA/Y9tkpkYvXmcQSeOzxdOXd2,DM
+4,my-cool-user,$2a$10$DSECUdWxznl.dSMgWmWULO2MDUGcZqzn8Npq7dA6xv1IWtA8NKV.q,player
+5,Jon2,$2a$10$yy3M2dn5t7u4w5mxv7rPGe05sLGNrLB3UxWjXoYQNzLHAFc.CX0KS,player

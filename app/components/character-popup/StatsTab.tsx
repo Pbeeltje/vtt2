@@ -10,10 +10,9 @@ import { Label } from "@/components/ui/label";
 interface StatsTabProps {
   character: Character;
   onUpdate: (updatedCharacter: Character) => void;
-  onClose: () => void;
 }
 
-export function StatsTab({ character, onUpdate, onClose }: StatsTabProps) {
+export function StatsTab({ character, onUpdate }: StatsTabProps) {
   const { editedCharacter, setEditedCharacter, handleInputChange, handleSubmit } = useCharacter(character, onUpdate);
 
   const renderField = (label: string, name: string, type: string = "text", maxField?: string) => (
@@ -122,7 +121,7 @@ export function StatsTab({ character, onUpdate, onClose }: StatsTabProps) {
           {editedCharacter.Path === "Magic User" && renderField("MP", "Mp", "number", "MaxMp")}
         </div>
         <div className="flex justify-end space-x-2 pt-4 border-t">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={() => setEditedCharacter(character)}>Cancel</Button>
           <Button type="submit">Save</Button>
         </div>
       </form>

@@ -39,6 +39,7 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
   const [chatBackgroundColor, setChatBackgroundColor] = useState("bg-white");
   const [images, setImages] = useState<DMImage[]>([]);
   const [backgroundImage, setBackgroundImage] = useState<string>("");
@@ -153,9 +154,9 @@ export default function Home() {
         if (userData) {
           setUser(userData);
           const [characterData, chatData, userScenesData] = await Promise.all([
-            fetch(`/api/characters`, { credentials: "include" }).then(res => res.ok ? res.json() : []),
-            fetch("/api/chat", { credentials: "include" }).then(res => res.ok ? res.json() : []),
-            fetch("/api/scenes", { credentials: "include" }).then(res => res.ok ? res.json() : [])
+            fetch(`/api/characters`, { credentials: "include" }).then(res => res.ok ? res.json() : []).catch(() => { console.error("Characters fetch failed in initializeApp"); return [];}),
+            fetch("/api/chat", { credentials: "include" }).then(res => res.ok ? res.json() : []).catch(() => { console.error("Chat fetch failed in initializeApp"); return []; }),
+            fetch("/api/scenes", { credentials: "include" }).then(res => res.ok ? res.json() : []).catch(() => { console.error("Scenes fetch failed in initializeApp"); return []; })
           ]);
           setCharacters(characterData);
           setMessages(chatData.map((msg: any) => {
@@ -171,7 +172,10 @@ export default function Home() {
             };
           }));
           setScenes(userScenesData);
-          if (userData.role === "DM") await fetchImages();
+          if (userData.role === "DM") {
+            await fetchImages();
+            await fetchAllUsers(userData.role);
+          }
           if (!initialSceneToLoad && userScenesData.length > 0) {
             const mostRecentUserScene = findMostRecentScene(userScenesData);
             if (mostRecentUserScene) await handleLoadScene(mostRecentUserScene);
@@ -427,23 +431,53 @@ export default function Home() {
     }
   };
 
+  const fetchAllUsers = async (currentUserRole?: string) => {
+    const roleToCheck = currentUserRole || user?.role;
+    if (roleToCheck !== 'DM') {
+      setAllUsers([]);
+      return;
+    }
+    try {
+      const response = await fetch("/api/users");
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          setAllUsers(data);
+        } else {
+          setAllUsers([]);
+        }
+      } else {
+        setAllUsers([]);
+        toast({
+          title: "Error Fetching Users",
+          description: `Could not load user list: ${response.statusText}`,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      setAllUsers([]);
+      toast({
+        title: "Error",
+        description: "An error occurred while fetching the user list.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const loadUserData = async (loggedInUser: User) => {
-    setUser(loggedInUser); // Set user state first
+    setUser(loggedInUser);
     console.log("[Home.tsx] loadUserData for:", loggedInUser.username, "Role:", loggedInUser.role);
 
     const [characterApiData, chatData, userScenesData] = await Promise.all([
       fetch(`/api/characters`, { credentials: "include" }).then(res => {
         if (!res.ok) { console.error("Failed to fetch characters in loadUserData"); return []; }
         return res.json();
-      }),
+      }).catch(() => { console.error("Characters fetch promise failed in loadUserData"); return [];}),
       fetch("/api/chat", { credentials: "include" }).then(res => res.ok ? res.json() : []).catch(() => { console.error("Chat fetch failed in loadUserData"); return []; }),
       fetch("/api/scenes", { credentials: "include" }).then(res => res.ok ? res.json() : []).catch(() => { console.error("Scenes fetch failed in loadUserData"); return []; })
     ]);
 
-    console.log("[Home.tsx] Fetched character API data:", characterApiData);
     setCharacters(characterApiData);
-    // console.log("[Home.tsx] Characters state after setCharacters:", characters); // Removed this immediate log, new useEffect handles it
-
     setMessages(chatData.map((msg: any) => {
         return { 
           MessageId: msg.MessageId, 
@@ -459,8 +493,12 @@ export default function Home() {
     setScenes(userScenesData);
 
     if (loggedInUser.role === "DM") {
-      console.log("[Home.tsx] User is DM, fetching all images.");
+      console.log("[Home.tsx] loadUserData: User is DM, calling fetchAllUsers and fetchImages.");
       await fetchImages();
+      await fetchAllUsers(loggedInUser.role);
+    } else {
+      setAllUsers([]); // Clear allUsers if the newly loaded user is not DM
+      setImages([]); // Clear images if not DM
     }
     
     // After fetching scenes, if no scene is selected, try to load the most recent user scene
@@ -583,7 +621,6 @@ export default function Home() {
       return;
     }
     try {
-      console.log("[Home.tsx] Attempting to update character:", updatedCharacter);
       const response = await fetch(`/api/characters/${updatedCharacter.CharacterId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -928,10 +965,13 @@ export default function Home() {
     setCharacterSheetModal(characterData);
   };
 
+  const handleCloseCharacterSheet = () => {
+    setCharacterSheetModal(null);
+  };
+
   // Effect to log characters state when it actually changes
   useEffect(() => {
-    if (isInitialized) { // Avoid logging during initial empty state if possible
-        console.log("[Home.tsx] Characters state has changed to:", characters);
+    if (isInitialized) { 
     }
   }, [characters, isInitialized]);
 
@@ -998,6 +1038,7 @@ export default function Home() {
             onMakeSceneActive={handleMakeSceneActive}
             activeTab={activeRightMenuTab}
             setActiveTab={setActiveRightMenuTab}
+            allUsers={allUsers}
           />
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />
@@ -1016,10 +1057,12 @@ export default function Home() {
         />
       </div>
       {characterSheetModal && (
-        <CharacterPopup
-          character={characterSheetModal}
-          onClose={() => setCharacterSheetModal(null)}
-          onUpdate={handleUpdateCharacter} // Use handleUpdateCharacter directly
+        <CharacterPopup 
+          character={characterSheetModal} 
+          onClose={handleCloseCharacterSheet} 
+          onUpdate={handleUpdateCharacter} 
+          isDM={user.role === 'DM'}
+          allUsers={user.role === 'DM' ? allUsers : undefined}
         />
       )}
     </ErrorBoundary>

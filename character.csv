@@ -1,0 +1,9 @@
+CharacterId,Name,Description,Age,Level,Guard,Armor,MaxGuard,Strength,MaxStrength,Dexternity,MaxDexternity,Mind,MaxMind,Charisma,MaxCharisma,Skill,MaxSkill,Mp,MaxMp,InventoryId,JobId,Path,PortraitUrl,userId,category,TokenUrl
+14,Coolio9,:),20,1,1,0,6,10,10,12,12,10,10,10,10,0,0,0,0,,,Magic User,https://i.imgur.com/i8HP3Yc.jpeg,0,NPC,
+16,New NPC,A new character,20,1,1,0,10,10,10,10,10,10,10,10,10,0,0,0,0,,,Warrior,,0,NPC,
+19,Bo1,Description placeholder,20,1,7,0,10,11,10,10,10,10,10,10,10,0,0,0,0,,,Warrior,https://i.imgur.com/198q4Y5.jpeg,0,Party,https://i.imgur.com/WmcylDU.png
+21,New Party,Description placeholder,20,1,1,0,10,10,10,11,13,10,10,10,10,0,0,0,0,,,Warrior,,1,Party,
+22,Wizard,Description placeholder,20,1,10,0,10,10,10,10,10,10,10,10,10,0,0,5,5,,,Magic User,,0,Party,https://i.imgur.com/komYNIW.png
+24,New NPC,Description placeholder,20,1,1,0,10,10,10,10,10,10,10,10,10,0,0,0,0,,,Warrior,,0,NPC,
+25,New Monster,Description placeholder,20,1,1,0,10,10,10,10,10,10,10,10,10,0,0,0,0,,,Warrior,,0,Monster,
+28,SuperJon,Description placeholder,20,1,1,1,10,10,10,10,10,10,10,10,10,11,11,0,0,3,,Warrior,,5,Party,https://i.imgur.com/pJKqRAa.jpeg

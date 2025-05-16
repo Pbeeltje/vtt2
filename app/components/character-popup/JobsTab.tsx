@@ -11,7 +11,18 @@ interface JobsTabProps {
 }
 
 export function JobsTab({ characterId }: JobsTabProps) {
-  const { jobs, newJobName, setNewJobName, editingJob, jobForm, handleAddJob, handleJobEdit, handleJobFormChange, handleJobSubmit } = useJobs(characterId);
+  const { 
+    jobs, 
+    newJobName, 
+    setNewJobName, 
+    editingJob, 
+    jobForm, 
+    handleAddJob, 
+    handleStartEditJob,
+    cancelEditMode,
+    handleJobFormChange, 
+    handleJobSubmit 
+  } = useJobs(characterId);
 
   return (
     <div className="min-h-[500px]">
@@ -35,8 +46,8 @@ export function JobsTab({ characterId }: JobsTabProps) {
                       <Textarea id={`job-desc-${job.JobId}`} value={jobForm?.description || ''} onChange={(e) => handleJobFormChange('description', e.target.value)} className="w-full min-h-[100px]" />
                     </div>
                     <div className="flex space-x-2">
-                      <Button size="sm" onClick={() => handleJobSubmit(job.JobId)}>Save</Button>
-                      <Button size="sm" variant="outline" onClick={() => { handleJobEdit({ ...job, JobId: -1 }); }}>Cancel</Button>
+                      <Button size="sm" onClick={() => handleJobSubmit()}>Save</Button>
+                      <Button size="sm" variant="outline" onClick={cancelEditMode}>Cancel</Button>
                     </div>
                   </div>
                 ) : (
@@ -45,7 +56,7 @@ export function JobsTab({ characterId }: JobsTabProps) {
                       <span className="font-medium">{job.Name} (Tier {job.Tier})</span>
                       <p className="text-sm text-muted-foreground mt-1">{job.Description || 'No description provided'}</p>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => handleJobEdit(job)} className="ml-2"><Edit2 className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleStartEditJob(job)} className="ml-2"><Edit2 className="h-4 w-4" /></Button>
                   </div>
                 )}
               </li>

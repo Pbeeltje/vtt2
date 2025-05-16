@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Trash2 } from "lucide-react"
 import CharacterPopup from "./character-popup/CharacterPopup"
 import type { Character } from "../types/character"
+import type { User } from "../types/user"
 
 const CATEGORIES_FOR_DM = ["Party", "NPC", "Monster"] as const;
 
@@ -18,6 +19,7 @@ interface CharacterListProps {
   onDeleteCharacter: (character: Character) => void
   currentUser: number // ID of the logged-in user
   isDM: boolean
+  allUsers?: User[]
 }
 
 // Memoized character list item component
@@ -68,7 +70,7 @@ const CharacterListItem = memo(({
           {character.Name}
         </button>
       </div>
-      {(isDM || character.userId === currentUser) && (
+      {(isDM) && (
         <Button variant="ghost" size="icon" onClick={() => onDelete(character)} title={`Delete ${character.Name}`}>
           <Trash2 className="h-4 w-4" />
         </Button>
@@ -86,6 +88,7 @@ export default function CharacterList({
   onDeleteCharacter,
   currentUser,
   isDM,
+  allUsers,
 }: CharacterListProps) {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null)
   const [activeCategory, setActiveCategory] = useState<string>(CATEGORIES_FOR_DM[0]) // Default for DM
@@ -162,6 +165,8 @@ export default function CharacterList({
             character={selectedCharacter}
             onClose={() => setSelectedCharacter(null)}
             onUpdate={handleUpdateCharacter}
+            isDM={isDM}
+            allUsers={allUsers}
           />
         )}
       </>
@@ -218,6 +223,8 @@ export default function CharacterList({
           character={selectedCharacter}
           onClose={() => setSelectedCharacter(null)}
           onUpdate={handleUpdateCharacter}
+          isDM={isDM}
+          allUsers={allUsers}
         />
       )}
     </>
