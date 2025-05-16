@@ -94,26 +94,44 @@ export default function Home() {
   
   const handleLoadScene = async (scene: DMImage | null) => {
     if (!scene || !scene.Id) {
-      setSelectedScene(null); setBackgroundImage("");
-      setMiddleLayerImages([]); setTopLayerImages([]); setDrawings([]);
+      setSelectedScene(null); 
+      setBackgroundImage("");
+      setMiddleLayerImages([]); 
+      setTopLayerImages([]); 
+      setDrawings([]);
+      // Defaults for when no scene is loaded at all (e.g., initial state before any selection)
+      setGridSize(50); 
+      setGridColor("rgba(0,0,0,0.1)"); // Default visible grid if no scene is truly active
       return;
     }
-    setSelectedScene(scene); setBackgroundImage(scene.Link);
+    setSelectedScene(scene); 
+    setBackgroundImage(scene.Link);
 
     if (scene.SceneData) {
       try {
         const sceneData = JSON.parse(scene.SceneData);
-        setGridSize(sceneData.gridSize || 50); setGridColor(sceneData.gridColor || "rgba(0,0,0,0.1)");
-        setMiddleLayerImages(sceneData.elements?.middleLayer || []); setTopLayerImages(sceneData.elements?.topLayer || []);
+        setGridSize(sceneData.gridSize || 50); 
+        // Default to visible gray if gridColor is not specified in saved data
+        setGridColor(sceneData.gridColor || "rgba(0,0,0,0.1)"); 
+        setMiddleLayerImages(sceneData.elements?.middleLayer || []); 
+        setTopLayerImages(sceneData.elements?.topLayer || []);
         setSceneScale(sceneData.scale || 1);
       } catch (error) {
         console.error("Error loading scene data:", error);
         toast({ title: "Error", description: "Failed to parse scene data.", variant: "destructive" });
-        setMiddleLayerImages([]); setTopLayerImages([]);
+        setMiddleLayerImages([]); 
+        setTopLayerImages([]);
+        // Fallback to default visible grid on error
+        setGridSize(50);
+        setGridColor("rgba(0,0,0,0.1)");
       }
     } else {
-      setGridSize(50); setGridColor("rgba(0,0,0,0.1)");
-      setMiddleLayerImages([]); setTopLayerImages([]); setSceneScale(1);
+      // This is a new scene (e.g. image just set as background without prior scene data)
+      setGridSize(50); // Keep a default grid size
+      setGridColor("transparent"); // Hide grid by default for new scenes
+      setMiddleLayerImages([]); 
+      setTopLayerImages([]); 
+      setSceneScale(1);
     }
     try {
         const drawingsResponse = await fetch(`/api/drawings?sceneId=${scene.Id}`);
@@ -251,15 +269,24 @@ export default function Home() {
       }
     });
 
-    socket.on('scene_updated', (receivedSceneId: number, elementsUpdate: { middleLayer: LayerImage[], topLayer: LayerImage[] }) => {
+    socket.on('scene_updated', (receivedSceneId: number, sceneUpdate: { middleLayer: LayerImage[], topLayer: LayerImage[], gridSize?: number, gridColor?: string, scale?: number }) => {
       const currentUser = userRef.current;
       const currentSceneId = currentSceneIdRef.current;
-      console.log(`[Socket.IO Home] scene_updated received for scene ${receivedSceneId}. Current scene: ${currentSceneId}. current user: ${currentUser?.username}`, elementsUpdate);
+      console.log(`[Socket.IO Home] scene_updated received for scene ${receivedSceneId}. Current scene: ${currentSceneId}. current user: ${currentUser?.username}`, sceneUpdate);
       if (String(receivedSceneId) === String(currentSceneId)) {
         console.log(`[Socket.IO Home] scene_updated: Scene IDs match. Setting isSocketUpdateRef = true. User: ${currentUser?.username}`);
         isSocketUpdateRef.current = true;
-        setMiddleLayerImages(elementsUpdate.middleLayer || []);
-        setTopLayerImages(elementsUpdate.topLayer || []);
+        setMiddleLayerImages(sceneUpdate.middleLayer || []);
+        setTopLayerImages(sceneUpdate.topLayer || []);
+        if (sceneUpdate.gridSize !== undefined) {
+          setGridSize(sceneUpdate.gridSize);
+        }
+        if (sceneUpdate.gridColor !== undefined) {
+          setGridColor(sceneUpdate.gridColor);
+        }
+        if (sceneUpdate.scale !== undefined) {
+          setSceneScale(sceneUpdate.scale);
+        }
       } else {
         console.log(`[Socket.IO Home] scene_updated: Scene IDs do NOT match. Ignoring. User: ${currentUser?.username}`);
       }
@@ -687,7 +714,38 @@ export default function Home() {
   }; 
   
   const handleDeleteCharacter = async (character:Character) => {};
-  const handleAddImage = async (category:string,file:File) => {};
+  const handleAddImage = async (category: string, file: File) => {
+    if (!user || user.role !== 'DM') {
+      toast({ title: "Error", description: "Only DMs can upload images.", variant: "destructive" });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("category", category);
+
+    try {
+      const response = await fetch('/api/images', {
+        method: 'POST',
+        body: formData,
+        // No 'Content-Type' header for FormData, browser sets it with boundary
+      });
+
+      if (response.ok) {
+        const newImage = await response.json();
+        setImages((prevImages) => [...prevImages, newImage]);
+        // Consider fetching all images again if more complex updates are needed elsewhere: await fetchImages();
+        toast({ title: "Image Uploaded", description: `${newImage.Name} added to ${category}.` });
+      } else {
+        const errorResult = await response.json().catch(() => ({ error: "Failed to upload image." }));
+        toast({ title: "Upload Error", description: errorResult.error || "Server error occurred.", variant: "destructive" });
+        console.error("Failed to upload image:", errorResult);
+      }
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      toast({ title: "Network Error", description: "Could not upload image.", variant: "destructive" });
+    }
+  };
   const handleDeleteImage = async (image:DMImage) => {}; const handleRenameImage = async (image:DMImage,newName:string) => {};
   const handleSetBackground = async (url:string) => { const sceneImage=images.find(img=>img.Link===url); await handleLoadScene(sceneImage||null);};
   const handleDropImage = (category:string,image:DMImage,x:number,y:number) => {};

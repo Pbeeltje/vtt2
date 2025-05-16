@@ -50,13 +50,17 @@ export async function POST(req: Request) {
     try {
       const { getIO } = await import('../../../lib/socket'); // Adjusted path
       const io = getIO();
-      // Send only the necessary parts of sceneData to avoid large payloads if full sceneData is huge
-      const elementsUpdate = {
+      // Send the relevant parts of sceneData
+      const sceneUpdatePayload = {
         middleLayer: sceneData.elements?.middleLayer || [],
         topLayer: sceneData.elements?.topLayer || [],
+        gridSize: sceneData.gridSize,
+        gridColor: sceneData.gridColor,
+        // Include scale as well if it's part of sceneData and might change
+        scale: sceneData.scale 
       };
-      io.to(String(sceneId)).emit('scene_updated', sceneId, elementsUpdate);
-      console.log(`[API /scenes POST] Emitted 'scene_updated' for scene ${sceneId}`);
+      io.to(String(sceneId)).emit('scene_updated', sceneId, sceneUpdatePayload);
+      console.log(`[API /scenes POST] Emitted 'scene_updated' for scene ${sceneId} with payload:`, sceneUpdatePayload);
     } catch (socketError) {
       console.error("[API /scenes POST] Socket.IO emit error:", socketError);
     }

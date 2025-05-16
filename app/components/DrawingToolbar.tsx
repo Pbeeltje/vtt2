@@ -98,37 +98,39 @@ export default function DrawingToolbar({
         </PopoverContent>
       </Popover>
 
-      <Popover open={isGridColorPickerOpen} onOpenChange={setIsGridColorPickerOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="w-10 h-10"
-          >
-            <Grid className="w-5 h-5" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-48 p-2">
-          <div className="grid grid-cols-2 gap-2">
-            {GRID_COLORS.map((color) => (
-              <button
-                key={color.value}
-                className={cn(
-                  "w-full h-8 rounded border-2 text-xs",
-                  gridColor === color.value && "border-black"
-                )}
-                style={{ backgroundColor: color.value }}
-                onClick={() => {
-                  onGridColorChange(color.value);
-                  setIsGridColorPickerOpen(false);
-                }}
-              >
-                {color.name}
-              </button>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
+      {currentUserRole === 'DM' && (
+        <Popover open={isGridColorPickerOpen} onOpenChange={setIsGridColorPickerOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-10 h-10"
+            >
+              <Grid className="w-5 h-5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-48 p-2">
+            <div className="grid grid-cols-2 gap-2">
+              {GRID_COLORS.map((color) => (
+                <button
+                  key={color.value}
+                  className={cn(
+                    "w-full h-8 rounded border-2 text-xs",
+                    gridColor === color.value && "border-black"
+                  )}
+                  style={{ backgroundColor: color.value }}
+                  onClick={() => {
+                    onGridColorChange(color.value);
+                    setIsGridColorPickerOpen(false);
+                  }}
+                >
+                  {color.name}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
 
       {currentUserRole === 'DM' && onDeleteAllDrawings && (
         <Button
