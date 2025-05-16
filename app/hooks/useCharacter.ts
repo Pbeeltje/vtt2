@@ -1,13 +1,25 @@
 // hooks/useCharacter.ts
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from "@/components/ui/use-toast";
 import { Character } from '../types/character';
 
 export function useCharacter(initialCharacter: Character, onUpdate: (updatedCharacter: Character) => void) {
   const [editedCharacter, setEditedCharacter] = useState<Character>(initialCharacter);
+  // console.log('[useCharacter] Hook instantiated/re-rendered. InitialCharacter Name:', initialCharacter.Name, 'EditedCharacter Name:', editedCharacter.Name);
+
+  useEffect(() => {
+    // console.log('[useCharacter] useEffect triggered. initialCharacter details - Name:', initialCharacter.Name, 'Level:', initialCharacter.Level, 'Description:', initialCharacter.Description);
+    setEditedCharacter(initialCharacter);
+  }, [initialCharacter]);
+
+  // Optional: Log when editedCharacter itself changes
+  // useEffect(() => {
+  //   console.log('[useCharacter] editedCharacter state updated. New Name:', editedCharacter.Name);
+  // }, [editedCharacter]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    // console.log(`[useCharacter] handleInputChange: ${name} = ${value}`); // Can be noisy
     setEditedCharacter(prev => ({ ...prev, [name]: value }));
   };
 

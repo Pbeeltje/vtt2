@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@libsql/client'
+import { getIO } from '../../../../lib/socket'; // Adjust path as necessary
 
 const client = createClient({
   url: "file:./vttdatabase.db",
@@ -60,6 +61,17 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     const finalUpdatedCharacter = updatedDataResult.rows[0];
+
+    // Emit WebSocket event
+    try {
+      const io = getIO();
+      io.emit('character_updated', finalUpdatedCharacter);
+      console.log(`[API /characters/${id}] Emitted 'character_updated' for CharacterId: ${id}`, finalUpdatedCharacter);
+    } catch (socketError) {
+      console.error(`[API /characters/${id}] Socket.IO emit error:`, socketError);
+      // Decide if this should affect the HTTP response. For now, it won't.
+    }
+
     return NextResponse.json(finalUpdatedCharacter);
   } catch (error) {
     console.error('Error updating character:', error);

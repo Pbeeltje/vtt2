@@ -321,6 +321,45 @@ export default function Home() {
       }
     });
 
+    // New listener for character updates (including assignment changes)
+    socket.on('character_updated', (updatedCharacterFromServer: Character) => {
+      console.log('[Socket.IO Home] character_updated received:', updatedCharacterFromServer);
+
+      setCharacters((prevCharacters) => {
+        const charExists = prevCharacters.find(c => c.CharacterId === updatedCharacterFromServer.CharacterId);
+        if (charExists) {
+          return prevCharacters.map((char) =>
+            char.CharacterId === updatedCharacterFromServer.CharacterId ? updatedCharacterFromServer : char
+          );
+        }
+        return prevCharacters;
+      });
+
+      setCharacterSheetModal((prevModalCharacter) => {
+        if (prevModalCharacter && prevModalCharacter.CharacterId === updatedCharacterFromServer.CharacterId) {
+          // console.log('[Socket.IO Home] setCharacterSheetModal: Updating for CharacterId:', updatedCharacterFromServer.CharacterId, 'New Name:', updatedCharacterFromServer.Name, 'New Level:', updatedCharacterFromServer.Level);
+          return { ...updatedCharacterFromServer }; 
+        }
+        return prevModalCharacter;
+      });
+      
+      // Toast notification if the current user is the new owner.
+      if (userRef.current && updatedCharacterFromServer.userId === userRef.current.id) {
+        const oldCharacterVersion = characters.find(c => c.CharacterId === updatedCharacterFromServer.CharacterId);
+        if (oldCharacterVersion && oldCharacterVersion.userId !== updatedCharacterFromServer.userId) {
+          toast({ 
+            title: "New Character Assigned", 
+            description: `You have been assigned the character: ${updatedCharacterFromServer.Name}.` 
+          });
+        } else if (!oldCharacterVersion && updatedCharacterFromServer.userId === userRef.current.id) {
+           toast({ 
+            title: "New Character Assigned", 
+            description: `You have been assigned the character: ${updatedCharacterFromServer.Name}.` 
+          });
+        }
+      }
+    });
+
     return () => { if (socketRef.current) { socketRef.current.disconnect(); socketRef.current = null; } };
   }, []); // KEEP DEPS ARRAY EMPTY: Refs handle access to current state values.
 
@@ -1058,6 +1097,7 @@ export default function Home() {
       </div>
       {characterSheetModal && (
         <CharacterPopup 
+          key={characterSheetModal.CharacterId}
           character={characterSheetModal} 
           onClose={handleCloseCharacterSheet} 
           onUpdate={handleUpdateCharacter} 
