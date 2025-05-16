@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@libsql/client";
 import { getUserFromCookie } from "@/lib/auth";
-
-const IMGUR_CLIENT_ID = process.env.IMGUR_CLIENT_ID || "missing-client-id";
+import fs from 'fs';
+import path from 'path';
 
 const client = createClient({
   url: "file:./vttdatabase.db",
@@ -31,70 +31,61 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  console.log("POST /api/images started");
+  console.log("POST /api/images started (local upload)");
   try {
     const user = await getUserFromCookie();
-    console.log("User from cookie:", user);
     if (!user || user.role !== "DM") {
-      console.log("Unauthorized access attempt");
       return NextResponse.json({ error: "Not authorized" }, { status: 401 });
     }
 
-    console.log("Parsing form data");
     const formData = await req.formData();
     const file = formData.get("file") as File;
     const category = formData.get("category") as string;
-    console.log("Form data parsed:", { file: file?.name, category });
 
     if (!file || !category) {
-      console.log("Missing file or category");
       return NextResponse.json({ error: "File and category required" }, { status: 400 });
     }
 
-    if (!IMGUR_CLIENT_ID || IMGUR_CLIENT_ID === "missing-client-id") {
-      throw new Error("IMGUR_CLIENT_ID is not configured in environment variables");
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    const originalFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '');
+    const uniqueFilename = `${Date.now()}-${originalFilename}`;
+
+    const uploadDir = path.join(process.cwd(), 'public', 'uploads', category);
+    
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
     }
 
-    // Upload to Imgur
-    console.log("Uploading to Imgur with Client-ID:", IMGUR_CLIENT_ID);
-    const imgurForm = new FormData();
-    imgurForm.append("image", file);
-    const imgurResponse = await fetch("https://api.imgur.com/3/image", {
-      method: "POST",
-      headers: { Authorization: `Client-ID ${IMGUR_CLIENT_ID}` },
-      body: imgurForm,
-    });
+    const savePath = path.join(uploadDir, uniqueFilename);
+    fs.writeFileSync(savePath, buffer);
+    console.log(`File saved to: ${savePath}`);
 
-    console.log("Imgur response status:", imgurResponse.status);
-    if (!imgurResponse.ok) {
-      const errorText = await imgurResponse.text();
-      console.error("Imgur API error:", imgurResponse.status, errorText);
-      try {
-        const errorData = JSON.parse(errorText);
-        const errorMessage = errorData.data?.error || "Unknown Imgur error";
-        return NextResponse.json({ error: errorMessage }, { status: imgurResponse.status });
-      } catch (parseError) {
-        return NextResponse.json({ error: "Imgur upload failed", details: errorText }, { status: imgurResponse.status });
-      }
-    }
+    const publicPath = `/uploads/${category}/${uniqueFilename}`;
 
-    const { data } = await imgurResponse.json();
-    console.log("Imgur upload success:", data);
-
-    // Insert into database
-    console.log("Inserting into database");
+    console.log("Inserting into database with publicPath:", publicPath);
     const result = await client.execute({
       sql: "INSERT INTO DMImage (Name, Link, Category, UserId) VALUES (?, ?, ?, ?) RETURNING *",
-      args: [file.name, data.link, category, user.id],
+      args: [file.name, publicPath, category, user.id],
     });
 
     if (result.rows.length === 0) {
       console.error("No rows returned from insert");
+      try {
+        if (fs.existsSync(savePath)) {
+          fs.unlinkSync(savePath);
+          console.log(`Cleaned up saved file: ${savePath}`);
+        }
+      } catch (cleanupError) {
+        console.error("Error during file cleanup:", cleanupError);
+      }
       throw new Error("Failed to insert image into database");
     }
 
-    console.log("Inserted image:", result.rows[0]);
+    console.log("Inserted image metadata:", result.rows[0]);
     return NextResponse.json(result.rows[0]);
+
   } catch (error) {
     console.error("POST /api/images error:", error);
     return NextResponse.json(

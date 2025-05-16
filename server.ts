@@ -5,7 +5,7 @@ import { initSocketIO } from './lib/socket';
 import { parse } from 'url'; // Import parse from 'url'
 
 const dev = process.env.NODE_ENV !== 'production';
-const hostname = 'localhost';
+const hostname = '0.0.0.0';
 
 // Corrected port definition
 const portEnv = process.env.PORT;

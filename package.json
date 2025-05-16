@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "tsc --project tsconfig.server.json && nodemon .next/server_custom_build/server.js",
-    "build": "next build",
-    "start": "NODE_ENV=production node .next/server/server.js",
+    "build": "next build && tsc --project tsconfig.server.json",
+    "start": "cross-env NODE_ENV=production node .next/server_custom_build/server.js",
     "lint": "next lint"
   },
   "dependencies": {
@@ -75,6 +75,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/socket.io": "^3.0.1",
+    "cross-env": "^7.0.3",
     "nodemon": "^3.1.10",
     "postcss": "^8",
     "socket.io": "^4.8.1",
