@@ -713,7 +713,46 @@ export default function Home() {
     }
   }; 
   
-  const handleDeleteCharacter = async (character:Character) => {};
+  const handleDeleteCharacter = async (characterToDelete: Character) => {
+    if (!user) {
+      toast({ title: "Error", description: "You must be logged in to delete characters.", variant: "destructive" });
+      return;
+    }
+    // DM can delete any character, players potentially their own if logic allows (currently API doesn't specify player deletion)
+    // For now, assuming only users who can see the delete button (typically DMs) can trigger this.
+
+    console.log(`[Home.tsx] Attempting to delete character: ${characterToDelete.Name} (ID: ${characterToDelete.CharacterId}) by user ${user.username}`);
+
+    try {
+      const response = await fetch(`/api/characters/${characterToDelete.CharacterId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }, // Optional for DELETE with no body, but good practice
+      });
+
+      if (response.ok) {
+        setCharacters((prevCharacters) =>
+          prevCharacters.filter((char) => char.CharacterId !== characterToDelete.CharacterId)
+        );
+        // If the deleted character was open in the modal, close it
+        if (characterSheetModal?.CharacterId === characterToDelete.CharacterId) {
+          setCharacterSheetModal(null);
+        }
+        toast({ title: "Character Deleted", description: `${characterToDelete.Name} has been successfully deleted.` });
+        
+        // Potentially emit a socket event if other users need to be notified in real-time
+        // For example: socketRef.current?.emit('character_deleted', characterToDelete.CharacterId);
+        // The API endpoint should also emit a broader character_deleted or characters_updated event
+
+      } else {
+        const errorResult = await response.json().catch(() => ({ error: "Failed to delete character." }));
+        toast({ title: "Error Deleting Character", description: errorResult.error || "Server error occurred.", variant: "destructive" });
+        console.error("Failed to delete character (API response not OK):", errorResult);
+      }
+    } catch (error) {
+      console.error("Network error trying to delete character:", error);
+      toast({ title: "Network Error", description: "Could not connect to server to delete character.", variant: "destructive" });
+    }
+  };
   const handleAddImage = async (category: string, file: File) => {
     if (!user || user.role !== 'DM') {
       toast({ title: "Error", description: "Only DMs can upload images.", variant: "destructive" });
@@ -746,7 +785,24 @@ export default function Home() {
       toast({ title: "Network Error", description: "Could not upload image.", variant: "destructive" });
     }
   };
-  const handleDeleteImage = async (image:DMImage) => {}; const handleRenameImage = async (image:DMImage,newName:string) => {};
+  const handleDeleteImage = async (image:DMImage) => {
+    console.log("Attempting to delete image (Home.tsx):", image);
+    try {
+      const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE" });
+      if (response.ok) {
+        setImages((prev) => prev.filter((i) => i.Id !== image.Id));
+        toast({ title: "Success", description: "Image deleted successfully." });
+      } else {
+        const errorData = await response.json().catch(() => ({ error: "Failed to delete image. Server response not OK."}));
+        toast({ title: "Error Deleting Image", description: errorData.error || "Unknown server error.", variant: "destructive" });
+        console.error("Error deleting image (API response not ok):", errorData);
+      }
+    } catch (error) {
+      toast({ title: "Network Error", description: "Could not connect to server to delete image.", variant: "destructive" });
+      console.error("Network error trying to delete image:", error);
+    }
+  };
+  const handleRenameImage = async (image:DMImage,newName:string) => {};
   const handleSetBackground = async (url:string) => { const sceneImage=images.find(img=>img.Link===url); await handleLoadScene(sceneImage||null);};
   const handleDropImage = (category:string,image:DMImage,x:number,y:number) => {};
   const handleUpdateImages = (middleLayer:LayerImage[],topLayer:LayerImage[]) => {

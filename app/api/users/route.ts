@@ -4,8 +4,8 @@ import { getUserFromCookie } from "@/lib/auth";
 import type { User } from "@/app/types/user"; // Import User type
 
 const client = createClient({
-  url: process.env.TURSO_DATABASE_URL || "file:./vttdatabase.db",
-  authToken: process.env.TURSO_AUTH_TOKEN || "",
+  url: "file:./vttdatabase.db",
+  authToken: "",
 });
 
 export async function GET(req: Request) {

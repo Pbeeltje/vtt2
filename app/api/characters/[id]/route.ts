@@ -81,18 +81,144 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  const id = params.id
+  const characterIdToDeleteString = params.id;
+  const characterIdToDelete = parseInt(characterIdToDeleteString, 10);
 
+  if (isNaN(characterIdToDelete)) {
+    return NextResponse.json({ error: "Invalid Character ID format" }, { status: 400 });
+  }
+
+  // TODO: Add authorization check - e.g., only DM can delete, or user can delete their own unassigned characters.
+  // For now, proceeding without strict authorization for this operation.
+
+  let tx;
   try {
-    await client.execute({
-      sql: 'DELETE FROM Character WHERE CharacterId = ?',
-      args: [id],
-    })
+    tx = await client.transaction(); // Start a transaction
 
-    return NextResponse.json({ message: 'Character deleted successfully' })
+    // 1. Handle Character Tokens in DMImage.SceneData
+    const scenesToUpdate = [];
+    const allScenesResult = await tx.execute({
+      sql: "SELECT Id, SceneData FROM DMImage WHERE Category = \'Scene\' AND SceneData IS NOT NULL AND SceneData != \'\'",
+      args: [],
+    });
+
+    for (const sceneRow of allScenesResult.rows) {
+      const sceneId = sceneRow.Id as number;
+      const sceneDataString = sceneRow.SceneData as string;
+      let sceneData;
+      try {
+        sceneData = JSON.parse(sceneDataString);
+      } catch (e) {
+        console.warn(`Skipping scene ${sceneId} due to invalid JSON SceneData: ${(e as Error).message}`);
+        continue;
+      }
+
+      let modified = false;
+      if (sceneData.elements && sceneData.elements.topLayer) {
+        const initialTopLayerLength = sceneData.elements.topLayer.length;
+        sceneData.elements.topLayer = sceneData.elements.topLayer.filter(
+          (token: any) => token.characterId !== characterIdToDelete
+        );
+        if (sceneData.elements.topLayer.length !== initialTopLayerLength) {
+          modified = true;
+        }
+      }
+      // Potentially check middleLayer too if characters can be there
+      // if (sceneData.elements && sceneData.elements.middleLayer) {
+      //   const initialMiddleLayerLength = sceneData.elements.middleLayer.length;
+      //   sceneData.elements.middleLayer = sceneData.elements.middleLayer.filter(
+      //     (element: any) => element.characterId !== characterIdToDelete // Assuming similar structure
+      //   );
+      //   if (sceneData.elements.middleLayer.length !== initialMiddleLayerLength) {
+      //     modified = true;
+      //   }
+      // }
+
+      if (modified) {
+        sceneData.savedAt = new Date().toISOString(); // Update savedAt timestamp
+        await tx.execute({
+          sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ?",
+          args: [JSON.stringify(sceneData), sceneId],
+        });
+        scenesToUpdate.push({ sceneId, sceneData }); // Collect for socket emission
+        console.log(`Updated SceneData for scene ${sceneId} to remove character ${characterIdToDelete}`);
+      }
+    }
+
+    // 2. Delete Associated Jobs
+    console.log(`Deleting jobs for character ${characterIdToDelete}`);
+    await tx.execute({
+      sql: "DELETE FROM Job WHERE CharacterId = ?",
+      args: [characterIdToDelete],
+    });
+
+    // 3. Delete Associated Inventory Items
+    // First, get the InventoryId from the Character table
+    const characterInventoryResult = await tx.execute({
+        sql: "SELECT InventoryId FROM Character WHERE CharacterId = ?",
+        args: [characterIdToDelete]
+    });
+
+    if (characterInventoryResult.rows.length > 0 && characterInventoryResult.rows[0].InventoryId != null) {
+        const inventoryId = characterInventoryResult.rows[0].InventoryId as number;
+        console.log(`Deleting inventory items for InventoryId ${inventoryId} (associated with character ${characterIdToDelete})`);
+        await tx.execute({
+            // Assuming the table from inventory.csv is named 'Inventory' and links InventoryId to ItemId
+            sql: "DELETE FROM Inventory WHERE InventoryId = ?",
+            args: [inventoryId]
+        });
+        // If there was a separate 'Inventories' master table, you might delete from there too,
+        // or set Character.InventoryId to NULL before deleting character if DB schema requires it.
+        // For now, we assume Character.InventoryId might not have ON DELETE CASCADE/SET NULL, so we handle linked items.
+    }
+
+
+    // 4. Delete the Character record
+    console.log(`Deleting character ${characterIdToDelete}`);
+    const deleteCharacterResult = await tx.execute({
+      sql: "DELETE FROM Character WHERE CharacterId = ?",
+      args: [characterIdToDelete],
+    });
+
+    if (deleteCharacterResult.rowsAffected === 0) {
+      await tx.rollback();
+      return NextResponse.json({ error: "Character not found or already deleted" }, { status: 404 });
+    }
+
+    await tx.commit(); // Commit transaction
+
+    // Emit socket events after successful commit
+    try {
+      const io = getIO();
+      io.emit('character_deleted', characterIdToDelete);
+      console.log(`[API /characters/${characterIdToDeleteString}] Emitted \'character_deleted\'`);
+
+      for (const { sceneId, sceneData } of scenesToUpdate) {
+        io.to(String(sceneId)).emit('scene_updated', sceneId, {
+          middleLayer: sceneData.elements?.middleLayer || [],
+          topLayer: sceneData.elements?.topLayer || [],
+          // Include other scene attributes if they could have changed, though unlikely here
+        });
+        console.log(`[API /characters/${characterIdToDeleteString}] Emitted \'scene_updated\' for scene ${sceneId}`);
+      }
+    } catch (socketError) {
+      console.error(`[API /characters/${characterIdToDeleteString}] Socket.IO emit error after deletion:`, socketError);
+      // Non-critical for the response, but log it.
+    }
+
+    return NextResponse.json({ message: "Character and associated data deleted successfully" });
+
   } catch (error) {
-    console.error('Error deleting character:', error)
-    return NextResponse.json({ error: 'Failed to delete character' }, { status: 500 })
+    if (tx) {
+      await tx.rollback(); // Ensure rollback on any error during transaction
+    }
+    console.error(`Error deleting character ${characterIdToDeleteString}:`, error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown server error";
+    // Check for specific foreign key error from LibSQL/SQLite
+    if (errorMessage.includes("SQLITE_CONSTRAINT_FOREIGNKEY")) {
+        return NextResponse.json({ error: "Failed to delete character due to existing references", details: "SQLITE_CONSTRAINT_FOREIGNKEY: FOREIGN KEY constraint failed. Other data in the system still refers to this character." }, { status: 409 }); // 409 Conflict
+    }
+    return NextResponse.json({ error: "Failed to delete character", details: errorMessage }, { status: 500 });
   }
 }
 
