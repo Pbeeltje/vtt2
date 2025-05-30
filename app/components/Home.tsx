@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import LoginForm from "./LoginForm";
@@ -17,6 +17,7 @@ import type { DMImage } from "../types/image";
 import type { LayerImage } from "../types/layerImage";
 import DrawingLayer, { DrawingObject } from './DrawingLayer'; 
 import CharacterPopup from "./character-popup/CharacterPopup";
+import type { DarknessPath } from "./main-content/DarknessLayer";
 
 // Define NewDrawingData here for now, ensure MainContent can import it or define its own.
 export type NewDrawingData = Omit<DrawingObject, 'id' | 'createdAt' | 'createdBy' | 'sceneId'>;
@@ -51,7 +52,7 @@ export default function Home() {
   const [gridSize, setGridSize] = useState<number>(50);
   const [gridColor, setGridColor] = useState<string>("rgba(0,0,0,0.1)");
   const [isInitialized, setIsInitialized] = useState(false);
-  const [currentTool, setCurrentTool] = useState<'brush' | 'cursor'>('cursor');
+  const [currentTool, setCurrentTool] = useState<'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush'>('cursor');
   const [currentColor, setCurrentColor] = useState('#000000');
   const [drawings, setDrawings] = useState<DrawingObject[]>([]);
   const [selectedDrawing, setSelectedDrawing] = useState<DrawingObject | null>(null);
@@ -59,6 +60,9 @@ export default function Home() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [activeRightMenuTab, setActiveRightMenuTab] = useState<string>('chat');
   const [characterSheetModal, setCharacterSheetModal] = useState<Character | null>(null);
+  // Darkness layer state
+  const [darknessPaths, setDarknessPaths] = useState<DarknessPath[]>([]);
+  const [isDarknessLayerVisible, setIsDarknessLayerVisible] = useState(false);
   
   const socketRef = useRef<Socket | null>(null);
   const currentSceneIdRef: React.MutableRefObject<number | null> = useRef<number | null>(null);
@@ -102,6 +106,8 @@ export default function Home() {
       // Defaults for when no scene is loaded at all (e.g., initial state before any selection)
       setGridSize(50); 
       setGridColor("rgba(0,0,0,0.1)"); // Default visible grid if no scene is truly active
+      setDarknessPaths([]);
+      setIsDarknessLayerVisible(false);
       return;
     }
     setSelectedScene(scene); 
@@ -116,11 +122,16 @@ export default function Home() {
         setMiddleLayerImages(sceneData.elements?.middleLayer || []); 
         setTopLayerImages(sceneData.elements?.topLayer || []);
         setSceneScale(sceneData.scale || 1);
+        // Load darkness paths from scene data
+        setDarknessPaths(sceneData.darknessPaths || []);
+        setIsDarknessLayerVisible(sceneData.isDarknessLayerVisible || false);
       } catch (error) {
         console.error("Error loading scene data:", error);
         toast({ title: "Error", description: "Failed to parse scene data.", variant: "destructive" });
         setMiddleLayerImages([]); 
         setTopLayerImages([]);
+        setDarknessPaths([]);
+        setIsDarknessLayerVisible(false);
         // Fallback to default visible grid on error
         setGridSize(50);
         setGridColor("rgba(0,0,0,0.1)");
@@ -130,7 +141,9 @@ export default function Home() {
       setGridSize(50); // Keep a default grid size
       setGridColor("transparent"); // Hide grid by default for new scenes
       setMiddleLayerImages([]); 
-      setTopLayerImages([]); 
+      setTopLayerImages([]);
+      setDarknessPaths([]);
+      setIsDarknessLayerVisible(false);
       setSceneScale(1);
     }
     try {
@@ -827,7 +840,59 @@ export default function Home() {
     setTopLayerImages(topLayer);
     if (user?.role === 'DM') handleSaveScene();
   };
-  const handleDeleteSceneData = async (image:DMImage) => {};
+  const handleDeleteSceneData = async (image: DMImage) => {
+    if (!user || user.role !== 'DM') {
+      toast({ title: "Permission Denied", description: "Only DMs can clear scene data.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sceneId: image.Id,
+          sceneData: null
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete scene data");
+      }
+
+      // Update local state if this is the currently loaded scene
+      if (selectedScene?.Id === image.Id) {
+        setMiddleLayerImages([]);
+        setTopLayerImages([]);
+        setGridSize(50);
+        setGridColor("rgba(0,0,0,0.1)");
+        setSceneScale(1);
+        setDrawings([]);
+        setDarknessPaths([]);
+        setIsDarknessLayerVisible(false);
+        toast({ title: "Success", description: "Current scene data has been cleared." });
+      } else {
+        toast({ title: "Success", description: "Scene data deleted successfully." });
+      }
+
+      // Update the scenes and images state to reflect the change
+      setScenes(prev => prev.map(s => 
+        s.Id === image.Id 
+          ? { ...s, SceneData: undefined } 
+          : s
+      ));
+
+      setImages(prev => prev.map(img => 
+        img.Id === image.Id 
+          ? { ...img, SceneData: undefined } 
+          : img
+      ));
+
+    } catch (error) {
+      console.error("Error deleting scene data:", error);
+      toast({ title: "Error", description: "Failed to delete scene data.", variant: "destructive" });
+    }
+  };
 
   const handleSaveScene = async () => {
     if (!selectedScene || !user || user.role !== 'DM') {
@@ -845,6 +910,8 @@ export default function Home() {
         topLayer: topLayerImages,
       },
       scale: sceneScale,
+      darknessPaths,
+      isDarknessLayerVisible,
       savedAt: new Date().toISOString(),
     };
 
@@ -880,6 +947,14 @@ export default function Home() {
 
   useEffect(() => { 
     console.log(`[Home.tsx useEffect Save Check] isInitialized: ${isInitialized}, user: ${user?.username}, role: ${user?.role}, isSocketUpdateRef: ${isSocketUpdateRef.current}`);
+    console.log(`[Home.tsx useEffect Save Check] Dependencies:`, {
+      middleLayerImages: middleLayerImages.length,
+      topLayerImages: topLayerImages.length, 
+      gridColor,
+      sceneScale,
+      darknessPaths: darknessPaths.length,
+      selectedSceneId: selectedScene?.Id
+    });
     if (isSocketUpdateRef.current) {
       console.log("[Home.tsx useEffect Save Check] Socket update detected, resetting flag and skipping save.");
       isSocketUpdateRef.current = false;
@@ -887,9 +962,22 @@ export default function Home() {
       console.log("[Home.tsx useEffect Save Check] User-initiated or non-socket change detected. Calling handleSaveScene.");
       handleSaveScene();
     }
-  }, [middleLayerImages, topLayerImages, gridColor, sceneScale, isInitialized, user, selectedScene?.Id]);
+  }, [middleLayerImages, topLayerImages, gridColor, sceneScale, darknessPaths, isInitialized, user, selectedScene?.Id]);
   
-  const handleUpdateSceneScale = async (image: DMImage, scale: number) => {};
+  const handleUpdateSceneScale = async (image: DMImage, scale: number) => {
+    if (!user || user.role !== 'DM') {
+      toast({ title: "Permission Denied", description: "Only DMs can update scene scale.", variant: "destructive" });
+      return;
+    }
+
+    console.log(`[Home.tsx] Updating scene scale for scene ${image.Id} to ${scale}`);
+    
+    // Update local state immediately for responsive UI
+    setSceneScale(scale);
+    
+    // Save will be triggered automatically by useEffect since sceneScale is in dependency array
+    // The automatic save will include the new scale value
+  };
   function handleClearTokens() {}
   
   const handleClearSceneElements = () => {
@@ -903,17 +991,19 @@ export default function Home() {
       return;
     }
 
-    if (middleLayerImages.length === 0 && topLayerImages.length === 0) {
-      toast({ title: "Scene Empty", description: "There are no tokens or images on the current scene to clear.", variant: "default" });
+    if (middleLayerImages.length === 0 && topLayerImages.length === 0 && darknessPaths.length === 0) {
+      toast({ title: "Scene Empty", description: "There are no tokens, images, or darkness on the current scene to clear.", variant: "default" });
       return;
     }
 
-    if (window.confirm("Are you sure you want to clear all tokens and images from the current scene? This cannot be undone.")) {
-      console.log("Clearing scene elements (tokens and images).");
+    if (window.confirm("Are you sure you want to clear all tokens, images, and darkness from the current scene? This cannot be undone.")) {
+      console.log("Clearing scene elements (tokens, images, and darkness).");
       setMiddleLayerImages([]);
       setTopLayerImages([]);
+      setDarknessPaths([]);
+      setIsDarknessLayerVisible(false);
       if (user?.role === 'DM') handleSaveScene();
-      toast({ title: "Scene Cleared", description: "All tokens and images have been removed from the scene and changes are being saved." });
+      toast({ title: "Scene Cleared", description: "All tokens, images, and darkness have been removed from the scene and changes are being saved." });
     }
   };
 
@@ -1139,6 +1229,28 @@ export default function Home() {
     setCharacterSheetModal(null);
   };
 
+  // Darkness layer handler
+  const handleDarknessChange = useCallback((paths: DarknessPath[]) => {
+    console.log('[Home.tsx] Darkness paths updated:', paths);
+    setDarknessPaths(paths);
+    // Scene will be automatically saved due to useEffect dependency
+  }, []);
+
+  // Darkness layer visibility handler
+  const handleToggleDarknessLayer = useCallback(() => {
+    setIsDarknessLayerVisible(prev => {
+      const newValue = !prev;
+      // Save scene when DM toggles darkness visibility
+      if (user?.role === 'DM') {
+        // Use setTimeout to save after state update
+        setTimeout(() => {
+          handleSaveScene();
+        }, 0);
+      }
+      return newValue;
+    });
+  }, [user?.role, handleSaveScene]);
+
   // Effect to log characters state when it actually changes
   useEffect(() => {
     if (isInitialized) { 
@@ -1161,6 +1273,10 @@ export default function Home() {
             drawings={drawings} 
             onDrawingAdd={(_data: NewDrawingData) => { toast({ title: "Login Required", description: "Please log in to draw.", variant: "destructive" }); }}
             onDrawingsDelete={(_ids: string[]) => { toast({ title: "Login Required", description: "Please log in to delete drawings.", variant: "destructive" }); }}
+            darknessPaths={[]}
+            onDarknessChange={() => {}}
+            isDarknessLayerVisible={false}
+            onToggleDarknessLayer={() => {}}
           />
         </div>
         <div className="absolute top-4 right-4 z-50">
@@ -1195,6 +1311,10 @@ export default function Home() {
               onPlayerRequestTokenDelete={handlePlayerRequestTokenDelete}
               onPlayerUpdateTokenPosition={handlePlayerUpdateTokenPosition}
               onOpenCharacterSheet={handleOpenCharacterSheet}
+              darknessPaths={darknessPaths}
+              onDarknessChange={handleDarknessChange}
+              isDarknessLayerVisible={isDarknessLayerVisible}
+              onToggleDarknessLayer={handleToggleDarknessLayer}
             />
           </div>
           <RightSideMenu

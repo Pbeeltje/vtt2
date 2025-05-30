@@ -1,18 +1,21 @@
 import { useState } from 'react';
 import { cn } from "@/lib/utils";
-import { Brush, MousePointer, Palette, Grid, Trash2 } from 'lucide-react';
+import { Brush, MousePointer, Palette, Grid, Trash2, Eye, EyeOff, Eraser, PaintBucket } from 'lucide-react';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 interface DrawingToolbarProps {
-  currentTool: 'brush' | 'cursor';
-  onToolChange: (tool: 'brush' | 'cursor') => void;
+  currentTool: 'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush';
+  onToolChange: (tool: 'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush') => void;
   currentColor: string;
   onColorChange: (color: string) => void;
   gridColor: string;
   onGridColorChange: (color: string) => void;
   currentUserRole?: string | null;
   onDeleteAllDrawings?: () => void;
+  // Darkness layer controls
+  isDarknessLayerVisible?: boolean;
+  onToggleDarknessLayer?: () => void;
 }
 
 const COLORS = [
@@ -38,6 +41,8 @@ export default function DrawingToolbar({
   onGridColorChange,
   currentUserRole,
   onDeleteAllDrawings,
+  isDarknessLayerVisible,
+  onToggleDarknessLayer,
 }: DrawingToolbarProps) {
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const [isGridColorPickerOpen, setIsGridColorPickerOpen] = useState(false);
@@ -130,6 +135,52 @@ export default function DrawingToolbar({
             </div>
           </PopoverContent>
         </Popover>
+      )}
+
+      {/* Darkness Layer Controls - DM Only */}
+      {currentUserRole === 'DM' && (
+        <>
+          <div className="w-full h-px bg-gray-400 my-1" />
+          
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "w-10 h-10",
+              isDarknessLayerVisible ? "bg-gray-700 text-white" : "text-gray-500"
+            )}
+            onClick={onToggleDarknessLayer}
+            title="Toggle Darkness Layer"
+          >
+            {isDarknessLayerVisible ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "w-10 h-10",
+              currentTool === 'darknessEraser' && "bg-gray-200"
+            )}
+            onClick={() => onToolChange('darknessEraser')}
+            title="Darkness Eraser (50px)"
+          >
+            <Eraser className="w-5 h-5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "w-10 h-10",
+              currentTool === 'darknessBrush' && "bg-gray-200"
+            )}
+            onClick={() => onToolChange('darknessBrush')}
+            title="Darkness Brush (50px)"
+          >
+            <PaintBucket className="w-5 h-5" />
+          </Button>
+        </>
       )}
 
       {currentUserRole === 'DM' && onDeleteAllDrawings && (

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 interface DrawingLayerProps {
   isDrawingMode: boolean;
   currentColor: string;
-  currentTool: 'brush' | 'cursor';
+  currentTool: 'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush';
   drawings: DrawingObject[];
   onDrawingComplete: (drawing: DrawingObject) => void;
   onDrawingSelect: (drawing: DrawingObject | null) => void;
