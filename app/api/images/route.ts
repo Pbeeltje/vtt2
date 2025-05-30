@@ -22,8 +22,15 @@ export async function GET(req: Request) {
       sql: "SELECT * FROM DMImage WHERE UserId = ?",
       args: [user.id],
     });
-    console.log("Images fetched:", result.rows);
-    return NextResponse.json(result.rows);
+    
+    // Translate "Token" to "Props" for frontend display
+    const imagesWithTranslatedCategory = result.rows.map(row => ({
+      ...row,
+      Category: row.Category === "Token" ? "Props" : row.Category
+    }));
+    
+    console.log("Images fetched:", imagesWithTranslatedCategory);
+    return NextResponse.json(imagesWithTranslatedCategory);
   } catch (error) {
     console.error("Error fetching images:", error);
     return NextResponse.json({ error: "Failed to fetch images" }, { status: 500 });
@@ -46,6 +53,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "File and category required" }, { status: 400 });
     }
 
+    // Translate "Props" to "Token" for database storage to match DB constraint
+    const dbCategory = category === "Props" ? "Token" : category;
+
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
@@ -67,7 +77,7 @@ export async function POST(req: Request) {
     console.log("Inserting into database with publicPath:", publicPath);
     const result = await client.execute({
       sql: "INSERT INTO DMImage (Name, Link, Category, UserId) VALUES (?, ?, ?, ?) RETURNING *",
-      args: [file.name, publicPath, category, user.id],
+      args: [file.name, publicPath, dbCategory, user.id],
     });
 
     if (result.rows.length === 0) {

@@ -52,7 +52,7 @@ export default function ImageList({
   const [activeCategory, setActiveCategory] = useState<string>("Scene")
   const [uploading, setUploading] = useState(false)
   const [selectedImage, setSelectedImage] = useState<DMImage | null>(null)
-  const categories = ["Scene", "Image", "Token"]
+  const categories = ["Scene", "Image", "Props"]
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingImage, setEditingImage] = useState<DMImage | null>(null)
   const [newName, setNewName] = useState("")
@@ -250,7 +250,7 @@ export default function ImageList({
                         {image.Category === "Scene" && (
                           <span className="text-xs text-gray-600 truncate block">{image.Name}</span>
                         )}
-                        {selectedImage?.Id === image.Id && image.Category === "Token" && image.Character && (
+                        {selectedImage?.Id === image.Id && image.Category === "Props" && image.Character && (
                           <span className="text-xs text-gray-600 truncate block">{image.Character.Name}</span>
                         )}
                       </div>

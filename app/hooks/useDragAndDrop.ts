@@ -81,7 +81,7 @@ export const useDragAndDrop = ({
     if (category === "Image") {
       imageData.width = image.width; 
       imageData.height = image.height;
-    } else if (category === "Token") {
+    } else if (category === "Props") {
       imageData.width = gridSize;
       imageData.height = gridSize;
       if (characterIdStr && characterData) {
@@ -108,11 +108,11 @@ export const useDragAndDrop = ({
 
     if (category === "Image") {
       onUpdateImages?.([...middleLayerImages, imageData], topLayerImages)
-    } else if (category === "Token") {
+    } else if (category === "Props") {
       onUpdateImages?.(middleLayerImages, [...topLayerImages, imageData])
     }
 
-    if (category === "Token" && currentUserRole === 'player' && imageData.character?.userId === currentUserId && currentSceneId) {
+    if (category === "Props" && currentUserRole === 'player' && imageData.character?.userId === currentUserId && currentSceneId) {
       console.log("[MainContent.tsx] Player dropped their own token. Calling onPlayerPlaceToken.", imageData);
       onPlayerPlaceToken?.(imageData, currentSceneId);
     }

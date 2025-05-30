@@ -138,7 +138,7 @@ export default function GameGrid({
           <div
             key={img.id}
             className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-            style={{ left: img.x, top: img.y, zIndex: 25 }}
+            style={{ left: img.x, top: img.y, zIndex: 35 }}
             draggable={true}
             onDragStart={(e) => onItemDragStart(e, img, false)}
             onDrag={onItemDrag}

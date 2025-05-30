@@ -324,7 +324,7 @@ export default function RightSideMenu({
                 </div>
                 <ImageList
                   images={images}
-                  categories={["Scene", "Image", "Token"]}
+                  categories={["Scene", "Image", "Props"]}
                   onAddImage={onAddImage}
                   onDeleteImage={onDeleteImage}
                   onRenameImage={onRenameImage}

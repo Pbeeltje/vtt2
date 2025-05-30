@@ -234,7 +234,6 @@ export default function MainContent({
 
   // Selection and interaction handlers
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    console.log('[handleGridClick] Called at', Date.now(), 'with currentTool:', currentTool, 'isSelecting:', isSelecting);
     const target = e.target as HTMLElement;
     const isClickingToken = target.classList.contains('token-image') || 
                            target.closest('.token-image') || 
@@ -242,11 +241,8 @@ export default function MainContent({
     
     // Don't clear selections if we just finished selecting or if clicking on a token or using brush
     if (!isClickingToken && currentTool !== 'brush' && !isSelecting) {
-      console.log('[handleGridClick] Clearing selections - not clicking token and not brush tool');
       setSelectedIds([]);
       setSelectedDrawingIds([]);
-    } else {
-      console.log('[handleGridClick] Not clearing selections - clicking token, using brush, or just finished selecting');
     }
   }, [currentTool, setSelectedIds, setSelectedDrawingIds, isSelecting]);
 
@@ -370,7 +366,6 @@ export default function MainContent({
   }, [isSelecting, selectionStart, zoomLevel]);
 
   const handleSelectionEnd = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
-    console.log('[Selection] handleSelectionEnd called at', Date.now());
     if (!isSelecting || !selectionStart || !selectionEnd) {
       setIsSelecting(false);
       setSelectionStart(null);
@@ -384,13 +379,6 @@ export default function MainContent({
     const minY = Math.min(selectionStart.y, selectionEnd.y);
     const maxY = Math.max(selectionStart.y, selectionEnd.y);
 
-    console.log('[Selection] Selection box bounds:', { minX, maxX, minY, maxY });
-    console.log('[Selection] Total items to check:', { 
-      middleLayer: middleLayerImages.length, 
-      topLayer: topLayerImages.length, 
-      drawings: drawings.length 
-    });
-
     // Find items within selection box
     const selectedItemIds: string[] = [];
     const selectedDrawingIds: string[] = [];
@@ -400,19 +388,9 @@ export default function MainContent({
       const itemRight = item.x + (item.width || gridSize);
       const itemBottom = item.y + (item.height || gridSize);
       
-      console.log('[Selection] Checking middle layer item:', { 
-        id: item.id, 
-        x: item.x, 
-        y: item.y, 
-        right: itemRight, 
-        bottom: itemBottom,
-        intersects: item.x < maxX && itemRight > minX && item.y < maxY && itemBottom > minY
-      });
-      
       if (item.x < maxX && itemRight > minX && item.y < maxY && itemBottom > minY) {
         if (currentUserRole === 'DM') {
           selectedItemIds.push(item.id);
-          console.log('[Selection] Added middle layer item:', item.id);
         }
       }
     });
@@ -422,20 +400,9 @@ export default function MainContent({
       const itemRight = item.x + (item.width || gridSize);
       const itemBottom = item.y + (item.height || gridSize);
       
-      console.log('[Selection] Checking top layer item:', { 
-        id: item.id, 
-        x: item.x, 
-        y: item.y, 
-        right: itemRight, 
-        bottom: itemBottom,
-        intersects: item.x < maxX && itemRight > minX && item.y < maxY && itemBottom > minY,
-        canSelect: currentUserRole === 'DM' || (currentUserRole === 'player' && item.character?.userId === currentUserId)
-      });
-      
       if (item.x < maxX && itemRight > minX && item.y < maxY && itemBottom > minY) {
         if (currentUserRole === 'DM' || (currentUserRole === 'player' && item.character?.userId === currentUserId)) {
           selectedItemIds.push(item.id);
-          console.log('[Selection] Added top layer item:', item.id);
         }
       }
     });
@@ -466,39 +433,21 @@ export default function MainContent({
           const drawingMinY = Math.min(...pathPoints.map(p => p.y));
           const drawingMaxY = Math.max(...pathPoints.map(p => p.y));
           
-          console.log('[Selection] Checking drawing:', { 
-            id: drawing.id, 
-            drawingBounds: { drawingMinX, drawingMaxX, drawingMinY, drawingMaxY },
-            selectionBounds: { minX, maxX, minY, maxY },
-            pathSample: drawing.path.substring(0, 50) + '...',
-            pointsFound: pathPoints.length,
-            intersects: drawingMinX < maxX && drawingMaxX > minX && drawingMinY < maxY && drawingMaxY > minY,
-            canSelect: currentUserRole === 'DM' || (currentUserRole === 'player' && drawing.createdBy === currentUserId)
-          });
-          
           if (drawingMinX < maxX && drawingMaxX > minX && drawingMinY < maxY && drawingMaxY > minY) {
             if (currentUserRole === 'DM' || (currentUserRole === 'player' && drawing.createdBy === currentUserId)) {
               selectedDrawingIds.push(drawing.id);
-              console.log('[Selection] Added drawing:', drawing.id);
             }
           }
-        } else {
-          console.log('[Selection] No valid points found in drawing path:', drawing.path.substring(0, 50));
         }
       }
     });
 
-    console.log('[Selection] Final selection:', { selectedItemIds, selectedDrawingIds });
-
     // Update selections FIRST
-    console.log('[Selection] Before setSelectedIds, current selectedIds:', selectedIds);
     setSelectedIds(selectedItemIds);
     setSelectedDrawingIds(selectedDrawingIds);
-    console.log('[Selection] After setSelectedIds call');
 
     // Reset selection box AFTER a short delay to prevent handleGridClick from clearing
     setTimeout(() => {
-      console.log('[Selection] Delayed reset of selection state at', Date.now());
       setIsSelecting(false);
       setSelectionStart(null);
       setSelectionEnd(null);
@@ -798,8 +747,17 @@ export default function MainContent({
               startDrawing(e);
               e.stopPropagation();
             } else if (e.button === 0) {
-              // Left mouse button - start selection
-              handleSelectionStart(e);
+              // Left mouse button - check if clicking on a selectable item
+              const target = e.target as HTMLElement;
+              const isClickingSelectableItem = target.classList.contains('token-image') || 
+                                             target.closest('.token-image') || 
+                                             target.closest('[draggable="true"]') ||
+                                             target.closest('path'); // SVG drawing paths
+              
+              if (!isClickingSelectableItem) {
+                // Only start selection if clicking on empty space
+                handleSelectionStart(e);
+              }
             } else {
               // Right mouse button - navigation when not drawing
               handleNavigationDragStart(e);
@@ -810,10 +768,11 @@ export default function MainContent({
             if (isDrawing && isDrawingTool) {
               draw(e);
               e.stopPropagation();
-            } else if (isSelecting) {
-              // Selection box drag
+            } else if (isSelecting && selectionStart) {
+              // Selection box drag - only when we're actually in selection mode
               handleSelectionMove(e);
-            } else {
+              e.stopPropagation(); // Prevent interference with item dragging
+            } else if (isPanning && panStart) {
               // Navigation drag
               handleNavigationDrag(e);
             }

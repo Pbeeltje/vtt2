@@ -101,7 +101,7 @@ export default function CharacterList({
 
   const handleDragStart = useCallback((e: React.DragEvent<HTMLLIElement>, character: Character) => {
     e.dataTransfer.setData("imageId", character.CharacterId.toString())
-    e.dataTransfer.setData("category", "Token") // Always "Token" when dragging from character list
+    e.dataTransfer.setData("category", "Props") // Always "Props" when dragging from character list
     e.dataTransfer.setData("url", character.TokenUrl || character.PortraitUrl || "/placeholder.png")
     e.dataTransfer.setData("characterId", character.CharacterId.toString())
     e.dataTransfer.setData("character", JSON.stringify({
