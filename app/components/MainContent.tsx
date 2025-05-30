@@ -336,6 +336,36 @@ export default function MainContent({
     });
   }, [statusModal, topLayerImages, middleLayerImages, onUpdateImages, setStatusModal]);
 
+  // Prop resize handler
+  const handleResizeProp = useCallback((propId: string, scale: number) => {
+    const updatedTopLayer = topLayerImages.map(item => {
+      if (item.id === propId) {
+        const currentWidth = item.width || gridSize;
+        const currentHeight = item.height || gridSize;
+        const newWidth = Math.max(gridSize * 0.5, Math.floor(currentWidth * scale)); // Minimum 50% of grid size
+        const newHeight = Math.max(gridSize * 0.5, Math.floor(currentHeight * scale)); // Minimum 50% of grid size
+        return { ...item, width: newWidth, height: newHeight };
+      }
+      return item;
+    });
+    
+    onUpdateImages?.(middleLayerImages, updatedTopLayer);
+  }, [topLayerImages, middleLayerImages, gridSize, onUpdateImages]);
+
+  // Reset darkness handler
+  const handleResetDarkness = useCallback(() => {
+    if (window.confirm('Are you sure you want to reset the darkness layer? This will remove all erased areas and make the entire layer dark again.')) {
+      onDarknessChange?.([]);
+    }
+  }, [onDarknessChange]);
+
+  // Auto-switch tool when darkness layer is toggled off
+  useEffect(() => {
+    if (!isDarknessLayerVisible && (currentTool === 'darknessEraser' || currentTool === 'darknessBrush')) {
+      onToolChange('cursor');
+    }
+  }, [isDarknessLayerVisible, currentTool, onToolChange]);
+
   // Selection box handlers
   const handleSelectionStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // Only left mouse button
@@ -679,9 +709,6 @@ export default function MainContent({
     }
   }, [handleResizeMove, handleResizeEnd, handleDelete, handleKeyDown, handleNavigationDragEnd])
 
-  // Additional event handlers and effects go here...
-  // For brevity, I'll implement the rest in the next step
-
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       <div 
@@ -706,6 +733,7 @@ export default function MainContent({
             onDeleteAllDrawings={handleDeleteAllDrawings}
             isDarknessLayerVisible={isDarknessLayerVisible}
             onToggleDarknessLayer={onToggleDarknessLayer}
+            onResetDarkness={handleResetDarkness}
           />
           <ZoomControls
             zoomLevel={zoomLevel}
@@ -808,6 +836,7 @@ export default function MainContent({
           onTokenDoubleClick={handleTokenDoubleClick}
           onStatusClick={handleStatusClick}
           onDarknessChange={handleDarknessChange}
+          onResizeProp={handleResizeProp}
         />
       </div>
       

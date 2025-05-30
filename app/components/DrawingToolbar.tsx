@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { cn } from "@/lib/utils";
-import { Brush, MousePointer, Palette, Grid, Trash2, Eye, EyeOff, Eraser, PaintBucket } from 'lucide-react';
+import { Brush, MousePointer, Palette, Grid, Trash2, Eye, EyeOff, Eraser, PaintBucket, RotateCcw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
@@ -16,6 +16,7 @@ interface DrawingToolbarProps {
   // Darkness layer controls
   isDarknessLayerVisible?: boolean;
   onToggleDarknessLayer?: () => void;
+  onResetDarkness?: () => void;
 }
 
 const COLORS = [
@@ -43,6 +44,7 @@ export default function DrawingToolbar({
   onDeleteAllDrawings,
   isDarknessLayerVisible,
   onToggleDarknessLayer,
+  onResetDarkness,
 }: DrawingToolbarProps) {
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const [isGridColorPickerOpen, setIsGridColorPickerOpen] = useState(false);
@@ -155,31 +157,46 @@ export default function DrawingToolbar({
             {isDarknessLayerVisible ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
           </Button>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "w-10 h-10",
-              currentTool === 'darknessEraser' && "bg-gray-200"
-            )}
-            onClick={() => onToolChange('darknessEraser')}
-            title="Darkness Eraser (50px)"
-          >
-            <Eraser className="w-5 h-5" />
-          </Button>
+          {/* Darkness Tools - Only show when darkness layer is visible */}
+          {isDarknessLayerVisible && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "w-10 h-10",
+                  currentTool === 'darknessEraser' && "bg-gray-200"
+                )}
+                onClick={() => onToolChange('darknessEraser')}
+                title="Darkness Eraser (50px)"
+              >
+                <Eraser className="w-5 h-5" />
+              </Button>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "w-10 h-10",
-              currentTool === 'darknessBrush' && "bg-gray-200"
-            )}
-            onClick={() => onToolChange('darknessBrush')}
-            title="Darkness Brush (50px)"
-          >
-            <PaintBucket className="w-5 h-5" />
-          </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "w-10 h-10",
+                  currentTool === 'darknessBrush' && "bg-gray-200"
+                )}
+                onClick={() => onToolChange('darknessBrush')}
+                title="Darkness Brush (50px)"
+              >
+                <PaintBucket className="w-5 h-5" />
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-10 h-10"
+                onClick={onResetDarkness}
+                title="Reset Darkness Layer"
+              >
+                <RotateCcw className="w-5 h-5" />
+              </Button>
+            </>
+          )}
         </>
       )}
 

@@ -125,7 +125,7 @@ export default function RightSideMenu({
   const handleDragStart = (e: React.DragEvent<HTMLLIElement>, image: DMImage) => {
     e.dataTransfer.setData("imageId", image.Id.toString())
     e.dataTransfer.setData("category", image.Category)
-    e.dataTransfer.setData("url", image.Link)
+    e.dataTransfer.setData("image-url", image.Link)
     if (image.CharacterId) {
       e.dataTransfer.setData("characterId", image.CharacterId.toString())
       e.dataTransfer.setData("character", JSON.stringify(image))

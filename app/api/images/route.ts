@@ -94,7 +94,14 @@ export async function POST(req: Request) {
     }
 
     console.log("Inserted image metadata:", result.rows[0]);
-    return NextResponse.json(result.rows[0]);
+    
+    // Translate the response back to frontend format
+    const responseImage = {
+      ...result.rows[0],
+      Category: result.rows[0].Category === "Token" ? "Props" : result.rows[0].Category
+    };
+    
+    return NextResponse.json(responseImage);
 
   } catch (error) {
     console.error("POST /api/images error:", error);

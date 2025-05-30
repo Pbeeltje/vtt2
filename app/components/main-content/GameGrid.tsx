@@ -48,6 +48,7 @@ interface GameGridProps {
   onTokenDoubleClick: (item: LayerImage) => void;
   onStatusClick: (type: 'guard' | 'strength' | 'mp', character: any, characterId: number) => void;
   onDarknessChange: (paths: DarknessPath[]) => void;
+  onResizeProp: (propId: string, scale: number) => void;
 }
 
 export default function GameGrid({
@@ -90,6 +91,7 @@ export default function GameGrid({
   onTokenDoubleClick,
   onStatusClick,
   onDarknessChange,
+  onResizeProp,
 }: GameGridProps) {
   return (
     <div
@@ -171,6 +173,7 @@ export default function GameGrid({
           onItemClick={onItemClick}
           onTokenDoubleClick={onTokenDoubleClick}
           onStatusClick={onStatusClick}
+          onResizeProp={onResizeProp}
         />
 
         {/* Darkness Layer - Above tokens, below drawings */}

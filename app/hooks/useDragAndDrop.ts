@@ -50,13 +50,19 @@ export const useDragAndDrop = ({
     e.preventDefault();
     const imageId = e.dataTransfer.getData("imageId");
     const category = e.dataTransfer.getData("category");
-    const url = e.dataTransfer.getData("url");
+    const url = e.dataTransfer.getData("image-url");
     const characterIdStr = e.dataTransfer.getData("characterId");
     const characterData = e.dataTransfer.getData("character");
+    
     const rect = gridRef.current?.getBoundingClientRect();
     
     if (!rect || !currentSceneId) {
       console.warn("Drop aborted: Missing grid ref or currentSceneId");
+      return;
+    }
+
+    if (!url || url.trim() === '') {
+      console.error('[DEBUG] Drop aborted: URL is empty or undefined');
       return;
     }
 

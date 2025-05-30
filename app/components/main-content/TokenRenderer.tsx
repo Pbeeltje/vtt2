@@ -1,4 +1,5 @@
 import Image from "next/image"
+import { Plus, Minus } from "lucide-react"
 import type { LayerImage } from "../../types/layerImage"
 
 interface TokenRendererProps {
@@ -11,6 +12,7 @@ interface TokenRendererProps {
   onItemClick: (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => void;
   onTokenDoubleClick: (item: LayerImage) => void;
   onStatusClick: (type: 'guard' | 'strength' | 'mp', character: any, characterId: number) => void;
+  onResizeProp?: (propId: string, scale: number) => void;
 }
 
 export default function TokenRenderer({
@@ -23,6 +25,7 @@ export default function TokenRenderer({
   onItemClick,
   onTokenDoubleClick,
   onStatusClick,
+  onResizeProp,
 }: TokenRendererProps) {
   return (
     <>
@@ -42,11 +45,38 @@ export default function TokenRenderer({
             <Image 
               src={img.url} 
               alt="Token" 
-              width={gridSize} 
-              height={gridSize} 
+              width={img.width || gridSize} 
+              height={img.height || gridSize} 
               style={{ objectFit: 'contain' }} 
               className="token-image" 
             />
+            
+            {/* Resize Controls - Show when selected */}
+            {selectedIds.includes(img.id) && onResizeProp && (
+              <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 flex gap-1 z-40">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onResizeProp(img.id, 0.5); // Make 50% smaller
+                  }}
+                  className="w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg"
+                  title="Make 50% smaller"
+                >
+                  <Minus className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onResizeProp(img.id, 1.5); // Make 50% larger
+                  }}
+                  className="w-6 h-6 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center justify-center shadow-lg"
+                  title="Make 50% larger"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+            
             {selectedIds.includes(img.id) && img.character && (
               <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap" style={{ zIndex: 30 }}>
                 <span 
