@@ -89,6 +89,11 @@ export default function MainContent({
     }
   }, [onDarknessChange])
   
+  // Selection box state
+  const [isSelecting, setIsSelecting] = useState(false)
+  const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null)
+  const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null)
+  
   // Main content hook for state and utilities
   const {
     gridRef,
@@ -229,15 +234,21 @@ export default function MainContent({
 
   // Selection and interaction handlers
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    console.log('[handleGridClick] Called at', Date.now(), 'with currentTool:', currentTool, 'isSelecting:', isSelecting);
     const target = e.target as HTMLElement;
     const isClickingToken = target.classList.contains('token-image') || 
                            target.closest('.token-image') || 
                            target.closest('[draggable="true"]');
-    if (!isClickingToken && currentTool !== 'brush') {
+    
+    // Don't clear selections if we just finished selecting or if clicking on a token or using brush
+    if (!isClickingToken && currentTool !== 'brush' && !isSelecting) {
+      console.log('[handleGridClick] Clearing selections - not clicking token and not brush tool');
       setSelectedIds([]);
       setSelectedDrawingIds([]);
+    } else {
+      console.log('[handleGridClick] Not clearing selections - clicking token, using brush, or just finished selecting');
     }
-  }, [currentTool, setSelectedIds, setSelectedDrawingIds]);
+  }, [currentTool, setSelectedIds, setSelectedDrawingIds, isSelecting]);
 
   const handleItemClick = useCallback((e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
     e.stopPropagation();
@@ -329,25 +340,185 @@ export default function MainContent({
     });
   }, [statusModal, topLayerImages, middleLayerImages, onUpdateImages, setStatusModal]);
 
-  // Navigation and zoom handlers
-  const handleNavigationDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const isAltClick = e.button === 0 && e.altKey;
-    const isMiddleClick = e.button === 1;
-    const isLeftClickWithCursor = e.button === 0 && currentTool === 'cursor';
+  // Selection box handlers
+  const handleSelectionStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return; // Only left mouse button
     
-    if (isMiddleClick || isAltClick || isLeftClickWithCursor) {
-      if (isLeftClickWithCursor) {
-        const target = e.target as HTMLElement;
-        const isClickingToken = target.classList.contains('token-image') || 
-                               target.closest('.token-image') || 
-                               target.closest('[draggable="true"]');
-        if (isClickingToken) return;
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const x = (e.clientX - rect.left) / zoomLevel;
+    const y = (e.clientY - rect.top) / zoomLevel;
+    
+    setIsSelecting(true);
+    setSelectionStart({ x, y });
+    setSelectionEnd({ x, y });
+    e.preventDefault();
+  }, [zoomLevel]);
+
+  const handleSelectionMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isSelecting || !selectionStart) return;
+    
+    const rect = gridRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const x = (e.clientX - rect.left) / zoomLevel;
+    const y = (e.clientY - rect.top) / zoomLevel;
+    
+    setSelectionEnd({ x, y });
+    e.preventDefault();
+  }, [isSelecting, selectionStart, zoomLevel]);
+
+  const handleSelectionEnd = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
+    console.log('[Selection] handleSelectionEnd called at', Date.now());
+    if (!isSelecting || !selectionStart || !selectionEnd) {
+      setIsSelecting(false);
+      setSelectionStart(null);
+      setSelectionEnd(null);
+      return;
+    }
+
+    // Calculate selection box bounds
+    const minX = Math.min(selectionStart.x, selectionEnd.x);
+    const maxX = Math.max(selectionStart.x, selectionEnd.x);
+    const minY = Math.min(selectionStart.y, selectionEnd.y);
+    const maxY = Math.max(selectionStart.y, selectionEnd.y);
+
+    console.log('[Selection] Selection box bounds:', { minX, maxX, minY, maxY });
+    console.log('[Selection] Total items to check:', { 
+      middleLayer: middleLayerImages.length, 
+      topLayer: topLayerImages.length, 
+      drawings: drawings.length 
+    });
+
+    // Find items within selection box
+    const selectedItemIds: string[] = [];
+    const selectedDrawingIds: string[] = [];
+
+    // Check middle layer images
+    middleLayerImages.forEach(item => {
+      const itemRight = item.x + (item.width || gridSize);
+      const itemBottom = item.y + (item.height || gridSize);
+      
+      console.log('[Selection] Checking middle layer item:', { 
+        id: item.id, 
+        x: item.x, 
+        y: item.y, 
+        right: itemRight, 
+        bottom: itemBottom,
+        intersects: item.x < maxX && itemRight > minX && item.y < maxY && itemBottom > minY
+      });
+      
+      if (item.x < maxX && itemRight > minX && item.y < maxY && itemBottom > minY) {
+        if (currentUserRole === 'DM') {
+          selectedItemIds.push(item.id);
+          console.log('[Selection] Added middle layer item:', item.id);
+        }
       }
+    });
+
+    // Check top layer tokens
+    topLayerImages.forEach(item => {
+      const itemRight = item.x + (item.width || gridSize);
+      const itemBottom = item.y + (item.height || gridSize);
+      
+      console.log('[Selection] Checking top layer item:', { 
+        id: item.id, 
+        x: item.x, 
+        y: item.y, 
+        right: itemRight, 
+        bottom: itemBottom,
+        intersects: item.x < maxX && itemRight > minX && item.y < maxY && itemBottom > minY,
+        canSelect: currentUserRole === 'DM' || (currentUserRole === 'player' && item.character?.userId === currentUserId)
+      });
+      
+      if (item.x < maxX && itemRight > minX && item.y < maxY && itemBottom > minY) {
+        if (currentUserRole === 'DM' || (currentUserRole === 'player' && item.character?.userId === currentUserId)) {
+          selectedItemIds.push(item.id);
+          console.log('[Selection] Added top layer item:', item.id);
+        }
+      }
+    });
+
+    // Check drawings
+    drawings.forEach(drawing => {
+      // For drawings, we need to check if any part of the drawing path intersects with selection box
+      // For simplicity, let's check if the drawing's bounding box intersects
+      if (drawing.path && drawing.path.length > 0) {
+        // Parse SVG path data to extract coordinates
+        // Path format: "M150,100 L160,105 L170,110" etc.
+        const pathPoints: { x: number; y: number }[] = [];
+        
+        // Extract all coordinate pairs from the path
+        const coordMatches = drawing.path.match(/(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)/g);
+        if (coordMatches) {
+          coordMatches.forEach(match => {
+            const [x, y] = match.split(',').map(Number);
+            if (!isNaN(x) && !isNaN(y)) {
+              pathPoints.push({ x, y });
+            }
+          });
+        }
+        
+        if (pathPoints.length > 0) {
+          const drawingMinX = Math.min(...pathPoints.map(p => p.x));
+          const drawingMaxX = Math.max(...pathPoints.map(p => p.x));
+          const drawingMinY = Math.min(...pathPoints.map(p => p.y));
+          const drawingMaxY = Math.max(...pathPoints.map(p => p.y));
+          
+          console.log('[Selection] Checking drawing:', { 
+            id: drawing.id, 
+            drawingBounds: { drawingMinX, drawingMaxX, drawingMinY, drawingMaxY },
+            selectionBounds: { minX, maxX, minY, maxY },
+            pathSample: drawing.path.substring(0, 50) + '...',
+            pointsFound: pathPoints.length,
+            intersects: drawingMinX < maxX && drawingMaxX > minX && drawingMinY < maxY && drawingMaxY > minY,
+            canSelect: currentUserRole === 'DM' || (currentUserRole === 'player' && drawing.createdBy === currentUserId)
+          });
+          
+          if (drawingMinX < maxX && drawingMaxX > minX && drawingMinY < maxY && drawingMaxY > minY) {
+            if (currentUserRole === 'DM' || (currentUserRole === 'player' && drawing.createdBy === currentUserId)) {
+              selectedDrawingIds.push(drawing.id);
+              console.log('[Selection] Added drawing:', drawing.id);
+            }
+          }
+        } else {
+          console.log('[Selection] No valid points found in drawing path:', drawing.path.substring(0, 50));
+        }
+      }
+    });
+
+    console.log('[Selection] Final selection:', { selectedItemIds, selectedDrawingIds });
+
+    // Update selections FIRST
+    console.log('[Selection] Before setSelectedIds, current selectedIds:', selectedIds);
+    setSelectedIds(selectedItemIds);
+    setSelectedDrawingIds(selectedDrawingIds);
+    console.log('[Selection] After setSelectedIds call');
+
+    // Reset selection box AFTER a short delay to prevent handleGridClick from clearing
+    setTimeout(() => {
+      console.log('[Selection] Delayed reset of selection state at', Date.now());
+      setIsSelecting(false);
+      setSelectionStart(null);
+      setSelectionEnd(null);
+    }, 10);
+    
+    e?.preventDefault();
+  }, [isSelecting, selectionStart, selectionEnd, middleLayerImages, topLayerImages, drawings, gridSize, currentUserRole, currentUserId, setSelectedIds, setSelectedDrawingIds]);
+
+  // Navigation drag handlers (now for right mouse button when not drawing)
+  const handleNavigationDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const isRightClick = e.button === 2;
+    const isMiddleClick = e.button === 1;
+    const isAltClick = e.button === 0 && e.altKey;
+    
+    if (isMiddleClick || isAltClick || isRightClick) {
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
       e.preventDefault();
     }
-  }, [currentTool, setIsPanning, setPanStart]);
+  }, [setIsPanning, setPanStart]);
 
   const handleNavigationDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (isPanning && panStart) {
@@ -561,6 +732,7 @@ export default function MainContent({
 
   // Additional event handlers and effects go here...
   // For brevity, I'll implement the rest in the next step
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       <div 
@@ -614,6 +786,9 @@ export default function MainContent({
           darknessPaths={darknessPaths}
           isDarknessLayerVisible={isDarknessLayerVisible}
           currentUserRole={currentUserRole}
+          isSelecting={isSelecting}
+          selectionStart={selectionStart}
+          selectionEnd={selectionEnd}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
           onGridClick={handleGridClick}
@@ -622,7 +797,11 @@ export default function MainContent({
             if (isDrawingTool) {
               startDrawing(e);
               e.stopPropagation();
+            } else if (e.button === 0) {
+              // Left mouse button - start selection
+              handleSelectionStart(e);
             } else {
+              // Right mouse button - navigation when not drawing
               handleNavigationDragStart(e);
             }
           }}
@@ -631,7 +810,11 @@ export default function MainContent({
             if (isDrawing && isDrawingTool) {
               draw(e);
               e.stopPropagation();
+            } else if (isSelecting) {
+              // Selection box drag
+              handleSelectionMove(e);
             } else {
+              // Navigation drag
               handleNavigationDrag(e);
             }
           }}
@@ -640,16 +823,23 @@ export default function MainContent({
             if (isDrawing && isDrawingTool) {
               endDrawing(e);
               e.stopPropagation();
+            } else if (isSelecting) {
+              // End selection
+              handleSelectionEnd(e);
             } else {
+              // End navigation
               handleNavigationDragEnd(e);
             }
           }}
           onMouseLeave={(e) => {
             if (isDrawing) {
               endDrawing(e);
+            } else if (isSelecting) {
+              handleSelectionEnd(e);
             }
             handleNavigationDragEnd(e);
           }}
+          onContextMenu={(e) => e.preventDefault()} // Prevent right-click context menu
           onItemDragStart={handleItemDragStart}
           onItemDrag={handleItemDrag}
           onItemDragEnd={handleItemDragEnd}

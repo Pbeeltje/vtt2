@@ -25,6 +25,10 @@ interface GameGridProps {
   darknessPaths: DarknessPath[];
   isDarknessLayerVisible: boolean;
   currentUserRole?: string | null;
+  // Selection box props
+  isSelecting?: boolean;
+  selectionStart?: { x: number; y: number } | null;
+  selectionEnd?: { x: number; y: number } | null;
   
   // Event handlers
   onDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
@@ -34,6 +38,7 @@ interface GameGridProps {
   onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void;
   onMouseUp: (e: React.MouseEvent<HTMLDivElement>) => void;
   onMouseLeave: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onItemDragStart: (e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => void;
   onItemDrag: (e: React.DragEvent<HTMLDivElement>) => void;
   onItemDragEnd: () => void;
@@ -65,6 +70,9 @@ export default function GameGrid({
   darknessPaths,
   isDarknessLayerVisible,
   currentUserRole,
+  isSelecting,
+  selectionStart,
+  selectionEnd,
   onDragOver,
   onDrop,
   onGridClick,
@@ -72,6 +80,7 @@ export default function GameGrid({
   onMouseMove,
   onMouseUp,
   onMouseLeave,
+  onContextMenu,
   onItemDragStart,
   onItemDrag,
   onItemDragEnd,
@@ -111,6 +120,7 @@ export default function GameGrid({
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseLeave}
+        onContextMenu={onContextMenu}
       >
         {/* Grid overlay */}
         <div
@@ -171,6 +181,20 @@ export default function GameGrid({
             darknessPaths={darknessPaths}
             isVisible={isDarknessLayerVisible}
             currentUserRole={currentUserRole}
+          />
+        )}
+        
+        {/* Selection box overlay */}
+        {isSelecting && selectionStart && selectionEnd && (
+          <div
+            className="absolute border-2 border-blue-500 bg-blue-200/20 pointer-events-none"
+            style={{
+              left: Math.min(selectionStart.x, selectionEnd.x),
+              top: Math.min(selectionStart.y, selectionEnd.y),
+              width: Math.abs(selectionEnd.x - selectionStart.x),
+              height: Math.abs(selectionEnd.y - selectionStart.y),
+              zIndex: 35,
+            }}
           />
         )}
         
