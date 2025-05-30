@@ -15,7 +15,7 @@ interface StatsTabProps {
 export function StatsTab({ character, onUpdate }: StatsTabProps) {
   const { editedCharacter, setEditedCharacter, handleInputChange, handleSubmit } = useCharacter(character, onUpdate);
 
-  const renderField = (label: string, name: string, type: string = "text", maxField?: string) => (
+  const renderField = (label: string, name: string, type: string = "text", maxField?: string, customInputProps?: Record<string, any>) => (
     <div className="space-y-1">
       <Label htmlFor={name}>{label}</Label>
       <div className="flex items-center space-x-2">
@@ -25,8 +25,11 @@ export function StatsTab({ character, onUpdate }: StatsTabProps) {
           type={type}
           value={editedCharacter[name as keyof Character] ?? ''}
           onChange={handleInputChange}
-          className={type === "number" ? "w-16" : "w-full max-w-xs"}
-          {...(type === "number" ? { min: 0, max: 99 } : {})}
+          className={customInputProps?.className || (type === "number" ? "w-16" : "w-full max-w-xs")}
+          min={customInputProps?.min ?? (type === "number" ? 0 : undefined)}
+          max={customInputProps?.max}
+          {...(customInputProps?.inputMode && { inputMode: customInputProps.inputMode })}
+          {...(customInputProps?.pattern && { pattern: customInputProps.pattern })}
         />
         {maxField && (
           <>
@@ -77,7 +80,7 @@ export function StatsTab({ character, onUpdate }: StatsTabProps) {
             </div>
             <div className="grid grid-cols-2 gap-4">
               {renderField("Level", "Level", "number")}
-              {renderField("Age", "Age", "number")}
+              {renderField("Age", "Age", "number", undefined, { className: "w-24", max: undefined, inputMode: "numeric", pattern: "[0-9]*" })}
             </div>
             <div>
               <Label htmlFor="Description">Description</Label>

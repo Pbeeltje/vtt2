@@ -678,8 +678,25 @@ export default function Home() {
     }
   };
 
-  const handleDiceRoll = (sides:number,result:number,numberOfDice:number,individualRolls:number[]) => {};
-  const handlePhaseChange = (phase:string,color:string) => {}; const handleAddCharacter = async (category:string) => {};
+  const handleDiceRoll = (sides: number, result: number, numberOfDice: number, individualRolls: number[]) => {
+    if (!userRef.current) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to roll dice.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const rollsString = individualRolls.join(", ");
+    const content = `rolled ${numberOfDice}d${sides} (Result: ${result}). Rolls: [${rollsString}]`;
+    
+    // Use userRef.current for the most up-to-date user information
+    addMessage("diceRoll", content, userRef.current.username, "user");
+  };
+
+  const handlePhaseChange = (phase: string, color: string) => {/** ... */};
+  const handleAddCharacter = async (category:string) => {};
   
   const handleUpdateCharacter = async (updatedCharacter: Character) => {
     if (!user) {

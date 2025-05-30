@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@libsql/client'
 import { getIO } from '../../../../lib/socket'; // Adjust path as necessary
+import { getUserFromCookie } from '@/lib/auth'; // Added for authorization
 
 const client = createClient({
   url: "file:./vttdatabase.db",
@@ -88,8 +89,12 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     return NextResponse.json({ error: "Invalid Character ID format" }, { status: 400 });
   }
 
-  // TODO: Add authorization check - e.g., only DM can delete, or user can delete their own unassigned characters.
-  // For now, proceeding without strict authorization for this operation.
+  const user = await getUserFromCookie();
+  if (!user || user.role !== "DM") {
+    console.log(`[API /characters/${characterIdToDeleteString}] Unauthorized delete attempt by user:`, user);
+    return NextResponse.json({ error: "Not authorized to delete characters." }, { status: 403 });
+  }
+  console.log(`[API /characters/${characterIdToDeleteString}] Authorized delete attempt by DM user:`, user.username);
 
   let tx;
   try {

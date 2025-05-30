@@ -160,7 +160,7 @@ export default function RightSideMenu({
   // console.log(`[RightSideMenu.tsx] Filtered characters for dropdown (user ID: ${user.id}):`, filteredCharsForDropdown);
 
   return (
-    <div className="w-[40rem] bg-white border-l flex flex-col" style={{ backgroundImage: 'url("images/rightsidemenu.jpeg")', backgroundSize: '100% auto', backgroundRepeat: 'repeat-y' }}>
+    <div className="w-[40rem] flex-shrink-0 bg-white border-l flex flex-col" style={{ backgroundImage: 'url("images/rightsidemenu.jpeg")', backgroundSize: '100% auto', backgroundRepeat: 'repeat-y' }}>
       <div className="p-4 border-b w-full">
         <Tabs 
           value={activeTab || 'chat'} 
