@@ -3,6 +3,7 @@ import type { LayerImage } from "../../types/layerImage"
 import type { DrawingObject } from '../DrawingLayer'
 import TokenRenderer from "./TokenRenderer"
 import DarknessLayer, { type DarknessPath } from "./DarknessLayer"
+import { useState } from "react"
 
 interface GameGridProps {
   gridRef: React.RefObject<HTMLDivElement>;
@@ -33,6 +34,8 @@ interface GameGridProps {
   // Event handlers
   onDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
   onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
+  onFileDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onFileDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
   onGridClick: (e: React.MouseEvent<HTMLDivElement>) => void;
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
   onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void;
@@ -76,6 +79,8 @@ export default function GameGrid({
   selectionEnd,
   onDragOver,
   onDrop,
+  onFileDragOver,
+  onFileDrop,
   onGridClick,
   onMouseDown,
   onMouseMove,
@@ -93,6 +98,8 @@ export default function GameGrid({
   onDarknessChange,
   onResizeProp,
 }: GameGridProps) {
+  const [isDraggingFile, setIsDraggingFile] = useState(false)
+
   return (
     <div
       ref={gridRef}
@@ -115,8 +122,60 @@ export default function GameGrid({
           width: "100%",
           height: "100%",
         }}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
+        onDragOver={(e) => {
+          e.preventDefault();
+          console.log('[GameGrid] Drag over event');
+          // Handle both image drops and file drops
+          onDragOver(e);
+          onFileDragOver?.(e);
+          
+          // Check if this is a file drag
+          const files = e.dataTransfer.files;
+          if (files && files.length > 0) {
+            setIsDraggingFile(true);
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          console.log('[GameGrid] Drop event triggered');
+          // Check if this is a file drop (from file explorer) or image drop (from UI)
+          const files = e.dataTransfer.files;
+          const imageId = e.dataTransfer.getData("imageId");
+          const category = e.dataTransfer.getData("category");
+          const url = e.dataTransfer.getData("image-url");
+          const isExistingItem = e.dataTransfer.getData("isExistingItem");
+          
+          console.log('[GameGrid] Drop data:', { imageId, category, url, filesCount: files?.length || 0, isExistingItem });
+          
+          // If this is an existing item being dragged around, ignore the drop
+          // (the position update is handled by the drag handlers)
+          if (isExistingItem === "true") {
+            console.log('[GameGrid] Ignoring drop - existing item being moved');
+            return;
+          }
+          
+          // If we have data transfer data (from UI drag), treat as UI image drop
+          // Even if there are files, prioritize the data transfer data
+          if (imageId || category || url) {
+            console.log('[GameGrid] Calling onDrop for UI image');
+            setIsDraggingFile(false);
+            onDrop(e);
+          } else if (files && files.length > 0) {
+            // This is a file drop from file explorer (no data transfer data)
+            console.log('[GameGrid] Calling onFileDrop for file upload');
+            setIsDraggingFile(false);
+            onFileDrop?.(e);
+          } else {
+            // This is likely just dragging an existing image around
+            console.log('[GameGrid] Ignoring drop - no files or data transfer data');
+          }
+        }}
+        onDragLeave={(e) => {
+          // Only set to false if we're leaving the entire grid area
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setIsDraggingFile(false);
+          }
+        }}
         onClick={onGridClick}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
@@ -124,6 +183,19 @@ export default function GameGrid({
         onMouseLeave={onMouseLeave}
         onContextMenu={onContextMenu}
       >
+        {/* File drag overlay */}
+        {isDraggingFile && (
+          <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-500 flex items-center justify-center z-50 pointer-events-none">
+            <div className="bg-white/90 backdrop-blur p-4 rounded-lg shadow-lg">
+              <div className="text-center">
+                <div className="text-2xl mb-2">📁</div>
+                <div className="font-semibold text-blue-700">Drop image here</div>
+                <div className="text-sm text-gray-600">Image will be uploaded and placed on the map</div>
+              </div>
+            </div>
+          </div>
+        )}
+        
         {/* Grid overlay */}
         <div
           className="absolute inset-0 pointer-events-none"
@@ -154,11 +226,20 @@ export default function GameGrid({
               height={img.height || gridSize * 2} 
               style={{ objectFit: 'contain' }} 
             />
-            {/* Resize handle */}
-            <div 
-              className="absolute bottom-0 right-0 w-4 h-4 bg-gray-500 cursor-se-resize" 
-              onMouseDown={(e) => onResizeStart(e, img)} 
-            />
+            {/* Resize handle - only show when selected */}
+            {selectedIds.includes(img.id) && (
+              <div 
+                className="absolute top-1 right-1 w-2 h-2 bg-blue-500 hover:bg-blue-600 cursor-se-resize z-50 rounded-sm border border-white transition-colors duration-150"
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onResizeStart(e, img);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                draggable={false}
+                title="Resize image"
+              />
+            )}
           </div>
         ))}
         

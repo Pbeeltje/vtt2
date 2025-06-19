@@ -41,6 +41,8 @@ interface MainContentProps {
   onPlayerRequestTokenDelete?: (tokenId: string) => void;
   onPlayerUpdateTokenPosition?: (token: LayerImage, sceneId: number) => void;
   onOpenCharacterSheet?: (characterData: any) => void;
+  onAddImage?: (category: string, file: File) => Promise<void>;
+  onImageUploaded?: (uploadedImage: any) => void;
   // Darkness layer props
   darknessPaths?: DarknessPath[];
   onDarknessChange?: (paths: DarknessPath[]) => void;
@@ -75,6 +77,8 @@ export default function MainContent({
   onPlayerRequestTokenDelete,
   onPlayerUpdateTokenPosition,
   onOpenCharacterSheet,
+  onAddImage,
+  onImageUploaded,
   darknessPaths = [],
   onDarknessChange,
   isDarknessLayerVisible = false,
@@ -201,10 +205,26 @@ export default function MainContent({
   // Resize handlers
   const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
     if (currentUserRole === 'player') {
-      toast({ title: "Permission Denied", description: "Players cannot resize map images.", variant: "destructive" });
+      toast({ title: "Permission Denied", description: "Players cannot resize images.", variant: "destructive" });
       e.preventDefault();
       return;
     }
+    
+    // Allow resizing for tokens (top layer) and map images (middle layer)
+    const isToken = topLayerImages.some(token => token.id === item.id);
+    const isMapImage = middleLayerImages.some(img => img.id === item.id);
+    
+    if (!isToken && !isMapImage) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Prevent resize if currently dragging
+    if (draggingIds && draggingIds.length > 0) {
+      e.preventDefault();
+      return;
+    }
+    
     e.preventDefault();
     e.stopPropagation();
     setResizingId(item.id);
@@ -214,23 +234,63 @@ export default function MainContent({
       width: item.width || gridSize, 
       height: item.height || gridSize,
     });
-  }, [gridSize, currentUserRole, setResizingId, setResizeStart]);
+    
+    // Set a flag to indicate we're actually resizing
+    e.currentTarget.setAttribute('data-resizing', 'true');
+  }, [gridSize, currentUserRole, setResizingId, setResizeStart, topLayerImages, middleLayerImages, draggingIds]);
 
   const handleResizeMove = useCallback((e: MouseEvent) => {
     if (!resizingId || !resizeStart) return;
+    
+    // Check if we're actually resizing by looking for the resize handle with data-resizing attribute
+    const resizeHandle = document.querySelector(`[data-resizing="true"]`);
+    if (!resizeHandle) {
+      return;
+    }
+    
+    // Allow resizing for tokens (top layer) and map images (middle layer)
+    const isToken = topLayerImages.some(token => token.id === resizingId);
+    const isMapImage = middleLayerImages.some(img => img.id === resizingId);
+    
+    if (!isToken && !isMapImage) {
+      return;
+    }
+    
     const dx = (e.clientX - resizeStart.x) / zoomLevel;
     const dy = (e.clientY - resizeStart.y) / zoomLevel;
-    const newWidth = Math.max(gridSize, Math.floor((resizeStart.width + dx) / gridSize) * gridSize);
-    const newHeight = Math.max(gridSize, Math.floor((resizeStart.height + dy) / gridSize) * gridSize);
+    
+    // Add a minimum movement threshold to prevent accidental resizing
+    const minMovement = 10; // Increased from 5 to 10 pixels minimum movement
+    if (Math.abs(dx) < minMovement && Math.abs(dy) < minMovement) {
+      return;
+    }
+    
+    let newWidth, newHeight;
+    
+    if (isToken) {
+      // Tokens: snap to grid
+      newWidth = Math.max(gridSize, Math.floor((resizeStart.width + dx) / gridSize) * gridSize);
+      newHeight = Math.max(gridSize, Math.floor((resizeStart.height + dy) / gridSize) * gridSize);
+    } else {
+      // Map images: free resizing (no grid snapping)
+      newWidth = Math.max(gridSize * 0.5, resizeStart.width + dx);
+      newHeight = Math.max(gridSize * 0.5, resizeStart.height + dy);
+    }
+    
     const { middleLayer, topLayer } = updateItemSize(resizingId, newWidth, newHeight);
     onUpdateImages?.(middleLayer, topLayer);
-  }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages, zoomLevel])
+  }, [resizingId, resizeStart, gridSize, updateItemSize, onUpdateImages, zoomLevel, topLayerImages, middleLayerImages]);
 
   const handleResizeEnd = useCallback(() => {
     setResizingId(null);
     setResizeStart(null);
+    
+    // Clear the resizing flag from any resize handles
+    const resizeHandles = document.querySelectorAll('[data-resizing="true"]');
+    resizeHandles.forEach(handle => handle.removeAttribute('data-resizing'));
+    
     onUpdateImages?.(middleLayerImages, topLayerImages);
-  }, [middleLayerImages, topLayerImages, onUpdateImages, setResizingId, setResizeStart])
+  }, [middleLayerImages, topLayerImages, onUpdateImages, setResizingId, setResizeStart]);
 
   // Selection and interaction handlers
   const handleGridClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -342,9 +402,19 @@ export default function MainContent({
       if (item.id === propId) {
         const currentWidth = item.width || gridSize;
         const currentHeight = item.height || gridSize;
-        const newWidth = Math.max(gridSize * 0.5, Math.floor(currentWidth * scale)); // Minimum 50% of grid size
-        const newHeight = Math.max(gridSize * 0.5, Math.floor(currentHeight * scale)); // Minimum 50% of grid size
-        return { ...item, width: newWidth, height: newHeight };
+        
+        // Calculate new size based on scale (2x for plus, 0.5x for minus)
+        const newWidth = Math.floor(currentWidth * scale);
+        const newHeight = Math.floor(currentHeight * scale);
+        
+        // Ensure minimum size of 0.5 grid units and maximum of 4 grid units
+        const minSize = Math.floor(gridSize * 0.5);
+        const maxSize = Math.floor(gridSize * 4);
+        
+        const clampedWidth = Math.max(minSize, Math.min(maxSize, newWidth));
+        const clampedHeight = Math.max(minSize, Math.min(maxSize, newHeight));
+        
+        return { ...item, width: clampedWidth, height: clampedHeight };
       }
       return item;
     });
@@ -685,6 +755,128 @@ export default function MainContent({
     }
   }, [setZoomLevel, setPanOffset, containerRef]);
 
+  // File drop handlers for dragging files from file explorer
+  const handleFileDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    // Only allow file drops for DMs
+    if (currentUserRole !== 'DM') {
+      e.dataTransfer.dropEffect = 'none';
+      return;
+    }
+    e.dataTransfer.dropEffect = 'copy';
+  }, [currentUserRole]);
+
+  const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    console.log('[MainContent] handleFileDrop called');
+    e.preventDefault();
+    
+    // Only allow file drops for DMs
+    if (currentUserRole !== 'DM') {
+      toast({ 
+        title: "Permission Denied", 
+        description: "Only DMs can drop files from the file explorer.", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0]; // Handle only the first file for now
+    
+    // Check if it's an image file
+    if (!file.type.startsWith('image/')) {
+      toast({ 
+        title: "Invalid File Type", 
+        description: "Please drop an image file (PNG, JPG, GIF, etc.).", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    try {
+      // Get drop position
+      const rect = gridRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const adjustedX = (e.clientX - rect.left) / zoomLevel;
+      const adjustedY = (e.clientY - rect.top) / zoomLevel;
+
+      // For map images, use free positioning (no grid snapping)
+      const x = adjustedX;
+      const y = adjustedY;
+
+      // Upload the file first
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('category', 'Image');
+
+      const response = await fetch('/api/images', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload image');
+      }
+
+      const uploadedImage = await response.json();
+      
+      // Notify parent component about the uploaded image
+      onImageUploaded?.(uploadedImage);
+      
+      // Create a LayerImage object for the uploaded image
+      const image = new window.Image();
+      image.src = uploadedImage.Link;
+      await new Promise((resolve) => {
+        image.onload = resolve;
+      });
+
+      // Calculate size with max 1500px limit
+      let finalWidth = image.width;
+      let finalHeight = image.height;
+      const maxSize = 1500;
+      
+      if (finalWidth > maxSize || finalHeight > maxSize) {
+        if (finalWidth > finalHeight) {
+          finalWidth = maxSize;
+          finalHeight = Math.round((image.height * maxSize) / image.width);
+        } else {
+          finalHeight = maxSize;
+          finalWidth = Math.round((image.width * maxSize) / image.height);
+        }
+      }
+
+      const uniqueId = generateUniqueId(uploadedImage.Id.toString());
+      const imageData: LayerImage = {
+        id: uniqueId,
+        url: uploadedImage.Link,
+        x,
+        y,
+        width: finalWidth,
+        height: finalHeight
+      };
+
+      // Add to middle layer (map images)
+      onUpdateImages?.([...middleLayerImages, imageData], topLayerImages);
+
+      toast({ 
+        title: "Image Uploaded", 
+        description: `${file.name} has been uploaded and placed on the map.` 
+      });
+
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      toast({ 
+        title: "Upload Failed", 
+        description: "Failed to upload the image. Please try again.", 
+        variant: "destructive" 
+      });
+    }
+  }, [currentUserRole, zoomLevel, gridRef, generateUniqueId, middleLayerImages, topLayerImages, onUpdateImages, onImageUploaded]);
+
   // Event listeners
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -720,6 +912,12 @@ export default function MainContent({
         onMouseMove={handleNavigationDrag}
         onMouseUp={handleNavigationDragEnd}
         onMouseLeave={handleNavigationDragEnd}
+        onDrop={(e) => {
+          console.log('[MainContent] Container drop event intercepted');
+        }}
+        onDragOver={(e) => {
+          console.log('[MainContent] Container drag over event');
+        }}
       >
         <div className="absolute top-2 left-2 z-30">
           <DrawingToolbar
@@ -768,6 +966,8 @@ export default function MainContent({
           selectionEnd={selectionEnd}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
+          onFileDragOver={handleFileDragOver}
+          onFileDrop={handleFileDrop}
           onGridClick={handleGridClick}
           onMouseDown={(e) => {
             const isDrawingTool = currentTool === 'brush' || currentTool === 'darknessEraser' || currentTool === 'darknessBrush';

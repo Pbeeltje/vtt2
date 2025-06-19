@@ -225,37 +225,56 @@ export default function ImageList({
                   .map((image) => (
                     <li
                       key={image.Id}
-                      className="flex items-center gap-2 p-2 bg-white rounded-lg shadow hover:bg-gray-50 cursor-pointer relative"
+                      className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
                       draggable={image.Category !== "Scene"}
-                      onDragStart={image.Category !== "Scene" ? (e) => onDragStart?.(e, image) : undefined}
+                      onDragStart={image.Category !== "Scene" ? (e) => {
+                        console.log('=== DRAG START ===');
+                        console.log('[ImageList] Drag start for:', image.Category, image.Name);
+                        
+                        // Clear any existing data transfer
+                        e.dataTransfer.clearData();
+                        
+                        // Set our custom data transfer
+                        e.dataTransfer.setData("imageId", image.Id.toString());
+                        e.dataTransfer.setData("category", image.Category);
+                        e.dataTransfer.setData("image-url", image.Link);
+                        
+                        // Set effectAllowed to prevent file drag
+                        e.dataTransfer.effectAllowed = "copy";
+                        
+                        // Prevent any files from being included
+                        e.dataTransfer.setData("Files", "");
+                        
+                        console.log('[ImageList] Data transfer set:', {
+                          imageId: image.Id.toString(),
+                          category: image.Category,
+                          url: image.Link
+                        });
+                        
+                        // Don't call parent onDragStart to avoid interference
+                        // onDragStart?.(e, image);
+                      } : undefined}
                       onClick={() => handleImageClick(image)}
-                      style={{ maxWidth: '100%' }}
                     >
-                      <div className="flex-shrink-0 mr-2">
-                        <Image
-                          src={image.Link || "/placeholder.svg"}
-                          alt={image.Name}
-                          width={40}
-                          height={40}
-                          className="rounded object-cover"
-                          style={{ objectFit: 'cover' }}
-                        />
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-gray-200 rounded overflow-hidden">
+                          <Image
+                            src={image.Link || "/placeholder.svg"}
+                            alt={image.Name}
+                            width={40}
+                            height={40}
+                            className="object-cover"
+                            draggable={false}
+                          />
+                        </div>
+                        <button className="text-left hover:underline" onClick={(e) => {
+                          e.stopPropagation();
+                          handleImageClick(image);
+                        }}>
+                          {image.Name}
+                        </button>
                       </div>
-                      <div className="flex-1 min-w-0 max-w-[calc(100%-120px)]">
-                        {image.Category !== "Scene" && (
-                          <span className={`truncate block ${getNameClass(image.Name)}`}>
-                            {image.Name}
-                          </span>
-                        )}
-                        {image.Category === "Scene" && (
-                          <span className="text-xs text-gray-600 truncate block">{image.Name}</span>
-                        )}
-                        {selectedImage?.Id === image.Id && image.Category === "Props" && image.Character && (
-                          <span className="text-xs text-gray-600 truncate block">{image.Character.Name}</span>
-                        )}
-                      </div>
-                      
-                      <div className="flex gap-1 flex-shrink-0 ml-auto" style={{ minWidth: '100px' }}>
+                      <div className="flex gap-1">
                         {image.Category === "Scene" && onMakeSceneActive && currentUserRole === 'DM' && (
                           <Button
                             variant="outline"
@@ -306,9 +325,9 @@ export default function ImageList({
                             handleDeleteImage(image)
                           }}
                           title="Delete Image"
-                          className="text-gray-700 hover:text-gray-900 h-7 w-7"
+                          className="h-7 w-7"
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </li>

@@ -53,11 +53,11 @@ export default function TokenRenderer({
             
             {/* Resize Controls - Show when selected */}
             {selectedIds.includes(img.id) && onResizeProp && (
-              <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 flex gap-1 z-40">
+              <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 flex gap-1 z-40">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onResizeProp(img.id, 0.5); // Make 50% smaller
+                    onResizeProp(img.id, 0.5); // Make 50% smaller (halve size)
                   }}
                   className="w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg"
                   title="Make 50% smaller"
@@ -67,10 +67,10 @@ export default function TokenRenderer({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onResizeProp(img.id, 1.5); // Make 50% larger
+                    onResizeProp(img.id, 2.0); // Make 100% larger (double size)
                   }}
                   className="w-6 h-6 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center justify-center shadow-lg"
-                  title="Make 50% larger"
+                  title="Make 100% larger"
                 >
                   <Plus className="w-3 h-3" />
                 </button>

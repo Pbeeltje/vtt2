@@ -289,17 +289,21 @@ export default function Home() {
       if (String(receivedSceneId) === String(currentSceneId)) {
         console.log(`[Socket.IO Home] scene_updated: Scene IDs match. Setting isSocketUpdateRef = true. User: ${currentUser?.username}`);
         isSocketUpdateRef.current = true;
-        setMiddleLayerImages(sceneUpdate.middleLayer || []);
-        setTopLayerImages(sceneUpdate.topLayer || []);
-        if (sceneUpdate.gridSize !== undefined) {
-          setGridSize(sceneUpdate.gridSize);
-        }
-        if (sceneUpdate.gridColor !== undefined) {
-          setGridColor(sceneUpdate.gridColor);
-        }
-        if (sceneUpdate.scale !== undefined) {
-          setSceneScale(sceneUpdate.scale);
-        }
+        
+        // Use setTimeout to ensure the flag is set before state updates trigger useEffect
+        setTimeout(() => {
+          setMiddleLayerImages(sceneUpdate.middleLayer || []);
+          setTopLayerImages(sceneUpdate.topLayer || []);
+          if (sceneUpdate.gridSize !== undefined) {
+            setGridSize(sceneUpdate.gridSize);
+          }
+          if (sceneUpdate.gridColor !== undefined) {
+            setGridColor(sceneUpdate.gridColor);
+          }
+          if (sceneUpdate.scale !== undefined) {
+            setSceneScale(sceneUpdate.scale);
+          }
+        }, 0);
       } else {
         console.log(`[Socket.IO Home] scene_updated: Scene IDs do NOT match. Ignoring. User: ${currentUser?.username}`);
       }
@@ -398,6 +402,15 @@ export default function Home() {
           });
         }
       }
+    });
+
+    // New listener for note updates
+    socket.on('notes_updated', (updatedNotes: any[]) => {
+      console.log('[Socket.IO Home] notes_updated received:', updatedNotes);
+      
+      // Dispatch a custom event that the BottomBar component can listen to
+      const event = new CustomEvent('notes_updated', { detail: updatedNotes });
+      window.dispatchEvent(event);
     });
 
     return () => { if (socketRef.current) { socketRef.current.disconnect(); socketRef.current = null; } };
@@ -832,13 +845,42 @@ export default function Home() {
       console.error("Network error trying to delete image:", error);
     }
   };
-  const handleRenameImage = async (image:DMImage,newName:string) => {};
+  const handleRenameImage = async (image: DMImage, newName: string) => {
+    if (!user || user.role !== 'DM') {
+      toast({ title: "Permission Denied", description: "Only DMs can rename images.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/images/${image.Id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+      });
+
+      if (response.ok) {
+        const updatedImage = await response.json();
+        setImages((prev) => prev.map((img) => 
+          img.Id === image.Id ? { ...img, Name: newName } : img
+        ));
+        toast({ title: "Success", description: "Image renamed successfully." });
+      } else {
+        const errorData = await response.json().catch(() => ({ error: "Failed to rename image." }));
+        toast({ title: "Error Renaming Image", description: errorData.error || "Unknown server error.", variant: "destructive" });
+        console.error("Error renaming image (API response not ok):", errorData);
+      }
+    } catch (error) {
+      toast({ title: "Network Error", description: "Could not connect to server to rename image.", variant: "destructive" });
+      console.error("Network error trying to rename image:", error);
+    }
+  };
   const handleSetBackground = async (url:string) => { const sceneImage=images.find(img=>img.Link===url); await handleLoadScene(sceneImage||null);};
   const handleDropImage = (category:string,image:DMImage,x:number,y:number) => {};
   const handleUpdateImages = (middleLayer:LayerImage[],topLayer:LayerImage[]) => {
     setMiddleLayerImages(middleLayer);
     setTopLayerImages(topLayer);
-    if (user?.role === 'DM') handleSaveScene();
+    // Remove direct handleSaveScene call - let useEffect handle saves with proper Socket.IO flag checking
+    // if (user?.role === 'DM') handleSaveScene();
   };
   const handleDeleteSceneData = async (image: DMImage) => {
     if (!user || user.role !== 'DM') {
@@ -953,6 +995,7 @@ export default function Home() {
       gridColor,
       sceneScale,
       darknessPaths: darknessPaths.length,
+      isDarknessLayerVisible,
       selectedSceneId: selectedScene?.Id
     });
     if (isSocketUpdateRef.current) {
@@ -962,7 +1005,7 @@ export default function Home() {
       console.log("[Home.tsx useEffect Save Check] User-initiated or non-socket change detected. Calling handleSaveScene.");
       handleSaveScene();
     }
-  }, [middleLayerImages, topLayerImages, gridColor, sceneScale, darknessPaths, isInitialized, user, selectedScene?.Id]);
+  }, [middleLayerImages, topLayerImages, gridColor, sceneScale, darknessPaths, isDarknessLayerVisible, isInitialized, user, selectedScene?.Id]);
   
   const handleUpdateSceneScale = async (image: DMImage, scale: number) => {
     if (!user || user.role !== 'DM') {
@@ -1240,22 +1283,27 @@ export default function Home() {
   const handleToggleDarknessLayer = useCallback(() => {
     setIsDarknessLayerVisible(prev => {
       const newValue = !prev;
-      // Save scene when DM toggles darkness visibility
-      if (user?.role === 'DM') {
-        // Use setTimeout to save after state update
-        setTimeout(() => {
-          handleSaveScene();
-        }, 0);
-      }
+      // Remove direct handleSaveScene call - let useEffect handle saves with proper Socket.IO flag checking
+      // if (user?.role === 'DM') {
+      //   // Use setTimeout to save after state update
+      //   setTimeout(() => {
+      //     handleSaveScene();
+      //   }, 0);
+      // }
       return newValue;
     });
-  }, [user?.role, handleSaveScene]);
+  }, [user?.role]);
 
   // Effect to log characters state when it actually changes
   useEffect(() => {
     if (isInitialized) { 
     }
   }, [characters, isInitialized]);
+
+  const handleImageUploaded = (uploadedImage: any) => {
+    // Add the uploaded image to the images list
+    setImages((prevImages) => [...prevImages, uploadedImage]);
+  };
 
   if (isLoading || !isInitialized) { return <div className="flex items-center justify-center min-h-screen">Loading...</div> }
 
@@ -1273,6 +1321,8 @@ export default function Home() {
             drawings={drawings} 
             onDrawingAdd={(_data: NewDrawingData) => { toast({ title: "Login Required", description: "Please log in to draw.", variant: "destructive" }); }}
             onDrawingsDelete={(_ids: string[]) => { toast({ title: "Login Required", description: "Please log in to delete drawings.", variant: "destructive" }); }}
+            onAddImage={async (_category: string, _file: File) => { toast({ title: "Login Required", description: "Please log in to upload images.", variant: "destructive" }); }}
+            onImageUploaded={handleImageUploaded}
             darknessPaths={[]}
             onDarknessChange={() => {}}
             isDarknessLayerVisible={false}
@@ -1311,6 +1361,8 @@ export default function Home() {
               onPlayerRequestTokenDelete={handlePlayerRequestTokenDelete}
               onPlayerUpdateTokenPosition={handlePlayerUpdateTokenPosition}
               onOpenCharacterSheet={handleOpenCharacterSheet}
+              onAddImage={handleAddImage}
+              onImageUploaded={handleImageUploaded}
               darknessPaths={darknessPaths}
               onDarknessChange={handleDarknessChange}
               isDarknessLayerVisible={isDarknessLayerVisible}
@@ -1331,7 +1383,7 @@ export default function Home() {
             allUsers={allUsers}
           />
         </div>
-        <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} />
+        <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} userRole={user.role} />
       </div>
       <div className="relative w-full h-full pointer-events-none hidden"> 
         <DrawingLayer

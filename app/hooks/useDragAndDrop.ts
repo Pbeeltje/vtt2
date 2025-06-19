@@ -129,6 +129,8 @@ export const useDragAndDrop = ({
   }, [])
 
   const handleItemDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => {
+    console.log('[Drag Debug] Drag start for item:', item.id, 'isToken:', isToken);
+    
     // Permission check for dragging
     if (isToken && currentUserRole === 'player' && item.character?.userId !== currentUserId) {
       toast({ title: "Permission Denied", description: "You can only drag your own character tokens.", variant: "destructive" });
@@ -153,6 +155,15 @@ export const useDragAndDrop = ({
     setDraggingIds(dragIds); 
     const rect = e.currentTarget.getBoundingClientRect(); 
     setDragOffset({ x: (e.clientX - rect.left), y: (e.clientY - rect.top) }); 
+    
+    // Set data transfer data to prevent file upload detection
+    e.dataTransfer.setData("imageId", item.id);
+    e.dataTransfer.setData("category", isToken ? "Props" : "Image");
+    e.dataTransfer.setData("image-url", item.url);
+    e.dataTransfer.setData("isExistingItem", "true");
+    
+    // Clear any files from data transfer
+    e.dataTransfer.clearData("Files");
     
     const canvas = document.createElement("canvas"); 
     const ctx = canvas.getContext("2d"); 
@@ -184,8 +195,22 @@ export const useDragAndDrop = ({
     
     const adjustedX = (e.clientX - rect.left) / zoomLevel;
     const adjustedY = (e.clientY - rect.top) / zoomLevel;
-    const newX = Math.floor((adjustedX - dragOffset.x / zoomLevel) / gridSize) * gridSize;
-    const newY = Math.floor((adjustedY - dragOffset.y / zoomLevel) / gridSize) * gridSize;
+    
+    // Check if this is a token (top layer) or map image (middle layer)
+    const isToken = topLayerImages.some(token => token.id === referenceItem.id);
+    
+    let newX, newY;
+    
+    if (isToken) {
+      // Tokens: snap to grid
+      newX = Math.floor((adjustedX - dragOffset.x / zoomLevel) / gridSize) * gridSize;
+      newY = Math.floor((adjustedY - dragOffset.y / zoomLevel) / gridSize) * gridSize;
+    } else {
+      // Map images: free movement (no grid snapping)
+      newX = adjustedX - dragOffset.x / zoomLevel;
+      newY = adjustedY - dragOffset.y / zoomLevel;
+    }
+    
     const dx = newX - referenceItem.x;
     const dy = newY - referenceItem.y;
     

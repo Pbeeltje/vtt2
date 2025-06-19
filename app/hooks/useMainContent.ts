@@ -133,16 +133,28 @@ export const useMainContent = ({
   }, [gridSize])
 
   const updateItemPosition = useCallback((id: string, dx: number, dy: number) => {
-    const updateLayer = (layer: LayerImage[]) => layer.map((item) =>
-      draggingIds?.includes(item.id) ? {
-        ...item,
-        x: Math.floor((item.x + dx) / gridSize) * gridSize,
-        y: Math.floor((item.y + dy) / gridSize) * gridSize
-      } : item
-    );
+    const updateLayer = (layer: LayerImage[], isTopLayer: boolean) => layer.map((item) => {
+      if (!draggingIds?.includes(item.id)) return item;
+      
+      if (isTopLayer) {
+        // Tokens (top layer): snap to grid
+        return {
+          ...item,
+          x: Math.floor((item.x + dx) / gridSize) * gridSize,
+          y: Math.floor((item.y + dy) / gridSize) * gridSize
+        };
+      } else {
+        // Map images (middle layer): free movement
+        return {
+          ...item,
+          x: item.x + dx,
+          y: item.y + dy
+        };
+      }
+    });
     
-    const newMiddleLayer = updateLayer(middleLayerImages);
-    const newTopLayer = updateLayer(topLayerImages);
+    const newMiddleLayer = updateLayer(middleLayerImages, false);
+    const newTopLayer = updateLayer(topLayerImages, true);
     return { middleLayer: newMiddleLayer, topLayer: newTopLayer };
   }, [draggingIds, gridSize, middleLayerImages, topLayerImages])
 
