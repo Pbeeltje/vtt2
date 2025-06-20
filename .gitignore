@@ -32,3 +32,4 @@ vttdatabase.db-shm
 vttdatabase.db-wal
 .cursor/rules/task-list.mdc
 note.csv
+.cursor/rules/security-checklist.mdc
