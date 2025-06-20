@@ -31,3 +31,4 @@ vttdatabase.db
 vttdatabase.db-shm
 vttdatabase.db-wal
 .cursor/rules/task-list.mdc
+note.csv
