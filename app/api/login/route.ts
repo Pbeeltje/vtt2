@@ -10,89 +10,85 @@ const client = createClient({
 });
 
 export async function POST(req: Request) {
-  // Removed Turso environment check
   try {
-    const { username, password, isTestLogin = false } = await req.json();
+    const { username, password } = await req.json();
 
-    console.log("Received login request:", { username, isTestLogin });
+    // Input validation
+    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
+      return NextResponse.json({ error: "Username and password are required and must be strings" }, { status: 400 });
+    }
 
-    // --- Test DM Login (Keep as is, doesn't interact with DB) ---
-    if (isTestLogin) {
-      console.log("Handling test login");
-      if (username === "DM_User" && password === "dm_password") {
-        const userForCookie = {
-          id: 0, // Explicitly setting ID 0 for test DM
-          username: "DM_User",
-          role: "DM" as const,
-        };
-        console.log("Test login successful, setting cookie");
-        try {
-          await setUserCookie(userForCookie);
-        } catch (cookieError) {
-          console.error("Error setting user cookie:", cookieError);
-          return NextResponse.json({ error: "Failed to set user cookie", details: cookieError }, { status: 500 });
-        }
+    // Sanitize inputs
+    const sanitizedUsername = username.trim();
+    if (sanitizedUsername.length < 3 || sanitizedUsername.length > 50) {
+      return NextResponse.json({ error: "Username must be between 3 and 50 characters" }, { status: 400 });
+    }
+
+    if (password.length < 8) {
+      return NextResponse.json({ error: "Password must be at least 8 characters long" }, { status: 400 });
+    }
+
+    // Check for DM user (configurable via environment variables)
+    const dmUsername = process.env.DM_USERNAME;
+    const dmPassword = process.env.DM_PASSWORD;
+    
+    if (sanitizedUsername === dmUsername && dmPassword && password === dmPassword) {
+      // Only allow DM login if environment variables are configured
+      const userForCookie = {
+        id: 0,
+        username: dmUsername,
+        role: "DM" as const,
+      };
+      
+      try {
+        await setUserCookie(userForCookie);
         return NextResponse.json({ message: "Logged in successfully", role: "DM" });
-      } else {
-        return NextResponse.json({ error: "Invalid test credentials" }, { status: 401 });
+      } catch (cookieError) {
+        console.error("Error setting user cookie:", cookieError);
+        return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
       }
     }
-    // --- End Test DM Login ---
 
-    // --- Regular User Login (Use @libsql/client) ---
-    // const stmt = db.prepare("SELECT id, Username, Password, Role FROM User WHERE Username = ?"); // Old better-sqlite3 code
-    // const user = stmt.get(username) as any; // Old better-sqlite3 code
-
+    // Regular user login
     const dbResult = await client.execute({
         sql: "SELECT id, Username, Password, Role FROM User WHERE Username = ?",
-        args: [username],
+        args: [sanitizedUsername],
     });
 
-    const user = dbResult.rows.length > 0 ? dbResult.rows[0] as any : null; // Cast to any or define a User type
+    const user = dbResult.rows.length > 0 ? dbResult.rows[0] as any : null;
 
     if (!user) {
-      console.log(`Login failed: User "${username}" not found.`);
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    // Ensure the Password field exists before comparing
     if (!user.Password) {
-        console.error(`Login failed: User "${username}" found but has no password hash.`);
-        return NextResponse.json({ error: "User account error" }, { status: 500 });
+        console.error(`Login failed: User "${sanitizedUsername}" found but has no password hash.`);
+        return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
     }
 
     const isMatch = await bcrypt.compare(password, user.Password);
 
     if (!isMatch) {
-      console.log(`Login failed: Password mismatch for user "${username}".`);
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    // Use the correct ID field ('id' based on registration) for the cookie
     const userForCookie = {
       id: user.id, 
       username: user.Username,
-      role: user.Role || "player", // Default to "player" if Role is not set
+      role: user.Role || "player",
     };
 
-    console.log(`Login successful for user "${username}", setting cookie`);
     try {
       await setUserCookie(userForCookie);
     } catch (cookieError) {
       console.error("Error setting user cookie:", cookieError);
-      return NextResponse.json({ error: "Failed to set user cookie", details: cookieError }, { status: 500 });
+      return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
     }
 
     return NextResponse.json({ message: "Logged in successfully", role: userForCookie.role });
 
   } catch (error) {
     console.error("Login error:", error);
-    return NextResponse.json(
-      {
-        error: "Login failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
   }
 }

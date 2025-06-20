@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@libsql/client";
-import { getUserFromCookie } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 
 const client = createClient({
   url: "file:./vttdatabase.db",
@@ -8,41 +8,51 @@ const client = createClient({
 });
 
 export async function GET(req: Request) {
-  const user = await getUserFromCookie();
-  if (!user || user.role !== "DM") {
-    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
-  }
-
   try {
+    // Only DMs can access scenes
+    const user = await requireAuth('DM');
+
     const result = await client.execute({
-      sql: "SELECT * FROM DMImage WHERE UserId = ? AND Category = 'Scene' AND SceneData IS NOT NULL",
-      args: [user.id],
+      sql: "SELECT * FROM DMImage WHERE Category = 'Scene' AND SceneData IS NOT NULL",
+      args: [],
     });
     return NextResponse.json(result.rows);
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "Authentication required") {
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+      }
+      if (error.message === "Insufficient permissions") {
+        return NextResponse.json({ error: "Not authorized - DM access required" }, { status: 403 })
+      }
+    }
     return NextResponse.json({ error: "Failed to fetch scenes" }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
-  const user = await getUserFromCookie();
-  if (!user || user.role !== "DM") {
-    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
-  }
-
   try {
+    // Only DMs can save scenes
+    const user = await requireAuth('DM');
+
     const { sceneId, sceneData } = await req.json();
 
-    if (!sceneId || sceneId === undefined) {
-      return NextResponse.json({ error: "Scene ID is required" }, { status: 400 });
+    // Input validation
+    if (!sceneId || typeof sceneId !== 'number') {
+      return NextResponse.json({ error: "Scene ID is required and must be a number" }, { status: 400 });
+    }
+
+    // Validate sceneData structure if provided
+    if (sceneData !== null && typeof sceneData !== 'object') {
+      return NextResponse.json({ error: "Scene data must be an object or null" }, { status: 400 });
     }
 
     // Allow sceneData to be null for clearing scene data
     const sceneDataToStore = sceneData === null ? null : JSON.stringify(sceneData);
 
     const result = await client.execute({
-      sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ? AND UserId = ? AND Category = 'Scene' RETURNING *",
-      args: [sceneDataToStore, sceneId, user.id],
+      sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ? AND Category = 'Scene' RETURNING *",
+      args: [sceneDataToStore, sceneId],
     });
 
     if (result.rows.length === 0) {
@@ -51,7 +61,7 @@ export async function POST(req: Request) {
 
     // Emit socket event for scene update
     try {
-      const { getIO } = await import('../../../lib/socket'); // Adjusted path
+      const { getIO } = await import('../../../lib/socket');
       const io = getIO();
       
       if (sceneData === null) {
@@ -64,19 +74,16 @@ export async function POST(req: Request) {
           scale: 1
         };
         io.to(String(sceneId)).emit('scene_updated', sceneId, sceneUpdatePayload);
-        console.log(`[API /scenes POST] Scene data cleared - Emitted 'scene_updated' for scene ${sceneId} with empty payload`);
       } else {
         // Send the relevant parts of sceneData for normal updates
         const sceneUpdatePayload = {
           middleLayer: sceneData.elements?.middleLayer || [],
           topLayer: sceneData.elements?.topLayer || [],
-          gridSize: sceneData.gridSize,
-          gridColor: sceneData.gridColor,
-          // Include scale as well if it's part of sceneData and might change
-          scale: sceneData.scale 
+          gridSize: sceneData.gridSize || 50,
+          gridColor: sceneData.gridColor || "rgba(0,0,0,0.1)",
+          scale: sceneData.scale || 1
         };
         io.to(String(sceneId)).emit('scene_updated', sceneId, sceneUpdatePayload);
-        console.log(`[API /scenes POST] Emitted 'scene_updated' for scene ${sceneId} with payload:`, sceneUpdatePayload);
       }
     } catch (socketError) {
       console.error("[API /scenes POST] Socket.IO emit error:", socketError);
@@ -84,6 +91,20 @@ export async function POST(req: Request) {
 
     return NextResponse.json(result.rows[0]);
   } catch (error) {
-    return NextResponse.json({ error: "Failed to save scene" }, { status: 500 });
+    console.error("[API /scenes POST] Error occurred:", error);
+    
+    if (error instanceof Error) {
+      if (error.message === "Authentication required") {
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+      }
+      if (error.message === "Insufficient permissions") {
+        return NextResponse.json({ error: "Not authorized - DM access required" }, { status: 403 })
+      }
+    }
+    
+    return NextResponse.json({ 
+      error: "Failed to save scene",
+      details: error instanceof Error ? error.message : "Unknown error"
+    }, { status: 500 });
   }
 } 

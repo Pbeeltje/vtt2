@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@libsql/client";
 import bcrypt from "bcryptjs";
-import { createClient } from "@libsql/client"
 
 const client = createClient({
-  url: "file:./vttdatabase.db", // Changed to local DB
+  url: "file:./vttdatabase.db",
   authToken: "", // No auth token needed for local file
-})
+});
 
 export async function POST(req: Request) {
-  console.log("Registration attempt received");
   try {
     const { username, password } = await req.json();
 
@@ -16,43 +15,51 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Username and password are required" }, { status: 400 });
     }
 
-    // Check if user already exists using @libsql/client
-    const existingUserResult = await client.execute({
-        sql: "SELECT UserId FROM User WHERE Username = ?",
-        args: [username],
+    // Sanitize inputs
+    const sanitizedUsername = username.trim().toLowerCase();
+    const sanitizedPassword = password.trim();
+
+    if (sanitizedUsername.length < 3) {
+      return NextResponse.json({ error: "Username must be at least 3 characters long" }, { status: 400 });
+    }
+
+    if (sanitizedPassword.length < 6) {
+      return NextResponse.json({ error: "Password must be at least 6 characters long" }, { status: 400 });
+    }
+
+    // Check if username already exists
+    const existingUser = await client.execute({
+      sql: "SELECT UserId FROM User WHERE Username = ?",
+      args: [sanitizedUsername],
     });
 
-    if (existingUserResult.rows.length > 0) {
-      console.log(`Registration failed: Username "${username}" already exists.`);
-      return NextResponse.json({ error: "Username already exists" }, { status: 400 });
+    if (existingUser.rows.length > 0) {
+      return NextResponse.json({ error: "Username already exists" }, { status: 409 });
     }
 
     // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(sanitizedPassword, saltRounds);
 
-    // Create new user using @libsql/client
+    // Insert new user
     const result = await client.execute({
-        sql: "INSERT INTO User (Username, Password) VALUES (?, ?)",
-        args: [username, hashedPassword],
+      sql: "INSERT INTO User (Username, Password, Role) VALUES (?, ?, ?) RETURNING *",
+      args: [sanitizedUsername, hashedPassword, "player"],
     });
 
     if (!result.lastInsertRowid) {
-      console.error(`Registration failed: Could not insert user "${username}" into DB.`);
-      return NextResponse.json({ error: "Failed to create user" }, { status: 500 });
+      throw new Error("Failed to create user");
     }
 
-    console.log(`User "${username}" registered successfully with ID: ${result.lastInsertRowid}`);
-    return NextResponse.json({ message: "User registered successfully", userId: result.lastInsertRowid });
-
+    return NextResponse.json({ 
+      message: "User registered successfully",
+      userId: result.lastInsertRowid 
+    });
   } catch (error) {
     console.error("Registration error:", error);
-    return NextResponse.json(
-      {
-        error: "Registration failed",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ 
+      error: "Failed to register user",
+      details: error instanceof Error ? error.message : "Unknown error"
+    }, { status: 500 });
   }
 }

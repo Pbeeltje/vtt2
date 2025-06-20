@@ -1,30 +1,18 @@
 // server.ts
-import { createServer, Server as HttpServerNode, IncomingMessage, ServerResponse } from 'http';
+import { createServer } from 'http';
+import { parse } from 'url';
 import next from 'next';
 import { initSocketIO } from './lib/socket';
-import { parse } from 'url'; // Import parse from 'url'
 
 const dev = process.env.NODE_ENV !== 'production';
-const hostname = '0.0.0.0';
+const hostname = 'localhost';
+const port = parseInt(process.env.PORT || '3000', 10);
 
-// Corrected port definition
-const portEnv = process.env.PORT;
-let port = 3000; // Default port
-if (portEnv) {
-  const parsedPort = parseInt(portEnv, 10);
-  // Ensure parsedPort is a valid number and a typical port range
-  if (!isNaN(parsedPort) && parsedPort > 0 && parsedPort < 65536) { 
-    port = parsedPort;
-  } else {
-    console.warn(`Invalid process.env.PORT value: "${portEnv}". Falling back to default port ${port}.`);
-  }
-}
-
-const app = next({ dev, hostname, port }); // Now 'port' is guaranteed to be a number
+const app = next({ dev, hostname, port });
 const nextRequestHandler = app.getRequestHandler();
 
 app.prepare().then(() => {
-  const httpServer: HttpServerNode = createServer((req: IncomingMessage, res: ServerResponse) => {
+  const httpServer: any = createServer((req: any, res: any) => {
     const parsedUrl = parse(req.url!, true);
     // Let Socket.IO handle its own path.
     // The Socket.IO server instance (created in initSocketIO) attaches its own listeners
@@ -41,7 +29,6 @@ app.prepare().then(() => {
   httpServer
     .listen(port, () => {
       console.log(`> Next.js Ready on http://${hostname}:${port}`);
-      console.log(`> Socket.IO attached to the same server.`);
     })
     .on('error', (err: any) => {
       console.error('Server error:', err);

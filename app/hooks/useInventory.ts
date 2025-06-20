@@ -11,51 +11,38 @@ export function useInventory(characterId: number) {
     description: null,
     slot: 0,
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchInventory = async () => {
-      if (!characterId || isNaN(characterId)) {
-        console.error('Invalid characterId:', characterId);
-        toast({ title: "Error", description: "Invalid character ID.", variant: "destructive" });
-        setInventory({
-          Inventoryid: -1,
-          CharacterId: characterId || 0,
-          Contents: Array.from({ length: 16 }, (_, i) => ({
-            slot: i + 1,
-            name: '',
-            description: null,
-          })),
-        });
+      if (!characterId) {
+        setInventory(null);
+        setLoading(false);
         return;
       }
 
-      console.log('Fetching inventory for characterId:', characterId);
-      const url = `/api/characters/${characterId}/inventory`;
-      console.log('Constructed URL:', url);
       try {
-        const response = await fetch(url);
-        console.log('Response status:', response.status);
+        setLoading(true);
+        setError(null);
+        
+        const url = `/api/characters/${characterId}/inventory`;
+        const response = await fetch(url, { credentials: "include" });
+        
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(`Failed to fetch inventory: ${response.statusText} - ${errorData.details || ''}`);
+          throw new Error(`Failed to fetch inventory: ${response.status}`);
         }
-        const data: Inventory = await response.json();
+        
+        const data = await response.json();
         setInventory(data);
-        console.log("Fetched inventory:", data.Contents);
-      } catch (error: any) {
-        console.error("Error fetching inventory:", error);
-        toast({ title: "Error", description: error.message || "Failed to fetch inventory.", variant: "destructive" });
-        setInventory({
-          Inventoryid: -1,
-          CharacterId: characterId,
-          Contents: Array.from({ length: 16 }, (_, i) => ({
-            slot: i + 1,
-            name: '',
-            description: null,
-          })),
-        });
+      } catch (err) {
+        console.error('Error fetching inventory:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch inventory');
+      } finally {
+        setLoading(false);
       }
     };
+
     fetchInventory();
   }, [characterId]);
 
@@ -184,5 +171,5 @@ export function useInventory(characterId: number) {
     }
   };
 
-  return { inventory, editingSlot, inventoryForm, handleInventoryEdit, handleInventoryFormChange, handleInventorySubmit, handleClearSlot };
+  return { inventory, editingSlot, inventoryForm, handleInventoryEdit, handleInventoryFormChange, handleInventorySubmit, handleClearSlot, loading, error };
 }

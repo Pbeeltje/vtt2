@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useRef } from 'react'
 import { toast } from "@/components/ui/use-toast"
 import type { LayerImage } from "../types/layerImage"
 
@@ -22,6 +22,11 @@ interface UseDragAndDropProps {
   onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void
   onPlayerPlaceToken?: (token: LayerImage, sceneId: number) => void
   onPlayerUpdateTokenPosition?: (token: LayerImage, sceneId: number) => void
+  onDrop: (imageData: LayerImage) => void
+  onFileDrop: (files: FileList) => void
+  onPlayerRequestTokenDelete: (tokenId: string) => void
+  user: { id: number; role: string } | null
+  selectedSceneId: number | null
 }
 
 export const useDragAndDrop = ({
@@ -44,198 +49,211 @@ export const useDragAndDrop = ({
   onUpdateImages,
   onPlayerPlaceToken,
   onPlayerUpdateTokenPosition,
+  onDrop,
+  onFileDrop,
+  onPlayerRequestTokenDelete,
+  user,
+  selectedSceneId,
 }: UseDragAndDropProps) => {
+  const draggedItem = useRef<LayerImage | null>(null)
+  const isDragging = useRef(false)
 
   const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const imageId = e.dataTransfer.getData("imageId");
-    const category = e.dataTransfer.getData("category");
-    const url = e.dataTransfer.getData("image-url");
-    const characterIdStr = e.dataTransfer.getData("characterId");
-    const characterData = e.dataTransfer.getData("character");
+    e.preventDefault()
     
-    const rect = gridRef.current?.getBoundingClientRect();
-    
-    if (!rect || !currentSceneId) {
-      console.warn("Drop aborted: Missing grid ref or currentSceneId");
-      return;
+    if (!selectedSceneId) {
+      console.warn('No scene selected for drop')
+      return
     }
 
-    if (!url || url.trim() === '') {
-      console.error('[DEBUG] Drop aborted: URL is empty or undefined');
-      return;
-    }
+    const files = e.dataTransfer.files
+    const dataTransferData = e.dataTransfer.getData('application/json')
 
-    const adjustedX = (e.clientX - rect.left) / zoomLevel;
-    const adjustedY = (e.clientY - rect.top) / zoomLevel;
-    const x = Math.floor(adjustedX / gridSize) * gridSize;
-    const y = Math.floor(adjustedY / gridSize) * gridSize;
+    if (files && files.length > 0) {
+      // Handle file drop
+      onFileDrop(files)
+    } else if (dataTransferData) {
+      try {
+        const imageData = JSON.parse(dataTransferData)
+        const isToken = draggedItem.current?.character !== undefined
 
-    const image = new window.Image();
-    image.src = url;
-    await new Promise((resolve) => { image.onload = resolve });
+        if (isToken && user?.role === 'player') {
+          // Player dropping their own token
+          if (draggedItem.current && draggedItem.current.character?.userId === user.id) {
+            const rect = e.currentTarget.getBoundingClientRect()
+            const x = (e.clientX - rect.left) / 1 // Assuming zoom level of 1 for now
+            const y = (e.clientY - rect.top) / 1
 
-    const uniqueId = generateUniqueId(imageId);
+            const updatedToken = {
+              ...draggedItem.current,
+              x,
+              y,
+            }
 
-    const imageData: LayerImage = {
-      id: uniqueId,
-      url: url || "",
-      x,
-      y,
-    };
-
-    if (category === "Image") {
-      imageData.width = image.width; 
-      imageData.height = image.height;
-    } else if (category === "Props") {
-      imageData.width = gridSize;
-      imageData.height = gridSize;
-      if (characterIdStr && characterData) {
-        try {
-          const parsedCharacter = JSON.parse(characterData);
-          imageData.characterId = parseInt(characterIdStr);
-          imageData.character = { 
-            CharacterId: imageData.characterId,
-            Name: parsedCharacter.Name,
-            Path: parsedCharacter.Path,
-            Guard: parsedCharacter.Guard ?? 0,
-            MaxGuard: parsedCharacter.MaxGuard ?? 0,
-            Strength: parsedCharacter.Strength ?? 0,
-            MaxStrength: parsedCharacter.MaxStrength ?? 0,
-            Mp: parsedCharacter.Mp ?? 0,
-            MaxMp: parsedCharacter.MaxMp ?? 0,
-            userId: parsedCharacter.userId,
+            onPlayerPlaceToken?.(updatedToken, selectedSceneId)
           }
-        } catch (error) {
-          console.error('MainContent - Error parsing character data:', error);
+        } else {
+          // DM dropping UI image or token
+          const rect = e.currentTarget.getBoundingClientRect()
+          const x = (e.clientX - rect.left) / 1
+          const y = (e.clientY - rect.top) / 1
+
+          const droppedImage: LayerImage = {
+            id: imageData.imageId || `dropped-${Date.now()}`,
+            url: imageData.url,
+            x,
+            y,
+            width: 100,
+            height: 100,
+            category: imageData.category,
+            character: draggedItem.current?.character,
+          }
+
+          onDrop(droppedImage)
         }
+      } catch (error) {
+        console.error('Error parsing drop data:', error)
       }
     }
-
-    if (category === "Image") {
-      onUpdateImages?.([...middleLayerImages, imageData], topLayerImages)
-    } else if (category === "Props") {
-      onUpdateImages?.(middleLayerImages, [...topLayerImages, imageData])
-    }
-
-    if (category === "Props" && currentUserRole === 'player' && imageData.character?.userId === currentUserId && currentSceneId) {
-      console.log("[MainContent.tsx] Player dropped their own token. Calling onPlayerPlaceToken.", imageData);
-      onPlayerPlaceToken?.(imageData, currentSceneId);
-    }
-  }, [gridSize, generateUniqueId, middleLayerImages, topLayerImages, onUpdateImages, zoomLevel, currentUserRole, currentUserId, currentSceneId, onPlayerPlaceToken]);
+  }, [selectedSceneId, user, onDrop, onFileDrop, onPlayerPlaceToken])
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
   }, [])
 
   const handleItemDragStart = useCallback((e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => {
-    console.log('[Drag Debug] Drag start for item:', item.id, 'isToken:', isToken);
-    
     // Permission check for dragging
     if (isToken && currentUserRole === 'player' && item.character?.userId !== currentUserId) {
-      toast({ title: "Permission Denied", description: "You can only drag your own character tokens.", variant: "destructive" });
-      e.preventDefault();
-      return;
+      toast({ title: "Permission Denied", description: "You can only drag your own character tokens.", variant: "destructive" })
+      e.preventDefault()
+      return
     }
     if (!isToken && currentUserRole === 'player') {
-      toast({ title: "Permission Denied", description: "Players cannot drag map images.", variant: "destructive" });
-      e.preventDefault();
-      return;
+      toast({ title: "Permission Denied", description: "Players cannot drag map images.", variant: "destructive" })
+      e.preventDefault()
+      return
     }
 
-    let dragIds = selectedIds; 
+    let dragIds = selectedIds
     if (selectedIds.length === 0) { 
-      setSelectedIds([item.id]); 
-      dragIds = [item.id]; 
+      setSelectedIds([item.id])
+      dragIds = [item.id]
     } else if (!selectedIds.includes(item.id)) { 
-      e.preventDefault();
-      return; 
+      e.preventDefault()
+      return
     } 
     
-    setDraggingIds(dragIds); 
-    const rect = e.currentTarget.getBoundingClientRect(); 
-    setDragOffset({ x: (e.clientX - rect.left), y: (e.clientY - rect.top) }); 
+    setDraggingIds(dragIds)
+    const rect = e.currentTarget.getBoundingClientRect()
+    setDragOffset({ x: (e.clientX - rect.left), y: (e.clientY - rect.top) })
     
     // Set data transfer data to prevent file upload detection
-    e.dataTransfer.setData("imageId", item.id);
-    e.dataTransfer.setData("category", isToken ? "Props" : "Image");
-    e.dataTransfer.setData("image-url", item.url);
-    e.dataTransfer.setData("isExistingItem", "true");
+    e.dataTransfer.setData("imageId", item.id)
+    e.dataTransfer.setData("category", isToken ? "Props" : "Image")
+    e.dataTransfer.setData("image-url", item.url)
+    e.dataTransfer.setData("isExistingItem", "true")
     
     // Clear any files from data transfer
-    e.dataTransfer.clearData("Files");
+    e.dataTransfer.clearData("Files")
     
-    const canvas = document.createElement("canvas"); 
-    const ctx = canvas.getContext("2d"); 
+    const canvas = document.createElement("canvas")
+    const ctx = canvas.getContext("2d")
     if (ctx) { 
-      canvas.width = item.width || gridSize; 
-      canvas.height = item.height || gridSize; 
-      const img = new window.Image(); 
-      img.src = item.url; 
+      canvas.width = item.width || gridSize
+      canvas.height = item.height || gridSize
+      const img = new window.Image()
+      img.src = item.url
       img.onload = () => { 
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height); 
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
         try {
-          e.dataTransfer.setDragImage(canvas, canvas.width / 2, canvas.height / 2); 
+          e.dataTransfer.setDragImage(canvas, canvas.width / 2, canvas.height / 2) 
         } catch (error) {
-          console.warn("Error setting drag image, drag might have been cancelled or image too complex.", error);
+          console.warn("Error setting drag image, drag might have been cancelled or image too complex.", error)
         }
       } 
     } 
-  }, [selectedIds, gridSize, currentUserRole, currentUserId]);
+
+    isDragging.current = true
+    draggedItem.current = item
+  }, [selectedIds, gridSize, currentUserRole, currentUserId])
 
   const handleItemDrag = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    if (!draggingIds || !dragOffset || e.clientX === 0 || e.clientY === 0) return;
+    if (!draggingIds || !dragOffset || e.clientX === 0 || e.clientY === 0) return
     
-    const rect = gridRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) return
     
     const referenceItem = middleLayerImages.find((i) => i.id === draggingIds[0]) || 
-                         topLayerImages.find((i) => i.id === draggingIds[0]);
-    if (!referenceItem) return;
+                         topLayerImages.find((i) => i.id === draggingIds[0])
+    if (!referenceItem) return
     
-    const adjustedX = (e.clientX - rect.left) / zoomLevel;
-    const adjustedY = (e.clientY - rect.top) / zoomLevel;
+    const adjustedX = (e.clientX - rect.left) / zoomLevel
+    const adjustedY = (e.clientY - rect.top) / zoomLevel
     
     // Check if this is a token (top layer) or map image (middle layer)
-    const isToken = topLayerImages.some(token => token.id === referenceItem.id);
+    const isToken = topLayerImages.some(token => token.id === referenceItem.id)
     
-    let newX, newY;
+    let newX, newY
     
     if (isToken) {
       // Tokens: snap to grid
-      newX = Math.floor((adjustedX - dragOffset.x / zoomLevel) / gridSize) * gridSize;
-      newY = Math.floor((adjustedY - dragOffset.y / zoomLevel) / gridSize) * gridSize;
+      newX = Math.floor((adjustedX - dragOffset.x / zoomLevel) / gridSize) * gridSize
+      newY = Math.floor((adjustedY - dragOffset.y / zoomLevel) / gridSize) * gridSize
     } else {
       // Map images: free movement (no grid snapping)
-      newX = adjustedX - dragOffset.x / zoomLevel;
-      newY = adjustedY - dragOffset.y / zoomLevel;
+      newX = adjustedX - dragOffset.x / zoomLevel
+      newY = adjustedY - dragOffset.y / zoomLevel
     }
     
-    const dx = newX - referenceItem.x;
-    const dy = newY - referenceItem.y;
+    const dx = newX - referenceItem.x
+    const dy = newY - referenceItem.y
     
-    const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy);
-    onUpdateImages?.(middleLayer, topLayer);
+    const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy)
+    onUpdateImages?.(middleLayer, topLayer)
   }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages, zoomLevel])
 
   const handleItemDragEnd = useCallback(() => {
     const draggedItem = draggingIds && (middleLayerImages.find(img => img.id === draggingIds[0]) || 
-                                       topLayerImages.find(img => img.id === draggingIds[0]));
+                                       topLayerImages.find(img => img.id === draggingIds[0]))
 
     if (currentUserRole === 'player' && 
         draggedItem && 
         topLayerImages.some(token => token.id === draggedItem.id) && 
         draggedItem.character?.userId === currentUserId && 
         currentSceneId) {
-      console.log("[MainContent.tsx] Player finished dragging their own token. Calling onPlayerUpdateTokenPosition.", draggedItem);
-      onPlayerUpdateTokenPosition?.(draggedItem, currentSceneId);
+      onPlayerUpdateTokenPosition?.(draggedItem, currentSceneId)
     } else if (currentUserRole === 'DM') {
-      onUpdateImages?.(middleLayerImages, topLayerImages);
+      onUpdateImages?.(middleLayerImages, topLayerImages)
     }
 
-    setDraggingIds(null); 
-    setDragOffset(null); 
-  }, [draggingIds, middleLayerImages, topLayerImages, onUpdateImages, currentUserRole, currentUserId, currentSceneId, onPlayerUpdateTokenPosition]);
+    setDraggingIds(null)
+    setDragOffset(null)
+  }, [draggingIds, middleLayerImages, topLayerImages, onUpdateImages, currentUserRole, currentUserId, currentSceneId, onPlayerUpdateTokenPosition])
+
+  const handleTokenMove = useCallback((tokenId: string, newX: number, newY: number) => {
+    if (!draggedItem.current || !currentSceneId) return
+
+    const isToken = draggedItem.current.character !== undefined
+    
+    if (isToken && currentUserRole === 'player') {
+      // Player moving their own token
+      if (draggedItem.current.character?.userId === currentUserId) {
+        const updatedToken = {
+          ...draggedItem.current,
+          x: newX,
+          y: newY,
+        }
+        onPlayerUpdateTokenPosition?.(updatedToken, currentSceneId)
+      }
+    }
+  }, [currentSceneId, currentUserRole, currentUserId, onPlayerUpdateTokenPosition])
+
+  const handleTokenDelete = useCallback((tokenId: string) => {
+    if (currentUserRole === 'player') {
+      onPlayerRequestTokenDelete(tokenId)
+    }
+  }, [currentUserRole, onPlayerRequestTokenDelete])
 
   return {
     handleDrop,
@@ -243,5 +261,8 @@ export const useDragAndDrop = ({
     handleItemDragStart,
     handleItemDrag,
     handleItemDragEnd,
+    handleTokenMove,
+    handleTokenDelete,
+    isDragging: isDragging.current,
   }
 } 

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { toast } from "@/components/ui/use-toast"
 import { loginUser, loginDM } from "@/lib/auth"
 
@@ -11,7 +12,6 @@ interface LoginFormProps {
 }
 
 export default function LoginForm({ onLogin }: LoginFormProps) {
-  console.log("LoginForm component rendered");
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -47,10 +47,8 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
   const handleDMLogin = async (e: React.MouseEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    console.log("Attempting DM login...")
     try {
       const result = await loginDM()
-      console.log("loginDM result:", result)
       if (result.success) {
         onLogin("DM_User", "DM")
         toast({
@@ -73,32 +71,50 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Input
-        type="text"
-        placeholder="Username"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-        required
-      />
-      <Input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      <Button type="submit" className="w-full" disabled={isLoading}>
-        {isLoading ? "Logging in..." : "Login"}
-      </Button>
-      <button
-        type="button"
-        onClick={handleDMLogin}
-        className="w-full mt-2 bg-red-500 hover:bg-red-600 text-white p-2 rounded" // Added some basic styling to make it visible
-        disabled={isLoading}
-      >
-        DM Login (Testing)
-      </button>
-    </form>
+    <div className="w-full max-w-md space-y-6">
+      <div className="space-y-2 text-center">
+        <h1 className="text-3xl font-bold">Login</h1>
+        <p className="text-gray-500 dark:text-gray-400">Enter your credentials to access your account</p>
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="username">Username</Label>
+          <Input
+            id="username"
+            placeholder="Enter your username"
+            required
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            disabled={isLoading}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            type="password"
+            placeholder="Enter your password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={isLoading}
+          />
+        </div>
+        <Button type="submit" className="w-full" disabled={isLoading}>
+          {isLoading ? "Logging in..." : "Login"}
+        </Button>
+      </form>
+      <div className="space-y-2">
+        <Button 
+          type="button" 
+          variant="outline" 
+          className="w-full" 
+          onClick={handleDMLogin}
+          disabled={isLoading}
+        >
+          {isLoading ? "Logging in..." : "Login as DM (Test)"}
+        </Button>
+      </div>
+    </div>
   )
 }

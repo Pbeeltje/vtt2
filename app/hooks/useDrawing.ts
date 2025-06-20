@@ -47,13 +47,10 @@ export const useDrawing = ({
   const startDrawing = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const isDarknessMode = currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
     
-    console.log('[useDrawing] startDrawing called', { currentTool, isDarknessMode });
-    
     if (currentTool !== 'brush' && !isDarknessMode) {
-      console.log('[useDrawing] Tool not supported, returning');
       return;
     }
-    
+
     if (!currentSceneId) {
       console.warn('[StartDrawing] Aborted: currentSceneId prop is null/undefined.');
       alert('Scene is not fully loaded yet. Please wait a moment and try drawing again.');
@@ -67,20 +64,18 @@ export const useDrawing = ({
     }
     
     if (e.button !== 0 || e.altKey) return;
-    
+
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
     
     const x = (e.clientX - rect.left) / zoomLevel;
     const y = (e.clientY - rect.top) / zoomLevel;
     
-    console.log('[useDrawing] Starting drawing', { x, y, isDarknessMode });
-    
     setIsDrawing(true);
     setCurrentPath(`M${x},${y}`);
     e.preventDefault();
   }, [currentTool, zoomLevel, currentSceneId, currentUserId]);
-
+    
   const draw = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const isDarknessMode = currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
     
@@ -126,7 +121,6 @@ export const useDrawing = ({
 
     if (isDarknessMode) {
       // Handle darkness path
-      console.log('[useDrawing] Creating darkness path', { darknessPaths, onDarknessChange });
       if (onDarknessChange && darknessPaths) {
         const newPath: DarknessPath = {
           id: `darkness-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -134,7 +128,6 @@ export const useDrawing = ({
           type: currentTool === 'darknessEraser' ? 'erase' : 'paint',
           createdAt: new Date().toISOString(),
         };
-        console.log('[useDrawing] Adding darkness path:', newPath);
         onDarknessChange([...darknessPaths, newPath]);
       } else {
         console.warn('[useDrawing] Missing darkness props', { onDarknessChange: !!onDarknessChange, darknessPaths: !!darknessPaths });
@@ -150,13 +143,14 @@ export const useDrawing = ({
     
     setIsDrawing(false); 
     setCurrentPath('');
-  }, [isDrawing, currentPath, currentTool, currentColor, currentSceneId, currentUserId, onDrawingAdd, darknessPaths, onDarknessChange]);
+  }, [isDrawing, currentPath, currentTool, currentSceneId, currentUserId, currentColor, onDrawingAdd, darknessPaths, onDarknessChange]);
 
   const handleMouseLeave = useCallback(() => {
     if (isDrawing) {
-      endDrawing();
+      setIsDrawing(false);
+      setCurrentPath('');
     }
-  }, [isDrawing, endDrawing]);
+  }, [isDrawing, setIsDrawing, setCurrentPath]);
 
   const handleDrawingClick = useCallback((e: React.MouseEvent<SVGPathElement>, drawing: {id: string, path: string, color: string, sceneId: number, createdBy: number, createdAt: string}) => {
     e.stopPropagation();
@@ -174,9 +168,29 @@ export const useDrawing = ({
     } else {
       setSelectedDrawingIds([drawing.id]);
     }
+  }, [currentTool, currentUserRole, currentUserId, setSelectedDrawingIds]);
+
+  const handleDrawingDelete = useCallback(async (drawingIds: string[]) => {
+    if (drawingIds.length === 0) return;
     
-    setSelectedIds([]);
-  }, [currentTool, currentUserRole, currentUserId, setSelectedDrawingIds, setSelectedIds]);
+    try {
+      const response = await fetch('/api/drawings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ drawingIds }),
+      });
+      
+      if (response.ok) {
+        setSelectedDrawingIds([]);
+        setSelectedIds([]);
+      } else {
+        throw new Error('Failed to delete drawings');
+      }
+    } catch (error) {
+      console.error('Error deleting drawings:', error);
+      toast({ title: "Error", description: "Failed to delete drawings.", variant: "destructive" });
+    }
+  }, [setSelectedDrawingIds, setSelectedIds]);
 
   return {
     startDrawing,
@@ -184,5 +198,6 @@ export const useDrawing = ({
     endDrawing,
     handleMouseLeave,
     handleDrawingClick,
-  }
-} 
+    handleDrawingDelete,
+  };
+}; 
