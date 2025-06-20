@@ -18,6 +18,7 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
   const [isLoading, setIsLoading] = useState(false)
   const [newNoteContent, setNewNoteContent] = useState("")
   const tickerRef = useRef<HTMLDivElement>(null)
+  const [noteColor, setNoteColor] = useState('#dc2626')
 
   // Load notes from database on component mount
   useEffect(() => {
@@ -76,7 +77,7 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content: newNoteContent.trim() }),
+        body: JSON.stringify({ content: newNoteContent.trim(), color: noteColor }),
       })
 
       if (response.ok) {
@@ -84,6 +85,7 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
         setNotes(updatedNotes)
         setNewNoteContent("")
         setIsEditingNotepad(false)
+        setNoteColor('#dc2626') // Reset color after save
       } else {
         const error = await response.json()
         console.error('Error saving note:', error)
@@ -128,17 +130,27 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
 
   const isDM = userRole === 'DM'
 
-  // Create ticker text from notes (newest to oldest for natural reading)
-  const tickerText = notes.map(note => note.Content).join('\u00A0\u00A0\u00A0\u00A0\u00A0::\u00A0\u00A0\u00A0\u00A0\u00A0')
+  // Create ticker HTML string from notes (newest to oldest for natural reading)
+  const tickerHTML = notes.map((note, idx) => {
+    const color = note.color || '#dc2626';
+    const separator = idx < notes.length - 1 ? '<span style="color: #888; margin: 0 1rem;"> :: </span>' : '';
+    return `<span style="color: ${color};">${note.Content}</span>${separator}`;
+  }).join('');
+
+  // Create duplicated HTML for seamless looping
+  const loopedHTML = tickerHTML ? `${tickerHTML}${tickerHTML}` : '';
 
   // Calculate dynamic animation duration based on text length
-  // Base duration of 20s for short text, scales up with length (much faster)
   const baseDuration = 20
-  const textLength = tickerText.length
+  const textLength = tickerHTML.length
   const dynamicDuration = Math.max(baseDuration, Math.min(40, baseDuration + (textLength * 0.1)))
 
-  // Create duplicated text for seamless looping
-  const loopedText = tickerText ? `${tickerText}     ::     ${tickerText}` : ''
+  // When editing, allow color selection
+  const handleColorCircleClick = () => {
+    // Generate a random color
+    const randomColor = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
+    setNoteColor(randomColor);
+  };
 
   return (
     <div className="bg-gray-200 p-2 flex items-center justify-end w-full overflow-x-auto" style={{ backgroundImage: 'url("images/bottombar.jpeg")', backgroundSize: 'auto 150%', backgroundRepeat: 'repeat-x' }}>
@@ -182,28 +194,37 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
       <div className="w-[39rem] min-w-0">
         <div className="bg-white/90 backdrop-blur rounded border border-gray-300 shadow-sm overflow-hidden h-10 flex items-center">
           {isEditingNotepad && isDM ? (
-            <input
-              type="text"
-              value={newNoteContent}
-              onChange={(e) => setNewNoteContent(e.target.value)}
-              onBlur={handleNotepadSave}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  handleNotepadCancel()
-                } else if (e.key === 'Enter') {
-                  handleNotepadSave()
-                } else if (e.key === 'Delete') {
-                  handleNotepadClear()
-                }
-              }}
-              placeholder="ADD NEW NOTE... (ENTER TO SAVE, ESC TO CANCEL, DEL TO CLEAR ALL)"
-              className="w-full h-8 px-2 py-1 text-sm border-none outline-none bg-transparent text-center font-black text-red-600 uppercase tracking-wider"
-              style={{
-                fontFamily: 'Arial Black, Impact, sans-serif'
-              }}
-              autoFocus
-              disabled={isLoading}
-            />
+            <div className="flex items-center w-full">
+              <div
+                className="w-6 h-6 rounded-full border-2 border-gray-400 mr-2 cursor-pointer flex-shrink-0"
+                style={{ backgroundColor: noteColor }}
+                title="Click to randomize color"
+                onClick={handleColorCircleClick}
+              />
+              <input
+                type="text"
+                value={newNoteContent}
+                onChange={(e) => setNewNoteContent(e.target.value)}
+                onBlur={handleNotepadSave}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    handleNotepadCancel()
+                  } else if (e.key === 'Enter') {
+                    handleNotepadSave()
+                  } else if (e.key === 'Delete') {
+                    handleNotepadClear()
+                  }
+                }}
+                placeholder="ADD NEW NOTE... (ENTER TO SAVE, ESC TO CANCEL, DEL TO CLEAR ALL)"
+                className="w-full h-8 px-2 py-1 text-sm border-none outline-none bg-transparent text-center font-black uppercase tracking-wider"
+                style={{
+                  fontFamily: 'Arial Black, Impact, sans-serif',
+                  color: noteColor
+                }}
+                autoFocus
+                disabled={isLoading}
+              />
+            </div>
           ) : (
             <div 
               className="w-full h-8 px-2 py-1 text-sm cursor-pointer flex items-center justify-center overflow-hidden"
@@ -211,17 +232,16 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
               title={isDM ? "Click to add new note" : "DM Notes Ticker"}
               style={{height: '2.5rem'}}
             >
-              {tickerText ? (
+              {tickerHTML ? (
                 <div 
                   ref={tickerRef}
-                  className="whitespace-nowrap font-black text-red-600 ticker-scroll uppercase tracking-wider"
+                  className="whitespace-nowrap font-black ticker-scroll uppercase tracking-wider"
                   style={{
-                    animation: isEditingNotepad ? 'none' : `ticker-scroll-left ${dynamicDuration}s ease-in-out infinite`,
+                    animation: isEditingNotepad ? 'none' : `ticker-scroll-left ${dynamicDuration}s linear infinite`,
                     fontFamily: 'Arial Black, Impact, sans-serif'
                   }}
-                >
-                  {loopedText}
-                </div>
+                  dangerouslySetInnerHTML={{ __html: loopedHTML }}
+                />
               ) : (
                 <span className="font-black text-gray-500 uppercase tracking-wider text-center" style={{
                   fontFamily: 'Arial Black, Impact, sans-serif',
@@ -245,6 +265,10 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
         .ticker-scroll {
           display: inline-block;
           min-width: 100%;
+        }
+        .ticker-block {
+          display: inline-block;
+          white-space: nowrap;
         }
       `}</style>
     </div>

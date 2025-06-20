@@ -36,8 +36,9 @@ export async function PUT(request: Request) {
     }
 
     // Create new note (always insert, don't update existing)
-    const insertStmt = db.prepare('INSERT INTO notes (Content, Type) VALUES (?, ?)')
-    const result = insertStmt.run(data.content, 'notice')
+    const color = typeof data.color === 'string' ? data.color : '#dc2626';
+    const insertStmt = db.prepare('INSERT INTO notes (Content, Type, color) VALUES (?, ?, ?)')
+    const result = insertStmt.run(data.content, 'notice', color)
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Failed to save note' }, { status: 500 })
