@@ -140,10 +140,10 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
   // Create duplicated HTML for seamless looping
   const loopedHTML = tickerHTML ? `${tickerHTML}${tickerHTML}` : '';
 
-  // Calculate dynamic animation duration based on text length
-  const baseDuration = 20
-  const textLength = tickerHTML.length
-  const dynamicDuration = Math.max(baseDuration, Math.min(40, baseDuration + (textLength * 0.1)))
+  // Calculate dynamic animation duration based on actual text length (not HTML)
+  const baseDuration = 19
+  const textLength = notes.map(note => note.Content).join('').length
+  const dynamicDuration = Math.max(baseDuration, Math.min(38, baseDuration + (textLength * 0.095)))
 
   // When editing, allow color selection
   const handleColorCircleClick = () => {
