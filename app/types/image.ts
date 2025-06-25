@@ -2,7 +2,7 @@ export type DMImage = {
   Id: number;
   Name: string;
   Link: string;
-  Category: "Scene" | "Image" | "Token" | "Props";
+  Category: "Scene" | "Image" | "Token" | "Prop";
   UserId: number;
   SceneData?: string; // JSON string containing scene configuration
   CharacterId?: number; // Reference to the character this token represents

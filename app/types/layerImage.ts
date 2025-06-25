@@ -5,6 +5,7 @@ export type LayerImage = {
     y: number
     width?: number // Optional for images, not used for tokens
     height?: number // Optional for images, not used for tokens
+    category?: string // Category from database: "Token", "Prop", "Image"
     characterId?: number // Optional: ID of the character this token represents
     character?: {
       CharacterId?: number; // Add CharacterId here
@@ -17,5 +18,7 @@ export type LayerImage = {
       Mp: number
       MaxMp: number
       userId?: number; // Added character's userId
+      TokenUrl?: string; // Add TokenUrl for token images
+      PortraitUrl?: string; // Add PortraitUrl for portrait images
     }
   }

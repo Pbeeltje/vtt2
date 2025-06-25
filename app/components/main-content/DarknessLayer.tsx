@@ -36,7 +36,7 @@ export default function DarknessLayer({
       <div
         className="absolute inset-0 pointer-events-none"
         style={{ 
-          zIndex: 30,
+          zIndex: 45,
           width: '100%',
           height: '100%'
         }}
@@ -95,7 +95,7 @@ export default function DarknessLayer({
     <div
       className="absolute inset-0 pointer-events-none"
       style={{ 
-        zIndex: 30,
+        zIndex: 45,
         width: '100%',
         height: '100%'
       }}

@@ -57,6 +57,7 @@ export default function Home() {
   const [drawings, setDrawings] = useState<DrawingObject[]>([]);
   const [selectedDrawing, setSelectedDrawing] = useState<DrawingObject | null>(null);
   const [sceneScale, setSceneScale] = useState<number>(1);
+  const [sceneBorderSize, setSceneBorderSize] = useState<number>(0.2); // Default 20% border
   const [zoomLevel, setZoomLevel] = useState(1);
   const [activeRightMenuTab, setActiveRightMenuTab] = useState<string>('chat');
   const [characterSheetModal, setCharacterSheetModal] = useState<Character | null>(null);
@@ -122,6 +123,7 @@ export default function Home() {
         setMiddleLayerImages(sceneData.elements?.middleLayer || []); 
         setTopLayerImages(sceneData.elements?.topLayer || []);
         setSceneScale(sceneData.scale || 1);
+        setSceneBorderSize(sceneData.borderSize || 0.2);
         // Load darkness paths from scene data
         setDarknessPaths(sceneData.darknessPaths || []);
         setIsDarknessLayerVisible(sceneData.isDarknessLayerVisible || false);
@@ -145,6 +147,7 @@ export default function Home() {
       setDarknessPaths([]);
       setIsDarknessLayerVisible(false);
       setSceneScale(1);
+      setSceneBorderSize(0.2);
     }
     try {
         const drawingsResponse = await fetch(`/api/drawings?sceneId=${scene.Id}`);
@@ -925,6 +928,7 @@ export default function Home() {
         topLayer: topLayerImages,
       },
       scale: sceneScale,
+      borderSize: sceneBorderSize,
       darknessPaths,
       isDarknessLayerVisible,
       savedAt: new Date().toISOString(),
@@ -966,20 +970,47 @@ export default function Home() {
     } else if (isInitialized && user && user.role === 'DM') {
       handleSaveScene();
     }
-  }, [middleLayerImages, topLayerImages, gridColor, sceneScale, darknessPaths, isDarknessLayerVisible, isInitialized, user, selectedScene?.Id]);
+  }, [middleLayerImages, topLayerImages, gridColor, sceneScale, sceneBorderSize, darknessPaths, isDarknessLayerVisible, isInitialized, user, selectedScene?.Id]);
   
   const handleUpdateSceneScale = async (image: DMImage, scale: number) => {
     if (!user || user.role !== 'DM') {
       toast({ title: "Permission Denied", description: "Only DMs can update scene scale.", variant: "destructive" });
       return;
     }
+    const oldScale = sceneScale;
+    if (scale === oldScale) return;
+    const factor = scale / oldScale;
+    // Rescale all items
+    setMiddleLayerImages(prev => prev.map(img => ({ ...img, x: img.x * factor, y: img.y * factor })));
+    setTopLayerImages(prev => prev.map(img => ({ ...img, x: img.x * factor, y: img.y * factor })));
+    setDrawings(prev => prev.map(drawing => {
+      // Rescale SVG path data
+      if (!drawing.path) return drawing;
+      // Replace all numbers in the path string
+      const newPath = drawing.path.replace(/(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)/g, (match, x, y) => {
+        const newX = parseFloat(x) * factor;
+        const newY = parseFloat(y) * factor;
+        return `${newX},${newY}`;
+      });
+      return { ...drawing, path: newPath };
+    }));
+    setSceneScale(scale);
+    // Save will be triggered automatically by useEffect since sceneScale is in dependency array
+  };
+
+  const handleUpdateSceneBorderSize = async (image: DMImage, borderSize: number) => {
+    if (!user || user.role !== 'DM') {
+      toast({ title: "Permission Denied", description: "Only DMs can update scene border size.", variant: "destructive" });
+      return;
+    }
     
     // Update local state immediately for responsive UI
-    setSceneScale(scale);
+    setSceneBorderSize(borderSize);
     
-    // Save will be triggered automatically by useEffect since sceneScale is in dependency array
-    // The automatic save will include the new scale value
+    // Save will be triggered automatically by useEffect since sceneBorderSize is in dependency array
+    // The automatic save will include the new border size value
   };
+
   function handleClearTokens() {}
   
   const handleClearSceneElements = () => {
@@ -1302,7 +1333,7 @@ export default function Home() {
             onLogout={handleLogout} images={images} onAddImage={handleAddImage} onDeleteImage={handleDeleteImage}
             onRenameImage={handleRenameImage} onSetBackground={handleSetBackground} onDropImage={handleDropImage}
             scenes={scenes} onLoadScene={handleLoadScene}
-            onDeleteSceneData={handleDeleteSceneData} onUpdateSceneScale={handleUpdateSceneScale} setImages={setImages}
+            onDeleteSceneData={handleDeleteSceneData} onUpdateSceneScale={handleUpdateSceneScale} onUpdateSceneBorderSize={handleUpdateSceneBorderSize} setImages={setImages}
             onClearSceneElements={handleClearSceneElements}
             onMakeSceneActive={handleMakeSceneActive}
             activeTab={activeRightMenuTab}

@@ -29,6 +29,7 @@ interface MainContentProps {
   currentColor: string
   onColorChange: (color: string) => void
   sceneScale: number
+  sceneBorderSize?: number
   zoomLevel: number
   setZoomLevel: React.Dispatch<React.SetStateAction<number>>
   currentSceneId?: number | null 
@@ -65,6 +66,7 @@ export default function MainContent({
   currentColor,
   onColorChange,
   sceneScale = 1,
+  sceneBorderSize,
   zoomLevel,
   setZoomLevel,
   currentSceneId, 
@@ -146,7 +148,35 @@ export default function MainContent({
     onUpdateImages,
   })
 
-  // Drag and drop functionality
+  // Calculate border dimensions
+  const borderWidth = imageDimensions ? Math.round(imageDimensions.width * (sceneBorderSize || 0.2)) : 0;
+  const borderHeight = imageDimensions ? Math.round(imageDimensions.height * (sceneBorderSize || 0.2)) : 0;
+
+  // Create proper handlers for drag and drop
+  const handleImageDrop = useCallback((imageData: LayerImage) => {
+    // Determine which layer the item should go to based on category
+    if (imageData.category === "Token" || imageData.character) {
+      // Tokens go to top layer
+      console.log('Adding token to top layer:', imageData);
+      onUpdateImages?.(middleLayerImages, [...topLayerImages, imageData]);
+    } else if (imageData.category === "Prop") {
+      // Props go to middle layer
+      console.log('Adding prop to middle layer:', imageData);
+      onUpdateImages?.([...middleLayerImages, imageData], topLayerImages);
+    } else {
+      // Regular images go to middle layer
+      console.log('Adding image to middle layer:', imageData);
+      onUpdateImages?.([...middleLayerImages, imageData], topLayerImages);
+    }
+  }, [middleLayerImages, topLayerImages, onUpdateImages]);
+
+  const handleFileDropCallback = useCallback((files: FileList) => {
+    if (files && files.length > 0 && onAddImage) {
+      const file = files[0];
+      onAddImage('Image', file);
+    }
+  }, [onAddImage]);
+
   const {
     handleDrop,
     handleDragOver,
@@ -173,6 +203,13 @@ export default function MainContent({
     onUpdateImages,
     onPlayerPlaceToken,
     onPlayerUpdateTokenPosition,
+    onDrop: handleImageDrop,
+    onFileDrop: handleFileDropCallback,
+    onPlayerRequestTokenDelete: onPlayerRequestTokenDelete || (() => {}),
+    user: currentUserRole ? { id: currentUserId || 0, role: currentUserRole } : null,
+    selectedSceneId: currentSceneId || null,
+    borderWidth,
+    borderHeight,
   })
 
   // Drawing functionality
@@ -200,6 +237,8 @@ export default function MainContent({
     onDrawingAdd,
     darknessPaths,
     onDarknessChange: handleDarknessChange,
+    borderWidth,
+    borderHeight,
   })
 
   // Resize handlers
@@ -767,115 +806,25 @@ export default function MainContent({
   }, [currentUserRole]);
 
   const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
-    console.log('[MainContent] handleFileDrop called');
     e.preventDefault();
-    
-    // Only allow file drops for DMs
-    if (currentUserRole !== 'DM') {
-      toast({ 
-        title: "Permission Denied", 
-        description: "Only DMs can drop files from the file explorer.", 
-        variant: "destructive" 
-      });
-      return;
-    }
-
     const files = e.dataTransfer.files;
-    if (!files || files.length === 0) return;
-
-    const file = files[0]; // Handle only the first file for now
-    
-    // Check if it's an image file
-    if (!file.type.startsWith('image/')) {
-      toast({ 
-        title: "Invalid File Type", 
-        description: "Please drop an image file (PNG, JPG, GIF, etc.).", 
-        variant: "destructive" 
-      });
-      return;
+    if (files && files.length > 0 && onAddImage) {
+      const file = files[0];
+      await onAddImage('Image', file);
     }
+  }, [onAddImage]);
 
-    try {
-      // Get drop position
-      const rect = gridRef.current?.getBoundingClientRect();
-      if (!rect) return;
+  const handleContainerDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    // Pass through to GameGrid
+    handleDrop(e);
+  }, [handleDrop]);
 
-      const adjustedX = (e.clientX - rect.left) / zoomLevel;
-      const adjustedY = (e.clientY - rect.top) / zoomLevel;
-
-      // For map images, use free positioning (no grid snapping)
-      const x = adjustedX;
-      const y = adjustedY;
-
-      // Upload the file first
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('category', 'Image');
-
-      const response = await fetch('/api/images', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to upload image');
-      }
-
-      const uploadedImage = await response.json();
-      
-      // Notify parent component about the uploaded image
-      onImageUploaded?.(uploadedImage);
-      
-      // Create a LayerImage object for the uploaded image
-      const image = new window.Image();
-      image.src = uploadedImage.Link;
-      await new Promise((resolve) => {
-        image.onload = resolve;
-      });
-
-      // Calculate size with max 1500px limit
-      let finalWidth = image.width;
-      let finalHeight = image.height;
-      const maxSize = 1500;
-      
-      if (finalWidth > maxSize || finalHeight > maxSize) {
-        if (finalWidth > finalHeight) {
-          finalWidth = maxSize;
-          finalHeight = Math.round((image.height * maxSize) / image.width);
-        } else {
-          finalHeight = maxSize;
-          finalWidth = Math.round((image.width * maxSize) / image.height);
-        }
-      }
-
-      const uniqueId = generateUniqueId(uploadedImage.Id.toString());
-      const imageData: LayerImage = {
-        id: uniqueId,
-        url: uploadedImage.Link,
-        x,
-        y,
-        width: finalWidth,
-        height: finalHeight
-      };
-
-      // Add to middle layer (map images)
-      onUpdateImages?.([...middleLayerImages, imageData], topLayerImages);
-
-      toast({ 
-        title: "Image Uploaded", 
-        description: `${file.name} has been uploaded and placed on the map.` 
-      });
-
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      toast({ 
-        title: "Upload Failed", 
-        description: "Failed to upload the image. Please try again.", 
-        variant: "destructive" 
-      });
-    }
-  }, [currentUserRole, zoomLevel, gridRef, generateUniqueId, middleLayerImages, topLayerImages, onUpdateImages, onImageUploaded]);
+  const handleContainerDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    // Pass through to GameGrid
+    handleDragOver(e);
+  }, [handleDragOver]);
 
   // Event listeners
   useEffect(() => {
@@ -912,12 +861,8 @@ export default function MainContent({
         onMouseMove={handleNavigationDrag}
         onMouseUp={handleNavigationDragEnd}
         onMouseLeave={handleNavigationDragEnd}
-        onDrop={(e) => {
-          console.log('[MainContent] Container drop event intercepted');
-        }}
-        onDragOver={(e) => {
-          console.log('[MainContent] Container drag over event');
-        }}
+        onDrop={handleContainerDrop}
+        onDragOver={handleContainerDragOver}
       >
         <div className="absolute top-2 left-2 z-30">
           <DrawingToolbar
@@ -949,6 +894,7 @@ export default function MainContent({
           currentTool={currentTool}
           gridSize={gridSize}
           gridColor={gridColor}
+          sceneBorderSize={sceneBorderSize}
           middleLayerImages={middleLayerImages}
           topLayerImages={topLayerImages}
           selectedIds={selectedIds}

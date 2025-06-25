@@ -3,7 +3,7 @@ import type { LayerImage } from "../../types/layerImage"
 import type { DrawingObject } from '../DrawingLayer'
 import TokenRenderer from "./TokenRenderer"
 import DarknessLayer, { type DarknessPath } from "./DarknessLayer"
-import { useState } from "react"
+import { useState, useCallback } from "react"
 
 interface GameGridProps {
   gridRef: React.RefObject<HTMLDivElement>;
@@ -13,6 +13,7 @@ interface GameGridProps {
   currentTool: 'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush';
   gridSize: number;
   gridColor: string;
+  sceneBorderSize?: number;
   middleLayerImages: LayerImage[];
   topLayerImages: LayerImage[];
   selectedIds: string[];
@@ -62,6 +63,7 @@ export default function GameGrid({
   currentTool,
   gridSize,
   gridColor,
+  sceneBorderSize = 0.2,
   middleLayerImages,
   topLayerImages,
   selectedIds,
@@ -100,6 +102,14 @@ export default function GameGrid({
 }: GameGridProps) {
   const [isDraggingFile, setIsDraggingFile] = useState(false)
 
+  // Calculate border dimensions
+  const borderWidth = imageDimensions ? Math.round(imageDimensions.width * sceneBorderSize) : 0;
+  const borderHeight = imageDimensions ? Math.round(imageDimensions.height * sceneBorderSize) : 0;
+  
+  // Calculate total play area dimensions (image + borders)
+  const totalWidth = imageDimensions ? imageDimensions.width + (borderWidth * 2) : 0;
+  const totalHeight = imageDimensions ? imageDimensions.height + (borderHeight * 2) : 0;
+
   return (
     <div
       ref={gridRef}
@@ -108,84 +118,104 @@ export default function GameGrid({
         cursor: currentTool === "brush" || currentTool === "darknessEraser" || currentTool === "darknessBrush" ? "crosshair" : "default",
         transform: `scale(${zoomLevel})`,
         transformOrigin: "0 0",
-        width: imageDimensions?.width || "100%",
-        height: imageDimensions?.height || "100%",
+        width: totalWidth || "100%",
+        height: totalHeight || "100%",
       }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        console.log('GameGrid onDragOver:', {
+          files: e.dataTransfer.files?.length || 0,
+          types: e.dataTransfer.types,
+          hasJsonData: e.dataTransfer.types.includes('application/json')
+        });
+        
+        // Handle both image drops and file drops
+        onDragOver(e);
+        onFileDragOver?.(e);
+        
+        // Check if this is a file drag
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+          setIsDraggingFile(true);
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        // Check if this is a file drop (from file explorer) or image drop (from UI)
+        const files = e.dataTransfer.files;
+        const jsonData = e.dataTransfer.getData("application/json");
+        const isExistingItem = e.dataTransfer.getData("isExistingItem");
+        
+        console.log('GameGrid onDrop:', {
+          files: files?.length || 0,
+          jsonData,
+          isExistingItem,
+          hasJsonData: !!jsonData
+        });
+        
+        // If this is an existing item being dragged around, ignore the drop
+        // (the position update is handled by the drag handlers)
+        if (isExistingItem === "true") {
+          console.log('Ignoring existing item drop');
+          return;
+        }
+        
+        // If we have JSON data (from UI drag), treat as UI image drop
+        // Even if there are files, prioritize the JSON data
+        if (jsonData) {
+          console.log('Handling JSON data drop');
+          setIsDraggingFile(false);
+          onDrop(e);
+        } else if (files && files.length > 0 && onFileDrop) {
+          // This is a file drop from file explorer (no JSON data)
+          console.log('Handling file drop');
+          setIsDraggingFile(false);
+          onFileDrop(e);
+        } else {
+          console.log('No valid drop data found');
+        }
+      }}
+      onDragLeave={(e) => {
+        // Only set to false if we're leaving the entire grid area
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setIsDraggingFile(false);
+        }
+      }}
+      onClick={onGridClick}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseLeave}
+      onContextMenu={onContextMenu}
     >
+      {/* Background image container - covers entire play area (image + borders) */}
       <div
-        className="absolute inset-0"
+        className="absolute"
         style={{
+          width: totalWidth || "100%",
+          height: totalHeight || "100%",
+          left: 0,
+          top: 0,
+          zIndex: 3,
           backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
           backgroundSize: "contain",
           backgroundRepeat: "no-repeat",
           backgroundPosition: "center",
-          width: "100%",
-          height: "100%",
+          backgroundClip: "content-box",
+          padding: `${borderHeight}px ${borderWidth}px`,
         }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          console.log('[GameGrid] Drag over event');
-          // Handle both image drops and file drops
-          onDragOver(e);
-          onFileDragOver?.(e);
-          
-          // Check if this is a file drag
-          const files = e.dataTransfer.files;
-          if (files && files.length > 0) {
-            setIsDraggingFile(true);
-          }
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          console.log('[GameGrid] Drop event triggered');
-          // Check if this is a file drop (from file explorer) or image drop (from UI)
-          const files = e.dataTransfer.files;
-          const imageId = e.dataTransfer.getData("imageId");
-          const category = e.dataTransfer.getData("category");
-          const url = e.dataTransfer.getData("image-url");
-          const isExistingItem = e.dataTransfer.getData("isExistingItem");
-          
-          console.log('[GameGrid] Drop data:', { imageId, category, url, filesCount: files?.length || 0, isExistingItem });
-          
-          // If this is an existing item being dragged around, ignore the drop
-          // (the position update is handled by the drag handlers)
-          if (isExistingItem === "true") {
-            console.log('[GameGrid] Ignoring drop - existing item being moved');
-            return;
-          }
-          
-          // If we have data transfer data (from UI drag), treat as UI image drop
-          // Even if there are files, prioritize the data transfer data
-          if (imageId || category || url) {
-            console.log('[GameGrid] Calling onDrop for UI image');
-            setIsDraggingFile(false);
-            onDrop(e);
-          } else if (files && files.length > 0) {
-            // This is a file drop from file explorer (no data transfer data)
-            console.log('[GameGrid] Calling onFileDrop for file upload');
-            setIsDraggingFile(false);
-            onFileDrop?.(e);
-          } else {
-            // This is likely just dragging an existing image around
-            console.log('[GameGrid] Ignoring drop - no files or data transfer data');
-          }
-        }}
-        onDragLeave={(e) => {
-          // Only set to false if we're leaving the entire grid area
-          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-            setIsDraggingFile(false);
-          }
-        }}
-        onClick={onGridClick}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseLeave}
-        onContextMenu={onContextMenu}
       >
-        {/* File drag overlay */}
+        {/* File drag overlay - only shows on the main image area */}
         {isDraggingFile && (
-          <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-500 flex items-center justify-center z-50 pointer-events-none">
+          <div 
+            className="absolute bg-blue-500/20 border-2 border-dashed border-blue-500 flex items-center justify-center z-50 pointer-events-none"
+            style={{
+              left: 0,
+              top: 0,
+              width: imageDimensions?.width || "100%",
+              height: imageDimensions?.height || "100%",
+            }}
+          >
             <div className="bg-white/90 backdrop-blur p-4 rounded-lg shadow-lg">
               <div className="text-center">
                 <div className="text-2xl mb-2">📁</div>
@@ -195,131 +225,188 @@ export default function GameGrid({
             </div>
           </div>
         )}
-        
-        {/* Grid overlay */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
-            backgroundSize: `${gridSize}px ${gridSize}px`,
-            width: "100%",
-            height: "100%",
-          }}
-        />
-        
-        {/* Middle layer images */}
-        {middleLayerImages.map((img) => (
-          <div
-            key={img.id}
-            className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-            style={{ left: img.x, top: img.y, zIndex: 35 }}
-            draggable={true}
-            onDragStart={(e) => onItemDragStart(e, img, false)}
-            onDrag={onItemDrag}
-            onDragEnd={onItemDragEnd}
-            onClick={(e) => onItemClick(e, img)}
-          >
-            <Image 
-              src={img.url} 
-              alt="Middle layer image" 
-              width={img.width || gridSize * 2} 
-              height={img.height || gridSize * 2} 
-              style={{ objectFit: 'contain' }} 
-            />
-            {/* Resize handle - only show when selected */}
-            {selectedIds.includes(img.id) && (
-              <div 
-                className="absolute top-1 right-1 w-2 h-2 bg-blue-500 hover:bg-blue-600 cursor-se-resize z-50 rounded-sm border border-white transition-colors duration-150"
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  onResizeStart(e, img);
-                }}
-                onClick={(e) => e.stopPropagation()}
-                draggable={false}
-                title="Resize image"
-              />
-            )}
-          </div>
-        ))}
-        
-        {/* Top layer tokens */}
-        <TokenRenderer
-          tokens={topLayerImages}
-          gridSize={gridSize}
-          selectedIds={selectedIds}
-          onItemDragStart={onItemDragStart}
-          onItemDrag={onItemDrag}
-          onItemDragEnd={onItemDragEnd}
-          onItemClick={onItemClick}
-          onTokenDoubleClick={onTokenDoubleClick}
-          onStatusClick={onStatusClick}
-          onResizeProp={onResizeProp}
-        />
+      </div>
 
-        {/* Darkness Layer - Above tokens, below drawings */}
-        {isDarknessLayerVisible && (
-          <DarknessLayer
-            width={imageDimensions?.width || 1920}
-            height={imageDimensions?.height || 1080}
-            darknessPaths={darknessPaths}
-            isVisible={isDarknessLayerVisible}
-            currentUserRole={currentUserRole}
-          />
-        )}
-        
-        {/* Selection box overlay */}
-        {isSelecting && selectionStart && selectionEnd && (
+      {/* Grid overlay - covers the entire play area, on top of background */}
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
+          backgroundSize: `${gridSize}px ${gridSize}px`,
+          width: totalWidth || "100%",
+          height: totalHeight || "100%",
+          left: 0,
+          top: 0,
+          zIndex: 5,
+        }}
+      />
+
+      {/* Hatching overlay for border area (all four sides) */}
+      {imageDimensions && (borderWidth > 0 || borderHeight > 0) && (
+        <>
+          {/* Top border */}
           <div
-            className="absolute border-2 border-blue-500 bg-blue-200/20 pointer-events-none"
+            className="absolute pointer-events-none"
             style={{
-              left: Math.min(selectionStart.x, selectionEnd.x),
-              top: Math.min(selectionStart.y, selectionEnd.y),
-              width: Math.abs(selectionEnd.x - selectionStart.x),
-              height: Math.abs(selectionEnd.y - selectionStart.y),
-              zIndex: 35,
+              left: 0,
+              top: 0,
+              width: totalWidth,
+              height: borderHeight,
+              zIndex: 10,
+              backgroundImage: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 8px)',
             }}
           />
-        )}
-        
-        {/* Drawing layer - Above darkness layer */}
-        <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 40, pointerEvents: 'none' }}>
-          {/* Regular drawings */}
-          {drawings.map((drawing) => (
-            <path
-              key={drawing.id}
-              d={drawing.path}
-              stroke={selectedDrawingIds.includes(drawing.id) ? "blue" : drawing.color}
-              strokeWidth={selectedDrawingIds.includes(drawing.id) ? "5" : "3"}
-              fill="none"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              onClick={(e) => onDrawingClick(e, drawing)}
-              className={`${currentTool === 'cursor' ? 'cursor-pointer' : ''}`}
-              style={{ pointerEvents: currentTool === 'cursor' ? 'stroke' : 'none' }}
-            />
-          ))}
-          
-          {/* Current drawing path preview */}
-          {isDrawing && currentPath && (
-            <path 
-              d={currentPath} 
-              stroke={
-                currentTool === 'darknessEraser' ? 'rgba(255,255,255,0.5)' :
-                currentTool === 'darknessBrush' ? 'rgba(0,0,0,0.4)' :
-                currentColor
-              }
-              strokeWidth={
-                currentTool === 'darknessEraser' || currentTool === 'darknessBrush' ? "50" : "3"
-              }
-              fill="none" 
-              strokeLinejoin="round" 
-              strokeLinecap="round"
-              style={{ pointerEvents: 'none' }}
+          {/* Bottom border */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: 0,
+              top: borderHeight + imageDimensions.height,
+              width: totalWidth,
+              height: borderHeight,
+              zIndex: 10,
+              backgroundImage: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 8px)',
+            }}
+          />
+          {/* Left border */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: 0,
+              top: borderHeight,
+              width: borderWidth,
+              height: imageDimensions.height,
+              zIndex: 10,
+              backgroundImage: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 8px)',
+            }}
+          />
+          {/* Right border */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: borderWidth + imageDimensions.width,
+              top: borderHeight,
+              width: borderWidth,
+              height: imageDimensions.height,
+              zIndex: 10,
+              backgroundImage: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 8px)',
+            }}
+          />
+        </>
+      )}
+      
+      {/* Middle layer images */}
+      {middleLayerImages.map((img) => (
+        <div
+          key={img.id}
+          className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
+          style={{ left: img.x, top: img.y, zIndex: 35 }}
+          draggable={true}
+          onDragStart={(e) => onItemDragStart(e, img, false)}
+          onDrag={onItemDrag}
+          onDragEnd={onItemDragEnd}
+          onClick={(e) => onItemClick(e, img)}
+        >
+          <Image 
+            src={img.url} 
+            alt="Middle layer image" 
+            width={img.width || gridSize * 2} 
+            height={img.height || gridSize * 2} 
+            style={{ objectFit: 'contain' }} 
+          />
+          {/* Resize handle - only show when selected */}
+          {selectedIds.includes(img.id) && (
+            <div 
+              className="absolute top-1 right-1 w-2 h-2 bg-blue-500 hover:bg-blue-600 cursor-se-resize z-50 rounded-sm border border-white transition-colors duration-150"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onResizeStart(e, img);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              draggable={false}
+              title="Resize image"
             />
           )}
-        </svg>
-      </div>
+        </div>
+      ))}
+      
+      {/* Top layer tokens */}
+      <TokenRenderer
+        tokens={topLayerImages}
+        gridSize={gridSize}
+        selectedIds={selectedIds}
+        onItemDragStart={onItemDragStart}
+        onItemDrag={onItemDrag}
+        onItemDragEnd={onItemDragEnd}
+        onItemClick={onItemClick}
+        onTokenDoubleClick={onTokenDoubleClick}
+        onStatusClick={onStatusClick}
+        onResizeProp={onResizeProp}
+      />
+
+      {/* Darkness Layer - Above tokens, below drawings */}
+      {isDarknessLayerVisible && (
+        <DarknessLayer
+          width={imageDimensions?.width || 1920}
+          height={imageDimensions?.height || 1080}
+          darknessPaths={darknessPaths}
+          isVisible={isDarknessLayerVisible}
+          currentUserRole={currentUserRole}
+        />
+      )}
+      
+      {/* Selection box overlay */}
+      {isSelecting && selectionStart && selectionEnd && (
+        <div
+          className="absolute border-2 border-blue-500 bg-blue-200/20 pointer-events-none"
+          style={{
+            left: Math.min(selectionStart.x, selectionEnd.x),
+            top: Math.min(selectionStart.y, selectionEnd.y),
+            width: Math.abs(selectionEnd.x - selectionStart.x),
+            height: Math.abs(selectionEnd.y - selectionStart.y),
+            zIndex: 35,
+          }}
+        />
+      )}
+      
+      {/* Drawing layer - Above darkness layer */}
+      <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 40, pointerEvents: 'none' }}>
+        {/* Regular drawings */}
+        {drawings.map((drawing) => (
+          <path
+            key={drawing.id}
+            d={drawing.path}
+            stroke={selectedDrawingIds.includes(drawing.id) ? "blue" : drawing.color}
+            strokeWidth={selectedDrawingIds.includes(drawing.id) ? "5" : "3"}
+            fill="none"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            onClick={(e) => onDrawingClick(e, drawing)}
+            className={`${currentTool === 'cursor' ? 'cursor-pointer' : ''}`}
+            style={{ pointerEvents: currentTool === 'cursor' ? 'stroke' : 'none' }}
+          />
+        ))}
+        
+        {/* Current drawing path preview */}
+        {isDrawing && currentPath && (
+          <path 
+            d={currentPath} 
+            stroke={
+              currentTool === 'darknessEraser' ? 'rgba(255,255,255,0.5)' :
+              currentTool === 'darknessBrush' ? 'rgba(0,0,0,0.4)' :
+              currentColor
+            }
+            strokeWidth={
+              currentTool === 'darknessEraser' || currentTool === 'darknessBrush' ? "50" : "3"
+            }
+            fill="none" 
+            strokeLinejoin="round" 
+            strokeLinecap="round"
+            style={{ pointerEvents: 'none' }}
+          />
+        )}
+      </svg>
     </div>
   )
 } 

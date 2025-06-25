@@ -33,7 +33,7 @@ export default function TokenRenderer({
         <div
           key={img.id}
           className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-          style={{ left: img.x, top: img.y, zIndex: 30 }}
+          style={{ left: img.x, top: img.y, zIndex: 40 }}
           draggable={true}
           onDragStart={(e) => onItemDragStart(e, img, true)}
           onDrag={onItemDrag}
@@ -93,7 +93,7 @@ export default function TokenRenderer({
           
           {/* Status Circles */}
           {selectedIds.includes(img.id) && img.character && (
-            <div className="status-circles-container absolute -top-12 left-0 right-0 flex justify-center space-x-3" style={{ zIndex: 50 }}>
+            <div className="status-circles-container absolute -top-12 left-0 right-0 flex justify-center space-x-3" style={{ zIndex: 40 }}>
               {/* Guard Circle */}
               <div className="status-circle guard-circle relative bg-white rounded-full p-1">
                 <div 

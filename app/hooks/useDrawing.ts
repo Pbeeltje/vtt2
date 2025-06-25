@@ -22,6 +22,8 @@ interface UseDrawingProps {
   // Darkness functionality
   darknessPaths?: DarknessPath[]
   onDarknessChange?: (paths: DarknessPath[]) => void
+  borderWidth?: number
+  borderHeight?: number
 }
 
 export const useDrawing = ({
@@ -42,6 +44,8 @@ export const useDrawing = ({
   onDrawingAdd,
   darknessPaths,
   onDarknessChange,
+  borderWidth = 0,
+  borderHeight = 0,
 }: UseDrawingProps) => {
 
   const startDrawing = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -68,13 +72,13 @@ export const useDrawing = ({
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
     
-    const x = (e.clientX - rect.left) / zoomLevel;
-    const y = (e.clientY - rect.top) / zoomLevel;
+    const x = (e.clientX - rect.left - borderWidth) / zoomLevel;
+    const y = (e.clientY - rect.top - borderHeight) / zoomLevel;
     
     setIsDrawing(true);
     setCurrentPath(`M${x},${y}`);
     e.preventDefault();
-  }, [currentTool, zoomLevel, currentSceneId, currentUserId]);
+  }, [currentTool, zoomLevel, currentSceneId, currentUserId, borderWidth, borderHeight]);
     
   const draw = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const isDarknessMode = currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
@@ -84,11 +88,11 @@ export const useDrawing = ({
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
     
-    const x = (e.clientX - rect.left) / zoomLevel;
-    const y = (e.clientY - rect.top) / zoomLevel;
+    const x = (e.clientX - rect.left - borderWidth) / zoomLevel;
+    const y = (e.clientY - rect.top - borderHeight) / zoomLevel;
     setCurrentPath(prev => `${prev} L${x},${y}`);
     e.preventDefault();
-  }, [isDrawing, currentTool, zoomLevel]);
+  }, [isDrawing, currentTool, zoomLevel, borderWidth, borderHeight]);
 
   const endDrawing = useCallback((e?: React.MouseEvent<any>) => {
     const isDarknessMode = currentTool === 'darknessEraser' || currentTool === 'darknessBrush';

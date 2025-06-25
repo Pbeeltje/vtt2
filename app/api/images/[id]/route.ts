@@ -132,3 +132,23 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ error: "Failed to delete image", details: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }
+
+export async function GET(req: Request, { params }: { params: { id: string } }) {
+  const imageId = params.id;
+  const imageIdNumber = parseInt(imageId, 10);
+  if (isNaN(imageIdNumber)) {
+    return NextResponse.json({ error: "Invalid image ID format" }, { status: 400 });
+  }
+  try {
+    const result = await client.execute({
+      sql: "SELECT * FROM DMImage WHERE Id = ?",
+      args: [imageIdNumber],
+    });
+    if (result.rows.length === 0) {
+      return NextResponse.json({ error: "Image not found" }, { status: 404 });
+    }
+    return NextResponse.json(result.rows[0]);
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to fetch image" }, { status: 500 });
+  }
+}

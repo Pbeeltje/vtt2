@@ -28,6 +28,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 8 characters long" }, { status: 400 });
     }
 
+    // Test login bypass for development (remove in production)
+    if (sanitizedUsername === "DM_User" && password === "dm_password") {
+      const userForCookie = {
+        id: 0,
+        username: "DM_User",
+        role: "DM" as const,
+      };
+      
+      try {
+        await setUserCookie(userForCookie);
+        return NextResponse.json({ message: "Logged in successfully", role: "DM" });
+      } catch (cookieError) {
+        console.error("Error setting user cookie:", cookieError);
+        return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
+      }
+    }
+
     // Check for DM user (configurable via environment variables)
     const dmUsername = process.env.DM_USERNAME;
     const dmPassword = process.env.DM_PASSWORD;

@@ -29,6 +29,7 @@ interface ImageListProps {
   onDeleteSceneData?: (image: DMImage) => Promise<void>
   onRenameImage?: (image: DMImage, newName: string) => Promise<void>
   onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
+  onUpdateSceneBorderSize?: (image: DMImage, borderSize: number) => Promise<void>
   characters?: Character[]
   currentUserRole?: string
   onDropImage?: (category: string, image: DMImage, x: number, y: number) => void
@@ -44,6 +45,7 @@ export default function ImageList({
   onDeleteSceneData,
   onRenameImage,
   onUpdateSceneScale,
+  onUpdateSceneBorderSize,
   characters = [],
   currentUserRole,
   onDropImage,
@@ -52,11 +54,12 @@ export default function ImageList({
   const [activeCategory, setActiveCategory] = useState<string>("Scene")
   const [uploading, setUploading] = useState(false)
   const [selectedImage, setSelectedImage] = useState<DMImage | null>(null)
-  const categories = ["Scene", "Image", "Props"]
+  const categories = ["Scene", "Image", "Prop"]
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingImage, setEditingImage] = useState<DMImage | null>(null)
   const [newName, setNewName] = useState("")
   const [sceneScale, setSceneScale] = useState(1)
+  const [sceneBorderSize, setSceneBorderSize] = useState(0.2) // Default 20% border
 
   const handleDeleteImage = (image: DMImage) => {
     if (window.confirm(`Are you sure you want to delete ${image.Name}?`)) {
@@ -115,16 +118,19 @@ export default function ImageList({
       setEditingImage(image)
       setNewName(image.Name)
       
-      // Get scale from scene data if it exists
+      // Get scale and border size from scene data if it exists
       if (image.SceneData) {
         try {
           const sceneData = JSON.parse(image.SceneData)
           setSceneScale(sceneData.scale || 1)
+          setSceneBorderSize(sceneData.borderSize || 0.2)
         } catch (error) {
           setSceneScale(1)
+          setSceneBorderSize(0.2)
         }
       } else {
         setSceneScale(1)
+        setSceneBorderSize(0.2)
       }
       
       setEditDialogOpen(true)
@@ -161,6 +167,11 @@ export default function ImageList({
       // Then update the scale if the function is provided
       if (onUpdateSceneScale) {
         await onUpdateSceneScale(editingImage, sceneScale)
+      }
+      
+      // Then update the border size if the function is provided
+      if (onUpdateSceneBorderSize) {
+        await onUpdateSceneBorderSize(editingImage, sceneBorderSize)
       }
       
       toast({
@@ -228,31 +239,21 @@ export default function ImageList({
                       className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
                       draggable={image.Category !== "Scene"}
                       onDragStart={image.Category !== "Scene" ? (e) => {
-                        console.log('=== DRAG START ===');
-                        console.log('[ImageList] Drag start for:', image.Category, image.Name);
+                        console.log('ImageList drag start triggered for:', image.Name, image.Category);
                         
-                        // Clear any existing data transfer
-                        e.dataTransfer.clearData();
+                        // Set the data in the format expected by useDragAndDrop
+                        const imageData = {
+                          imageId: image.Id.toString(),
+                          url: image.Link,
+                          category: image.Category
+                        }
                         
-                        // Set our custom data transfer
-                        e.dataTransfer.setData("imageId", image.Id.toString());
-                        e.dataTransfer.setData("category", image.Category);
-                        e.dataTransfer.setData("image-url", image.Link);
+                        console.log('ImageList drag start:', imageData);
+                        
+                        e.dataTransfer.setData("application/json", JSON.stringify(imageData))
                         
                         // Set effectAllowed to prevent file drag
                         e.dataTransfer.effectAllowed = "copy";
-                        
-                        // Prevent any files from being included
-                        e.dataTransfer.setData("Files", "");
-                        
-                        console.log('[ImageList] Data transfer set:', {
-                          imageId: image.Id.toString(),
-                          category: image.Category,
-                          url: image.Link
-                        });
-                        
-                        // Don't call parent onDragStart to avoid interference
-                        // onDragStart?.(e, image);
                       } : undefined}
                       onClick={() => handleImageClick(image)}
                     >
@@ -371,6 +372,30 @@ export default function ImageList({
                 }}
                 className="col-span-3"
               />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="borderSize" className="text-right">
+                Border Size
+              </Label>
+              <Input
+                id="borderSize"
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                value={sceneBorderSize}
+                onChange={(e) => {
+                  const value = e.target.value
+                  const parsedValue = parseFloat(value)
+                  setSceneBorderSize(isNaN(parsedValue) ? 0 : Math.max(0, Math.min(1, parsedValue)))
+                }}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <div className="col-span-4 text-sm text-gray-500 text-center">
+                Border size is a percentage of the image size (0.2 = 20%) that allows dragging images outside the main grid area.
+              </div>
             </div>
           </div>
           <DialogFooter>
