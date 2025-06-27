@@ -810,9 +810,64 @@ export default function MainContent({
     const files = e.dataTransfer.files;
     if (files && files.length > 0 && onAddImage) {
       const file = files[0];
-      await onAddImage('Image', file);
+      
+      // Calculate drop position relative to the grid
+      const rect = gridRef.current?.getBoundingClientRect();
+      if (!rect) {
+        console.error('Grid ref is null, cannot get drop position');
+        await onAddImage('Image', file);
+        return;
+      }
+      
+      // Calculate position relative to the grid, accounting for zoom and borders
+      const mouseX = (e.clientX - rect.left) / zoomLevel;
+      const mouseY = (e.clientY - rect.top) / zoomLevel;
+      
+      console.log('File drop at position:', { x: mouseX, y: mouseY });
+      
+      try {
+        // Upload the image first
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("category", "Image");
+        
+        const response = await fetch('/api/images', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (response.ok) {
+          const uploadedImage = await response.json();
+          console.log('Image uploaded successfully:', uploadedImage);
+          
+          // Create a LayerImage to place on the map
+          const imageData: LayerImage = {
+            id: `${uploadedImage.Id}-${Date.now()}`,
+            url: uploadedImage.Link,
+            x: mouseX,
+            y: mouseY,
+            width: 100, // Default size for dropped images
+            height: 100,
+            category: "Image"
+          };
+          
+          // Add to middle layer (regular images)
+          onUpdateImages?.([...middleLayerImages, imageData], topLayerImages);
+          
+          // Call onAddImage to update the images list in the parent
+          await onAddImage('Image', file);
+          
+          console.log('Image placed on map at:', { x: mouseX, y: mouseY });
+        } else {
+          console.error('Failed to upload image');
+          await onAddImage('Image', file); // Fallback to original behavior
+        }
+      } catch (error) {
+        console.error('Error uploading and placing image:', error);
+        await onAddImage('Image', file); // Fallback to original behavior
+      }
     }
-  }, [onAddImage]);
+  }, [onAddImage, onUpdateImages, middleLayerImages, topLayerImages, zoomLevel]);
 
   const handleContainerDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();

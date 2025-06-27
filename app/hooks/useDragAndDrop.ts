@@ -92,9 +92,9 @@ export const useDragAndDrop = ({
     });
 
     if (files && files.length > 0) {
-      // Handle file drop
-      console.log('Handling file drop');
-      onFileDrop(files)
+      // File drops are handled by GameGrid, not here
+      console.log('File drop detected, but handling is done by GameGrid');
+      return
     } else if (characterId && characterData) {
       // Handle character drop from CharacterList (check this first)
       try {
