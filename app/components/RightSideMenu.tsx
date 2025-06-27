@@ -312,17 +312,6 @@ export default function RightSideMenu({
               <div className="p-4 w-full">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg text-white font-semibold">Images & Scenes</h3>
-                  <div className="space-x-2">
-                    {onClearSceneElements && (
-                      <Button
-                        variant="destructive"
-                        onClick={onClearSceneElements}
-                        title="Clear All Tokens & Images from Scene"
-                      >
-                        Clear Scene Items
-                      </Button>
-                    )}
-                  </div>
                 </div>
                 <ImageList
                   images={images}
