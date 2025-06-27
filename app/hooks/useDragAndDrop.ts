@@ -65,6 +65,13 @@ export const useDragAndDrop = ({
   const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     
+    // Check if this is an existing item being dragged around
+    const isExistingItem = e.dataTransfer.getData("isExistingItem")
+    if (isExistingItem === "true") {
+      console.log('useDragAndDrop: Ignoring existing item drop');
+      return
+    }
+    
     if (!currentSceneId) {
       console.log('No currentSceneId, cannot drop');
       return
