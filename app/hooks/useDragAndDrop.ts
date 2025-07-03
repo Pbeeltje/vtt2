@@ -68,12 +68,10 @@ export const useDragAndDrop = ({
     // Check if this is an existing item being dragged around
     const isExistingItem = e.dataTransfer.getData("isExistingItem")
     if (isExistingItem === "true") {
-      console.log('useDragAndDrop: Ignoring existing item drop');
       return
     }
     
     if (!currentSceneId) {
-      console.log('No currentSceneId, cannot drop');
       return
     }
 
@@ -81,25 +79,14 @@ export const useDragAndDrop = ({
     const dataTransferData = e.dataTransfer.getData('application/json')
     const characterId = e.dataTransfer.getData('characterId')
     const characterData = e.dataTransfer.getData('character')
-    
-    console.log('Drop event data:', {
-      files: files?.length || 0,
-      dataTransferData,
-      characterId,
-      characterData,
-      currentSceneId,
-      user
-    });
 
     if (files && files.length > 0) {
       // File drops are handled by GameGrid, not here
-      console.log('File drop detected, but handling is done by GameGrid');
       return
     } else if (characterId && characterData) {
       // Handle character drop from CharacterList (check this first)
       try {
         const character = JSON.parse(characterData)
-        console.log('Parsed character data:', character);
         
         const rect = e.currentTarget.getBoundingClientRect()
         const adjustedX = (e.clientX - rect.left - borderWidth) / zoomLevel
@@ -116,6 +103,7 @@ export const useDragAndDrop = ({
           y,
           width: gridSize, // Tokens are sized to grid
           height: gridSize, // Tokens are sized to grid
+          characterId: character.CharacterId, // Add the characterId property
           character: {
             CharacterId: character.CharacterId,
             Name: character.Name,
@@ -132,12 +120,6 @@ export const useDragAndDrop = ({
           },
         }
 
-        console.log('DM dropping character token:', droppedToken);
-        console.log('Character URLs:', {
-          TokenUrl: character.TokenUrl,
-          PortraitUrl: character.PortraitUrl,
-          finalUrl: droppedToken.url
-        });
         onDrop(droppedToken)
       } catch (error) {
         console.error('Error parsing character data:', error)
@@ -145,13 +127,10 @@ export const useDragAndDrop = ({
     } else if (dataTransferData) {
       try {
         const imageData = JSON.parse(dataTransferData)
-        console.log('Parsed image data:', imageData);
         
         // Check if this is an existing item being dragged around
         const isExistingItem = draggedItem.current !== null && draggedItem.current.id === imageData.imageId
         const isToken = isExistingItem ? draggedItem.current?.character !== undefined : imageData.category === "Token"
-        
-        console.log('Is existing item:', isExistingItem, 'Is token:', isToken, 'Dragged item:', draggedItem.current);
 
         if (isToken && user?.role === 'player') {
           // Player dropping their own token
@@ -166,7 +145,6 @@ export const useDragAndDrop = ({
               y,
             }
 
-            console.log('Player placing token:', updatedToken);
             onPlayerPlaceToken?.(updatedToken, currentSceneId)
           }
         } else {
@@ -228,14 +206,11 @@ export const useDragAndDrop = ({
             character: realCategory === "Token" ? draggedItem.current?.character : undefined,
           }
 
-          console.log('DM dropping image (with real category):', droppedImage);
           onDrop(droppedImage)
         }
       } catch (error) {
         console.error('Error parsing drop data:', error)
       }
-    } else {
-      console.log('No valid drop data found');
     }
   }, [currentSceneId, user, onDrop, onFileDrop, onPlayerPlaceToken, gridSize, zoomLevel])
 
@@ -337,16 +312,7 @@ export const useDragAndDrop = ({
     const dx = newX - referenceItem.x
     const dy = newY - referenceItem.y
 
-    // Debug logging
-    console.log('[handleItemDrag]', {
-      mouseX, mouseY,
-      dragOffsetX: dragOffset.x, dragOffsetY: dragOffset.y,
-      newX, newY,
-      referenceItemX: referenceItem.x, referenceItemY: referenceItem.y,
-      dx, dy,
-      isToken,
-      zoomLevel, borderWidth, borderHeight
-    });
+
     
     const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy)
     onUpdateImages?.(middleLayer, topLayer)

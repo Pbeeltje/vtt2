@@ -138,11 +138,6 @@ export default function GameGrid({
       }}
       onDragOver={(e) => {
         e.preventDefault();
-        console.log('GameGrid onDragOver:', {
-          files: e.dataTransfer.files?.length || 0,
-          types: e.dataTransfer.types,
-          hasJsonData: e.dataTransfer.types.includes('application/json')
-        });
         
         // Handle both image drops and file drops
         onDragOver(e);
@@ -161,33 +156,21 @@ export default function GameGrid({
         const jsonData = e.dataTransfer.getData("application/json");
         const isExistingItem = e.dataTransfer.getData("isExistingItem");
         
-        console.log('GameGrid onDrop:', {
-          files: files?.length || 0,
-          jsonData,
-          isExistingItem,
-          hasJsonData: !!jsonData
-        });
-        
         // If this is an existing item being dragged around, ignore the drop
         // (the position update is handled by the drag handlers)
         if (isExistingItem === "true") {
-          console.log('Ignoring existing item drop');
           return;
         }
         
         // If we have JSON data (from UI drag), treat as UI image drop
         // Even if there are files, prioritize the JSON data
         if (jsonData) {
-          console.log('Handling JSON data drop');
           setIsDraggingFile(false);
           onDrop(e);
         } else if (files && files.length > 0 && onFileDrop) {
           // This is a file drop from file explorer (no JSON data)
-          console.log('Handling file drop');
           setIsDraggingFile(false);
           onFileDrop(e);
-        } else {
-          console.log('No valid drop data found');
         }
       }}
       onDragLeave={(e) => {
