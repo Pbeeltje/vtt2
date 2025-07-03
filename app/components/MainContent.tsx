@@ -49,6 +49,18 @@ interface MainContentProps {
   onDarknessChange?: (paths: DarknessPath[]) => void;
   isDarknessLayerVisible?: boolean;
   onToggleDarknessLayer?: () => void;
+  // Text balloon props
+  textBalloons?: Array<{
+    id: string;
+    message: string;
+    characterName: string;
+    x: number;
+    y: number;
+    tokenWidth: number;
+    tokenHeight: number;
+    timestamp: number;
+  }>;
+  onCloseTextBalloon?: (balloonId: string) => void;
 }
 
 export default function MainContent({
@@ -85,6 +97,8 @@ export default function MainContent({
   onDarknessChange,
   isDarknessLayerVisible = false,
   onToggleDarknessLayer,
+  textBalloons = [],
+  onCloseTextBalloon,
 }: MainContentProps) {
   
   // Handle darkness layer changes
@@ -1038,6 +1052,8 @@ export default function MainContent({
           onStatusClick={handleStatusClick}
           onDarknessChange={handleDarknessChange}
           onResizeProp={handleResizeProp}
+          textBalloons={textBalloons}
+          onCloseTextBalloon={onCloseTextBalloon}
         />
       </div>
       

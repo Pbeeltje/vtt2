@@ -3,6 +3,7 @@ import type { LayerImage } from "../../types/layerImage"
 import type { DrawingObject } from '../DrawingLayer'
 import TokenRenderer from "./TokenRenderer"
 import DarknessLayer, { type DarknessPath } from "./DarknessLayer"
+import TextBalloon from "../TextBalloon"
 import { useState, useCallback } from "react"
 
 interface GameGridProps {
@@ -53,6 +54,18 @@ interface GameGridProps {
   onStatusClick: (type: 'guard' | 'strength' | 'mp', character: any, characterId: number) => void;
   onDarknessChange: (paths: DarknessPath[]) => void;
   onResizeProp: (propId: string, scale: number) => void;
+  // Text balloon props
+  textBalloons?: Array<{
+    id: string;
+    message: string;
+    characterName: string;
+    x: number;
+    y: number;
+    tokenWidth: number;
+    tokenHeight: number;
+    timestamp: number;
+  }>;
+  onCloseTextBalloon?: (balloonId: string) => void;
 }
 
 export default function GameGrid({
@@ -99,6 +112,8 @@ export default function GameGrid({
   onStatusClick,
   onDarknessChange,
   onResizeProp,
+  textBalloons = [],
+  onCloseTextBalloon,
 }: GameGridProps) {
   const [isDraggingFile, setIsDraggingFile] = useState(false)
 
@@ -344,6 +359,19 @@ export default function GameGrid({
         onStatusClick={onStatusClick}
         onResizeProp={onResizeProp}
       />
+
+      {/* Text balloons - Above tokens */}
+      {textBalloons.map((balloon) => (
+        <TextBalloon
+          key={balloon.id}
+          message={balloon.message}
+          x={balloon.x}
+          y={balloon.y}
+          tokenWidth={balloon.tokenWidth}
+          tokenHeight={balloon.tokenHeight}
+          onClose={() => onCloseTextBalloon?.(balloon.id)}
+        />
+      ))}
 
       {/* Darkness Layer - Above tokens, below drawings */}
       {isDarknessLayerVisible && (

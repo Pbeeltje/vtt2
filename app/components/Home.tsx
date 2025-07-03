@@ -65,6 +65,18 @@ export default function Home() {
   const [darknessPaths, setDarknessPaths] = useState<DarknessPath[]>([]);
   const [isDarknessLayerVisible, setIsDarknessLayerVisible] = useState(false);
   
+  // Text balloon state
+  const [textBalloons, setTextBalloons] = useState<Array<{
+    id: string;
+    message: string;
+    characterName: string;
+    x: number;
+    y: number;
+    tokenWidth: number;
+    tokenHeight: number;
+    timestamp: number;
+  }>>([]);
+  
   const socketRef = useRef<Socket | null>(null);
   const currentSceneIdRef: React.MutableRefObject<number | null> = useRef<number | null>(null);
   const isSocketUpdateRef = useRef(false); // Ref to track socket updates
@@ -643,6 +655,42 @@ export default function Home() {
           }
           return [...prevMessages, formattedSavedMessage];
         });
+
+        // Check if this is a character message and if there's a corresponding token
+        if (senderType === 'character') {
+          console.log(`[Home.tsx] Character message from: ${speakerName}`);
+          console.log(`[Home.tsx] Available tokens:`, topLayerImages.map(t => ({ name: t.character?.Name, x: t.x, y: t.y })));
+          
+          const characterToken = topLayerImages.find(token => 
+            token.character && token.character.Name === speakerName
+          );
+          
+          if (characterToken) {
+            console.log(`[Home.tsx] Found token for ${speakerName} at (${characterToken.x}, ${characterToken.y})`);
+            const balloonId = `balloon-${Date.now()}-${Math.random()}`;
+            const newBalloon = {
+              id: balloonId,
+              message: content,
+              characterName: speakerName,
+              x: characterToken.x,
+              y: characterToken.y,
+              tokenWidth: characterToken.width || gridSize,
+              tokenHeight: characterToken.height || gridSize,
+              timestamp: Date.now(),
+            };
+            
+            setTextBalloons(prev => [...prev, newBalloon]);
+            console.log(`[Home.tsx] Created text balloon:`, newBalloon);
+            
+            // Auto-remove balloon after 3 seconds
+            setTimeout(() => {
+              setTextBalloons(prev => prev.filter(balloon => balloon.id !== balloonId));
+              console.log(`[Home.tsx] Auto-removed text balloon: ${balloonId}`);
+            }, 3000);
+          } else {
+            console.log(`[Home.tsx] No token found for character: ${speakerName}`);
+          }
+        }
       } else {
         const errorResult = await response.json().catch(() => ({ error: "Failed to send message." }));
         toast({ title: "Error", description: errorResult.error || "Failed to send message.", variant: "destructive" });
@@ -1231,6 +1279,10 @@ export default function Home() {
     setCharacterSheetModal(null);
   };
 
+  const handleCloseTextBalloon = (balloonId: string) => {
+    setTextBalloons(prev => prev.filter(balloon => balloon.id !== balloonId));
+  };
+
   // Darkness layer handler
   const handleDarknessChange = useCallback((paths: DarknessPath[]) => {
     setDarknessPaths(paths);
@@ -1269,23 +1321,25 @@ export default function Home() {
     return (
       <div className="flex flex-col h-screen">
         <div className="flex-grow">
-          <MainContent
-            backgroundImage={backgroundImage} middleLayerImages={middleLayerImages} topLayerImages={topLayerImages}
-            onUpdateImages={handleUpdateImages} gridSize={gridSize} gridColor={gridColor}
-            onGridSizeChange={setGridSize} onGridColorChange={setGridColor}
-            currentTool="cursor" onToolChange={() => {}} currentColor="#000000" onColorChange={() => {}}
-            sceneScale={sceneScale} zoomLevel={zoomLevel} setZoomLevel={setZoomLevel}
-            currentSceneId={selectedScene?.Id} currentUserId={null} currentUserRole={null}
-            drawings={drawings} 
-            onDrawingAdd={(_data: NewDrawingData) => { toast({ title: "Login Required", description: "Please log in to draw.", variant: "destructive" }); }}
-            onDrawingsDelete={(_ids: string[]) => { toast({ title: "Login Required", description: "Please log in to delete drawings.", variant: "destructive" }); }}
-            onAddImage={async (_category: string, _file: File) => { toast({ title: "Login Required", description: "Please log in to upload images.", variant: "destructive" }); }}
-            onImageUploaded={handleImageUploaded}
-            darknessPaths={[]}
-            onDarknessChange={() => {}}
-            isDarknessLayerVisible={false}
-            onToggleDarknessLayer={() => {}}
-          />
+                      <MainContent
+              backgroundImage={backgroundImage} middleLayerImages={middleLayerImages} topLayerImages={topLayerImages}
+              onUpdateImages={handleUpdateImages} gridSize={gridSize} gridColor={gridColor}
+              onGridSizeChange={setGridSize} onGridColorChange={setGridColor}
+              currentTool="cursor" onToolChange={() => {}} currentColor="#000000" onColorChange={() => {}}
+              sceneScale={sceneScale} zoomLevel={zoomLevel} setZoomLevel={setZoomLevel}
+              currentSceneId={selectedScene?.Id} currentUserId={null} currentUserRole={null}
+              drawings={drawings} 
+              onDrawingAdd={(_data: NewDrawingData) => { toast({ title: "Login Required", description: "Please log in to draw.", variant: "destructive" }); }}
+              onDrawingsDelete={(_ids: string[]) => { toast({ title: "Login Required", description: "Please log in to delete drawings.", variant: "destructive" }); }}
+              onAddImage={async (_category: string, _file: File) => { toast({ title: "Login Required", description: "Please log in to upload images.", variant: "destructive" }); }}
+              onImageUploaded={handleImageUploaded}
+              darknessPaths={[]}
+              onDarknessChange={() => {}}
+              isDarknessLayerVisible={false}
+              onToggleDarknessLayer={() => {}}
+              textBalloons={[]}
+              onCloseTextBalloon={() => {}}
+            />
         </div>
         <div className="absolute top-4 right-4 z-50">
           <div className="bg-white/90 backdrop-blur p-8 rounded-lg shadow-md max-w-md">
@@ -1325,6 +1379,8 @@ export default function Home() {
               onDarknessChange={handleDarknessChange}
               isDarknessLayerVisible={isDarknessLayerVisible}
               onToggleDarknessLayer={handleToggleDarknessLayer}
+              textBalloons={textBalloons}
+              onCloseTextBalloon={handleCloseTextBalloon}
             />
           </div>
           <RightSideMenu
