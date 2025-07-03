@@ -7,6 +7,7 @@ export type LayerImage = {
     height?: number // Optional for images, not used for tokens
     category?: string // Category from database: "Token", "Prop", "Image"
     characterId?: number // Optional: ID of the character this token represents
+    color?: string // Optional: Token color overlay (hex color)
     character?: {
       CharacterId?: number; // Add CharacterId here
       Name: string

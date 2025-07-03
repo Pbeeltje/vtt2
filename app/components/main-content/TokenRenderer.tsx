@@ -50,6 +50,24 @@ export default function TokenRenderer({
               style={{ objectFit: 'contain' }} 
               className="token-image" 
             />
+            {img.color && (
+              <div 
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  backgroundColor: img.color,
+                  opacity: 0.3,
+                  borderRadius: 'inherit',
+                  WebkitMaskImage: `url(${img.url})`,
+                  WebkitMaskSize: 'contain',
+                  WebkitMaskRepeat: 'no-repeat',
+                  WebkitMaskPosition: 'center',
+                  maskImage: `url(${img.url})`,
+                  maskSize: 'contain',
+                  maskRepeat: 'no-repeat',
+                  maskPosition: 'center'
+                }}
+              />
+            )}
             
             {/* Settings Gear - Show when selected */}
             {selectedIds.includes(img.id) && (

@@ -7,16 +7,19 @@ interface TokenSettingsModalProps {
   token: LayerImage | null
   onClose: () => void
   onUpdateScale: (tokenId: string, scale: number) => void
+  onUpdateColor: (tokenId: string, color: string | null) => void
   gridSize: number
 }
 
-export default function TokenSettingsModal({ token, onClose, onUpdateScale, gridSize }: TokenSettingsModalProps) {
+export default function TokenSettingsModal({ token, onClose, onUpdateScale, onUpdateColor, gridSize }: TokenSettingsModalProps) {
   const [scale, setScale] = useState(token ? (token.width || gridSize) / gridSize : 1)
+  const [color, setColor] = useState(token?.color || '#ffffff')
 
   if (!token) return null
 
   const handleSave = () => {
     onUpdateScale(token.id, scale)
+    onUpdateColor(token.id, color === '#ffffff' ? null : color)
     onClose()
   }
 
@@ -57,6 +60,45 @@ export default function TokenSettingsModal({ token, onClose, onUpdateScale, grid
           </div>
           <div className="text-xs text-gray-500 mt-1">
             Range: 0.1x to 5x (10px to {gridSize * 5}px)
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <Label className="text-sm font-medium text-gray-700 mb-2 block">
+            Token Color Overlay
+          </Label>
+          <div className="flex items-center gap-3">
+            <input
+              type="color"
+              value={color}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setColor(e.target.value)}
+              className="w-12 h-10 border rounded cursor-pointer"
+              title="Choose token color"
+            />
+            <div className="flex-1">
+              <div className="text-sm text-gray-600 mb-1">Preview:</div>
+              <div 
+                className="w-8 h-8 rounded border-2 border-gray-300"
+                style={{ 
+                  backgroundColor: color,
+                  opacity: 0.3,
+                  backgroundImage: `url(${token.url})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center'
+                }}
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setColor('#ffffff')}
+              className="text-xs"
+            >
+              Clear
+            </Button>
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            Color will be applied with 30% transparency over the token
           </div>
         </div>
 
