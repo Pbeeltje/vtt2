@@ -12,6 +12,7 @@ import { useDrawing } from "../hooks/useDrawing"
 import GameGrid from "./main-content/GameGrid"
 import ZoomControls from "./main-content/ZoomControls"
 import StatusModal from "./main-content/StatusModal"
+import TokenSettingsModal from "./TokenSettingsModal"
 import type { DarknessPath } from "./main-content/DarknessLayer"
 
 interface MainContentProps {
@@ -113,6 +114,9 @@ export default function MainContent({
   const [isSelecting, setIsSelecting] = useState(false)
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null)
   const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null)
+  
+  // Token settings modal state
+  const [settingsToken, setSettingsToken] = useState<LayerImage | null>(null)
   
   // Main content hook for state and utilities
   const {
@@ -474,6 +478,20 @@ export default function MainContent({
     
     onUpdateImages?.(middleLayerImages, updatedTopLayer);
   }, [topLayerImages, middleLayerImages, gridSize, onUpdateImages]);
+
+  // Token settings handlers
+  const handleOpenTokenSettings = useCallback((token: LayerImage) => {
+    setSettingsToken(token)
+  }, [])
+
+  const handleCloseTokenSettings = useCallback(() => {
+    setSettingsToken(null)
+  }, [])
+
+  const handleUpdateTokenScale = useCallback((tokenId: string, scale: number) => {
+    const { middleLayer, topLayer } = updateItemSize(tokenId, scale * gridSize, scale * gridSize)
+    onUpdateImages?.(middleLayer, topLayer)
+  }, [updateItemSize, gridSize, onUpdateImages])
 
   // Reset darkness handler
   const handleResetDarkness = useCallback(() => {
@@ -1052,6 +1070,7 @@ export default function MainContent({
           onStatusClick={handleStatusClick}
           onDarknessChange={handleDarknessChange}
           onResizeProp={handleResizeProp}
+          onOpenTokenSettings={handleOpenTokenSettings}
           textBalloons={textBalloons}
           onCloseTextBalloon={onCloseTextBalloon}
         />
@@ -1062,6 +1081,13 @@ export default function MainContent({
         onClose={() => setStatusModal(null)}
         onUpdate={handleStatusUpdate}
         onValueChange={(value) => setStatusModal(prev => prev ? { ...prev, currentValue: value } : null)}
+      />
+      
+      <TokenSettingsModal
+        token={settingsToken}
+        onClose={handleCloseTokenSettings}
+        onUpdateScale={handleUpdateTokenScale}
+        gridSize={gridSize}
       />
     </div>
   )

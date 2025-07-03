@@ -164,7 +164,8 @@ export const useMainContent = ({
     );
     
     const newMiddleLayer = updateLayer(middleLayerImages);
-    return { middleLayer: newMiddleLayer, topLayer: topLayerImages };
+    const newTopLayer = updateLayer(topLayerImages);
+    return { middleLayer: newMiddleLayer, topLayer: newTopLayer };
   }, [middleLayerImages, topLayerImages])
 
   return {

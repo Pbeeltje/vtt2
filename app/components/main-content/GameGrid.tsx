@@ -54,6 +54,7 @@ interface GameGridProps {
   onStatusClick: (type: 'guard' | 'strength' | 'mp', character: any, characterId: number) => void;
   onDarknessChange: (paths: DarknessPath[]) => void;
   onResizeProp: (propId: string, scale: number) => void;
+  onOpenTokenSettings: (token: LayerImage) => void;
   // Text balloon props
   textBalloons?: Array<{
     id: string;
@@ -112,6 +113,7 @@ export default function GameGrid({
   onStatusClick,
   onDarknessChange,
   onResizeProp,
+  onOpenTokenSettings,
   textBalloons = [],
   onCloseTextBalloon,
 }: GameGridProps) {
@@ -340,7 +342,7 @@ export default function GameGrid({
         onItemClick={onItemClick}
         onTokenDoubleClick={onTokenDoubleClick}
         onStatusClick={onStatusClick}
-        onResizeProp={onResizeProp}
+        onOpenTokenSettings={onOpenTokenSettings}
       />
 
       {/* Text balloons - Above tokens */}
