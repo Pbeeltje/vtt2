@@ -8,6 +8,8 @@ export type LayerImage = {
     category?: string // Category from database: "Token", "Prop", "Image"
     characterId?: number // Optional: ID of the character this token represents
     color?: string // Optional: Token color overlay (hex color)
+    auraColor?: string // Optional: Token aura color (hex color)
+    auraRadius?: number // Optional: Token aura radius in grid units
     character?: {
       CharacterId?: number; // Add CharacterId here
       Name: string

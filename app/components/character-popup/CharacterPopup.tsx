@@ -86,7 +86,7 @@ export default function CharacterPopup({ character, onClose, onUpdate, isDM, all
                       }}
                       className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                     >
-                      <option value="">-- Select a User --</option>
+                      <option key="default" value="">-- Select a User --</option>
                       {allUsers && allUsers.filter(u => u.role !== 'DM').map((user) => (
                         <option key={user.id} value={user.id}>
                           {user.username} ({user.role})

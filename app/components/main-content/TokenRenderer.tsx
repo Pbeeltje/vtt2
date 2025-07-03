@@ -41,33 +41,30 @@ export default function TokenRenderer({
           onClick={(e) => onItemClick(e, img)}
           onDoubleClick={() => onTokenDoubleClick(img)}
         >
-          <div className="relative">
+          {/* Aura - rendered behind the token */}
+          {img.auraColor && img.auraRadius && img.auraRadius > 0 && (
+            <div 
+              className="absolute pointer-events-none rounded-full"
+              style={{
+                width: (img.width || gridSize) + (img.auraRadius * gridSize * 2),
+                height: (img.height || gridSize) + (img.auraRadius * gridSize * 2),
+                left: -(img.auraRadius * gridSize),
+                top: -(img.auraRadius * gridSize),
+                zIndex: 35,
+                background: `radial-gradient(circle, transparent ${(img.width || gridSize) / 2}px, ${img.auraColor} ${(img.width || gridSize) / 2}px)`,
+                opacity: img.auraColor.toLowerCase() === '#87ceeb' ? 0.6 : 0.3
+              }}
+            />
+          )}
+          <div className="relative" style={{ width: img.width || gridSize, height: img.height || gridSize }}>
             <Image 
               src={img.url} 
               alt="Token" 
               width={img.width || gridSize} 
               height={img.height || gridSize} 
-              style={{ objectFit: 'contain' }} 
+              style={{ objectFit: 'contain', zIndex: 5 }} 
               className="token-image" 
             />
-            {img.color && (
-              <div 
-                className="absolute inset-0 pointer-events-none"
-                style={{
-                  backgroundColor: img.color,
-                  opacity: 0.3,
-                  borderRadius: 'inherit',
-                  WebkitMaskImage: `url(${img.url})`,
-                  WebkitMaskSize: 'contain',
-                  WebkitMaskRepeat: 'no-repeat',
-                  WebkitMaskPosition: 'center',
-                  maskImage: `url(${img.url})`,
-                  maskSize: 'contain',
-                  maskRepeat: 'no-repeat',
-                  maskPosition: 'center'
-                }}
-              />
-            )}
             
             {/* Settings Gear - Show when selected */}
             {selectedIds.includes(img.id) && (

@@ -503,6 +503,20 @@ export default function MainContent({
     onUpdateImages?.(middleLayerImages, updatedTopLayer)
   }, [topLayerImages, middleLayerImages, onUpdateImages])
 
+  const handleUpdateTokenAura = useCallback((tokenId: string, auraColor: string | null, auraRadius: number | null) => {
+    const updatedTopLayer = topLayerImages.map(item => {
+      if (item.id === tokenId) {
+        return { 
+          ...item, 
+          auraColor: auraColor || undefined,
+          auraRadius: auraRadius || undefined
+        }
+      }
+      return item
+    })
+    onUpdateImages?.(middleLayerImages, updatedTopLayer)
+  }, [topLayerImages, middleLayerImages, onUpdateImages])
+
   // Reset darkness handler
   const handleResetDarkness = useCallback(() => {
     if (window.confirm('Are you sure you want to reset the darkness layer? This will remove all erased areas and make the entire layer dark again.')) {
@@ -1098,6 +1112,7 @@ export default function MainContent({
         onClose={handleCloseTokenSettings}
         onUpdateScale={handleUpdateTokenScale}
         onUpdateColor={handleUpdateTokenColor}
+        onUpdateAura={handleUpdateTokenAura}
         gridSize={gridSize}
       />
     </div>
