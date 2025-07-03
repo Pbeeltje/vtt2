@@ -135,9 +135,19 @@ export default function RightSideMenu({
   }
 
   useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
+    // Use requestAnimationFrame to ensure DOM is updated before scrolling
+    const scrollToBottom = () => {
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
+      }
     }
+    
+    // Use a small delay to ensure messages are rendered
+    const timeoutId = setTimeout(() => {
+      requestAnimationFrame(scrollToBottom)
+    }, 100)
+    
+    return () => clearTimeout(timeoutId)
   }, [messages])
 
   const handleLogout = async () => {
