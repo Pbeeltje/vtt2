@@ -748,7 +748,9 @@ export default function Home() {
     addMessage("diceRoll", content, userRef.current.username, "user");
   };
 
-  const handlePhaseChange = (phase: string, color: string) => {/** ... */};
+  const handlePhaseChange = (phase: string, color: string) => {
+    setChatBackgroundColor(color);
+  };
   const handleAddCharacter = async (category:string) => {};
   
   const handleUpdateCharacter = async (updatedCharacter: Character) => {
