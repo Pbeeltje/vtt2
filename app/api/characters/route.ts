@@ -29,6 +29,22 @@ export async function GET(req: Request) {
       args: queryArgs,
     });
 
+    // For each character, ensure they have an inventory
+    for (const char of result.rows) {
+      // Check for inventory
+      const invResult = await client.execute({
+        sql: 'SELECT * FROM inventory WHERE CharacterId = ?',
+        args: [char.CharacterId],
+      });
+      if (invResult.rows.length === 0) {
+        // Create inventory
+        await client.execute({
+          sql: 'INSERT INTO inventory (CharacterId) VALUES (?)',
+          args: [char.CharacterId],
+        });
+      }
+    }
+
     return NextResponse.json(result.rows);
   } catch (error) {
     if (error instanceof Error) {

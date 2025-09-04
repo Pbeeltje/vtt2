@@ -15,17 +15,56 @@ interface StatsTabProps {
 export function StatsTab({ character, onUpdate }: StatsTabProps) {
   const { editedCharacter, setEditedCharacter, handleInputChange, handleSubmit } = useCharacter(character, onUpdate);
 
+  const handleFieldChange = (name: string, value: string) => {
+    setEditedCharacter(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleFieldBlur = () => {
+    // Save directly to database without opening modal
+    fetch(`/api/characters/${character.CharacterId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editedCharacter),
+    }).catch(console.error);
+  };
+
+  const handleEditableFieldSave = () => {
+    // Save directly to database without opening modal
+    fetch(`/api/characters/${character.CharacterId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editedCharacter),
+    }).catch(console.error);
+  };
+
+  const handleFieldKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Save directly to database without opening modal
+      fetch(`/api/characters/${character.CharacterId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editedCharacter),
+      }).catch(console.error);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setEditedCharacter(character);
+    }
+  };
+
   const renderField = (label: string, name: string, type: string = "text", maxField?: string, customInputProps?: Record<string, any>) => (
-    <div className="space-y-1">
-      <Label htmlFor={name}>{label}</Label>
-      <div className="flex items-center space-x-2">
+    <div className="space-y-0.5">
+      <Label htmlFor={name} className="text-xs font-semibold">{label}</Label>
+      <div className="flex items-center space-x-1">
         <Input
           id={name}
           name={name}
           type={type}
           value={editedCharacter[name as keyof Character] ?? ''}
-          onChange={handleInputChange}
-          className={customInputProps?.className || (type === "number" ? "w-16" : "w-full max-w-xs")}
+          onChange={(e) => handleFieldChange(name, e.target.value)}
+          onBlur={handleFieldBlur}
+          onKeyDown={handleFieldKeyDown}
+          className={customInputProps?.className || (type === "number" ? "w-14" : "w-full max-w-xs")}
           min={customInputProps?.min ?? (type === "number" ? 0 : undefined)}
           max={customInputProps?.max}
           {...(customInputProps?.inputMode && { inputMode: customInputProps.inputMode })}
@@ -33,14 +72,16 @@ export function StatsTab({ character, onUpdate }: StatsTabProps) {
         />
         {maxField && (
           <>
-            <span>/</span>
+            <span className="text-xs">/</span>
             <Input
               id={maxField}
               name={maxField}
               type="number"
               value={editedCharacter[maxField as keyof Character] ?? ''}
-              onChange={handleInputChange}
-              className="w-16"
+              onChange={(e) => handleFieldChange(maxField, e.target.value)}
+              onBlur={handleFieldBlur}
+              onKeyDown={handleFieldKeyDown}
+              className="w-14"
               min={0}
               max={99}
             />
@@ -57,8 +98,10 @@ export function StatsTab({ character, onUpdate }: StatsTabProps) {
         id="Path"
         name="Path"
         value={editedCharacter.Path || "Warrior"}
-        onChange={handleInputChange}
-        className="w-full max-w-xs h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        onChange={(e) => handleFieldChange("Path", e.target.value)}
+        onBlur={handleFieldBlur}
+        onKeyDown={handleFieldKeyDown}
+        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
       >
         <option value="Warrior">Warrior</option>
         <option value="Magic User">Magic User</option>
@@ -67,39 +110,35 @@ export function StatsTab({ character, onUpdate }: StatsTabProps) {
   );
 
   return (
-    <div className="min-h-[500px]">
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-2 gap-6">
-          <div className="space-y-6">
+    <div>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-4">
             <div>
               <Label htmlFor="Name">Name</Label>
               <EditableField
                 value={editedCharacter.Name}
                 onChange={(value) => setEditedCharacter(prev => ({ ...prev, Name: value }))}
+                onSave={handleEditableFieldSave}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-3">
               {renderField("Level", "Level", "number")}
-              {renderField("Age", "Age", "number", undefined, { className: "w-24", max: undefined, inputMode: "numeric", pattern: "[0-9]*" })}
+              {renderField("Age", "Age", "number", undefined, { className: "w-20", max: undefined, inputMode: "numeric", pattern: "[0-9]*" })}
+              {renderPathField()}
             </div>
             <div>
               <Label htmlFor="Description">Description</Label>
               <EditableField
                 value={editedCharacter.Description || ''}
                 onChange={(value) => setEditedCharacter(prev => ({ ...prev, Description: value }))}
+                onSave={handleEditableFieldSave}
                 isTextarea
-                className="min-h-[150px]"
+                className="min-h-[100px]"
               />
             </div>
           </div>
-          <div className="space-y-6">
-            <FileUploader
-              imageUrl={editedCharacter.PortraitUrl ?? null}
-              onUpload={(url) => setEditedCharacter(prev => ({ ...prev, PortraitUrl: url }))}
-              label="Portrait"
-              width={50}
-              height={50}
-            />
+          <div className="flex items-start space-x-3">
             <FileUploader
               imageUrl={editedCharacter.TokenUrl ?? null}
               onUpload={(url) => setEditedCharacter(prev => ({ ...prev, TokenUrl: url }))}
@@ -108,25 +147,27 @@ export function StatsTab({ character, onUpdate }: StatsTabProps) {
               height={16}
               isToken
             />
+            <FileUploader
+              imageUrl={editedCharacter.PortraitUrl ?? null}
+              onUpload={(url) => setEditedCharacter(prev => ({ ...prev, PortraitUrl: url }))}
+              label="Portrait"
+              width={64}
+              height={64}
+            />
           </div>
         </div>
-        {renderPathField()}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-4 gap-2">
           {renderField("Guard", "Guard", "number", "MaxGuard")}
           {renderField("Armor", "Armor", "number")}
-        </div>
-        <div className="grid grid-cols-2 gap-4">
           {renderField("Strength", "Strength", "number", "MaxStrength")}
           {renderField("Dexterity", "Dexternity", "number", "MaxDexternity")}
           {renderField("Mind", "Mind", "number", "MaxMind")}
           {renderField("Charisma", "Charisma", "number", "MaxCharisma")}
           {editedCharacter.Path === "Warrior" && renderField("Skill", "Skill", "number", "MaxSkill")}
+          {editedCharacter.Path === "Magic User" && renderField("Spellcraft", "Skill", "number", "MaxSkill")}
           {editedCharacter.Path === "Magic User" && renderField("MP", "Mp", "number", "MaxMp")}
         </div>
-        <div className="flex justify-end space-x-2 pt-4 border-t">
-          <Button type="button" variant="outline" onClick={() => setEditedCharacter(character)}>Cancel</Button>
-          <Button type="submit">Save</Button>
-        </div>
+
       </form>
     </div>
   );

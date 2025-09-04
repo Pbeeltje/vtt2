@@ -8,11 +8,12 @@ import { Edit2 } from 'lucide-react';
 interface EditableFieldProps {
   value: string;
   onChange: (value: string) => void;
+  onSave?: (value: string) => void;
   isTextarea?: boolean;
   className?: string;
 }
 
-export function EditableField({ value, onChange, isTextarea = false, className }: EditableFieldProps) {
+export function EditableField({ value, onChange, onSave, isTextarea = false, className }: EditableFieldProps) {
   const [editing, setEditing] = useState(false);
   const [tempValue, setTempValue] = useState(value);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
@@ -25,7 +26,25 @@ export function EditableField({ value, onChange, isTextarea = false, className }
 
   const handleSave = () => {
     onChange(tempValue);
+    if (onSave) {
+      onSave(tempValue);
+    }
     setEditing(false);
+  };
+
+  const handleCancel = () => {
+    setTempValue(value);
+    setEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !isTextarea) {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancel();
+    }
   };
 
   return (
@@ -37,6 +56,7 @@ export function EditableField({ value, onChange, isTextarea = false, className }
             value={tempValue}
             onChange={(e) => setTempValue(e.target.value)}
             onBlur={handleSave}
+            onKeyDown={handleKeyDown}
             className={`mt-1 w-full min-h-[150px] ${className}`}
           />
         ) : (
@@ -45,6 +65,7 @@ export function EditableField({ value, onChange, isTextarea = false, className }
             value={tempValue}
             onChange={(e) => setTempValue(e.target.value)}
             onBlur={handleSave}
+            onKeyDown={handleKeyDown}
             className={`mt-1 w-full max-w-xs ${className}`}
           />
         )

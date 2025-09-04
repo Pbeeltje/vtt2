@@ -1,6 +1,0 @@
----
-description: 
-globs: 
-alwaysApply: true
----
-when any feature interacts with the database in any way. Reference the correct column names in the .csv files in the root folder of the project. For example the character table is represented in character.csv. the csv files are NOT the database themselves, they are purely an example.

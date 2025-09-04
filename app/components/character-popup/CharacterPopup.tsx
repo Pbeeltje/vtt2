@@ -88,7 +88,7 @@ export default function CharacterPopup({ character, onClose, onUpdate, isDM, all
                     >
                       <option key="default" value="">-- Select a User --</option>
                       {allUsers && allUsers.filter(u => u.role !== 'DM').map((user) => (
-                        <option key={user.id} value={user.id}>
+                        <option key={`user-option-${user.id}`} value={user.id}>
                           {user.username} ({user.role})
                         </option>
                       ))}

@@ -1,0 +1,97 @@
+BEGIN TRANSACTION;
+CREATE TABLE IF NOT EXISTS "DMImage" (
+        Id INTEGER PRIMARY KEY,
+        Name TEXT NOT NULL,
+        Link TEXT NOT NULL,
+        Category TEXT NOT NULL CHECK (Category IN ('Image', 'Token', 'Scene', 'Prop')),
+        UserId INTEGER NOT NULL,
+        SceneData TEXT
+      );
+CREATE TABLE IF NOT EXISTS "character" (
+    CharacterId INTEGER NOT NULL UNIQUE,
+    Name TEXT NOT NULL DEFAULT 'Unknown',
+    Description TEXT DEFAULT 'A little hero',
+    Age INTEGER NOT NULL DEFAULT 20,
+    Level INTEGER NOT NULL DEFAULT 1,
+    Guard INTEGER NOT NULL DEFAULT 1,
+    Armor INTEGER NOT NULL DEFAULT 0,
+    MaxGuard INTEGER NOT NULL DEFAULT 10,
+    Strength INTEGER NOT NULL DEFAULT 10,
+    MaxStrength INTEGER NOT NULL DEFAULT 10,
+    Dexternity INTEGER NOT NULL DEFAULT 10,
+    MaxDexternity INTEGER NOT NULL DEFAULT 10,
+    Mind INTEGER NOT NULL DEFAULT 10,
+    MaxMind INTEGER NOT NULL DEFAULT 10,
+    Charisma INTEGER NOT NULL DEFAULT 10,
+    MaxCharisma INTEGER NOT NULL DEFAULT 10,
+    Skill INTEGER NOT NULL DEFAULT 0,
+    MaxSkill INTEGER NOT NULL DEFAULT 0,
+    Mp INTEGER DEFAULT 0,
+    MaxMp INTEGER DEFAULT 0,
+    JobId INTEGER,
+    Path TEXT NOT NULL DEFAULT 'Warrior',
+    PortraitUrl TEXT,
+    userId INT DEFAULT 0,
+    category TEXT DEFAULT 'NPC',
+    TokenUrl text,
+    PRIMARY KEY(CharacterId AUTOINCREMENT)
+);
+CREATE TABLE IF NOT EXISTS "chatmessage" (
+	"MessageId"	INTEGER,
+	"Type"	TEXT NOT NULL,
+	"Content"	TEXT NOT NULL,
+	"Timestamp"	TEXT NOT NULL,
+	"Username"	TEXT NOT NULL,
+	"UserId"	INTEGER NOT NULL, SenderType TEXT, SenderRole TEXT,
+	PRIMARY KEY("MessageId" AUTOINCREMENT),
+	FOREIGN KEY("UserId") REFERENCES "user"("UserId")
+);
+CREATE TABLE IF NOT EXISTS "drawing" ( "id" TEXT, "path" TEXT NOT NULL, "color" TEXT NOT NULL, "createdBy" INTEGER NOT NULL, "sceneId" INTEGER NOT NULL, "createdAt" DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY("id"), FOREIGN KEY("createdBy") REFERENCES "user"("UserId"), FOREIGN KEY("sceneId") REFERENCES "dmimage"("Id") );
+CREATE TABLE IF NOT EXISTS hex (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL,
+      contents TEXT,
+      hexmap_id INTEGER NOT NULL, name TEXT,
+      FOREIGN KEY (hexmap_id) REFERENCES hexmap(id) ON DELETE CASCADE
+    );
+CREATE TABLE IF NOT EXISTS hexmap (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL
+    );
+CREATE TABLE IF NOT EXISTS "inventory" (
+	"InventoryId"	INTEGER,
+	"CharacterId"	INTEGER NOT NULL,
+	"ItemId"	INTEGER,
+	PRIMARY KEY("InventoryId" AUTOINCREMENT),
+	FOREIGN KEY("CharacterId") REFERENCES "Character"("CharacterId"),
+	FOREIGN KEY("ItemId") REFERENCES "item"("ItemId")
+);
+CREATE TABLE IF NOT EXISTS "item" (
+	"ItemId"	INTEGER,
+	"Name"	TEXT NOT NULL DEFAULT 'Item',
+	"Description"	TEXT,
+	"Slotnumber"	INTEGER NOT NULL,
+	PRIMARY KEY("ItemId" AUTOINCREMENT)
+);
+CREATE TABLE IF NOT EXISTS "job" (
+	"JobId"	INTEGER NOT NULL UNIQUE,
+	"Description"	TEXT,
+	"Tier"	INTEGER NOT NULL DEFAULT 1,
+	"CharacterId"	INTEGER,
+	"Name"	TEXT NOT NULL,
+	PRIMARY KEY("JobId" AUTOINCREMENT),
+	FOREIGN KEY("CharacterId") REFERENCES "character"("CharacterId")
+);
+CREATE TABLE IF NOT EXISTS notes (
+      Id INTEGER PRIMARY KEY AUTOINCREMENT,
+      Content TEXT NOT NULL,
+      Type TEXT NOT NULL
+    , color TEXT DEFAULT "#dc2626");
+CREATE TABLE IF NOT EXISTS "user" (
+	"UserId"	INTEGER,
+	"Username"	TEXT NOT NULL UNIQUE,
+	"Password"	TEXT NOT NULL,
+	"Role"	TEXT NOT NULL DEFAULT 'player' CHECK("Role" IN ('DM', 'player')),
+	PRIMARY KEY("UserId" AUTOINCREMENT)
+);
+COMMIT;

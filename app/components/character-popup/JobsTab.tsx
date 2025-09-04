@@ -25,7 +25,7 @@ export function JobsTab({ characterId }: JobsTabProps) {
   } = useJobs(characterId);
 
   return (
-    <div className="min-h-[500px]">
+    <div>
       <div className="space-y-4">
         {jobs.length > 0 ? (
           <ul className="space-y-4">
