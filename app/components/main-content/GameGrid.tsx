@@ -4,14 +4,17 @@ import type { DrawingObject } from '../DrawingLayer'
 import TokenRenderer from "./TokenRenderer"
 import DarknessLayer, { type DarknessPath } from "./DarknessLayer"
 import TextBalloon from "../TextBalloon"
-import { useState, useCallback } from "react"
+import { useState } from "react"
+import type { MapInteractionTool } from "../../types/mapTool"
+import { isAnyFogTool, isFogStrokeTool } from "../../types/mapTool"
 
 interface GameGridProps {
   gridRef: React.RefObject<HTMLDivElement>;
   backgroundImage: string | null;
   imageDimensions: { width: number; height: number } | null;
   zoomLevel: number;
-  currentTool: 'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush';
+  currentTool: MapInteractionTool;
+  fogBrushDiameter: number;
   gridSize: number;
   gridColor: string;
   sceneBorderSize?: number;
@@ -75,6 +78,7 @@ export default function GameGrid({
   imageDimensions,
   zoomLevel,
   currentTool,
+  fogBrushDiameter,
   gridSize,
   gridColor,
   sceneBorderSize = 0.2,
@@ -132,7 +136,8 @@ export default function GameGrid({
       ref={gridRef}
       className="relative"
       style={{
-        cursor: currentTool === "brush" || currentTool === "darknessEraser" || currentTool === "darknessBrush" ? "crosshair" : "default",
+        cursor:
+          currentTool === "brush" || isAnyFogTool(currentTool) ? "crosshair" : "default",
         transform: `scale(${zoomLevel})`,
         transformOrigin: "0 0",
         width: totalWidth || "100%",
@@ -406,12 +411,12 @@ export default function GameGrid({
           <path 
             d={currentPath} 
             stroke={
-              currentTool === 'darknessEraser' ? 'rgba(255,255,255,0.5)' :
-              currentTool === 'darknessBrush' ? 'rgba(0,0,0,0.4)' :
+              currentTool === "darknessEraser" ? "rgba(255,255,255,0.5)" :
+              currentTool === "darknessBrush" ? "rgba(0,0,0,0.4)" :
               currentColor
             }
             strokeWidth={
-              currentTool === 'darknessEraser' || currentTool === 'darknessBrush' ? "50" : "3"
+              isFogStrokeTool(currentTool) ? String(fogBrushDiameter) : "3"
             }
             fill="none" 
             strokeLinejoin="round" 

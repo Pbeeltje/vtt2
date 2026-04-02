@@ -24,10 +24,8 @@ interface UseDragAndDropProps {
   onPlayerPlaceToken?: (token: LayerImage, sceneId: number) => void
   onPlayerUpdateTokenPosition?: (token: LayerImage, sceneId: number) => void
   onDrop: (imageData: LayerImage) => void
-  onFileDrop: (files: FileList) => void
   onPlayerRequestTokenDelete: (tokenId: string) => void
   user: { id: number; role: string } | null
-  selectedSceneId: number | null
 }
 
 export const useDragAndDrop = ({
@@ -51,10 +49,8 @@ export const useDragAndDrop = ({
   onPlayerPlaceToken,
   onPlayerUpdateTokenPosition,
   onDrop,
-  onFileDrop,
   onPlayerRequestTokenDelete,
   user,
-  selectedSceneId,
 }: UseDragAndDropProps) => {
   const draggedItem = useRef<LayerImage | null>(null)
   const isDragging = useRef(false)
@@ -122,8 +118,8 @@ export const useDragAndDrop = ({
         }
 
         onDrop(droppedToken)
-      } catch (error) {
-        console.error('Error parsing character data:', error)
+      } catch {
+        /* invalid character payload */
       }
     } else if (dataTransferData) {
       try {
@@ -153,25 +149,23 @@ export const useDragAndDrop = ({
             onPlayerPlaceToken?.(updatedToken, currentSceneId)
           }
         } else {
-          // DM dropping UI image or token
-          let realCategory = imageData.category
-          
-          // If this has character data, it's a character token - don't fetch from database
-          if (!characterId && !characterData) {
+          // DM dropping from sidebar JSON (ImageList) or similar — category is already authoritative for Image/Prop.
+          let realCategory: string = imageData.category ?? "Image"
+          const fromSidebarList = realCategory === "Image" || realCategory === "Prop"
+          if (!characterId && !characterData && !fromSidebarList) {
             try {
-              const res = await fetch(`/api/images/${imageData.imageId}`)
+              const res = await fetch(`/api/images/${imageData.imageId}`, { credentials: "include" })
               if (res.ok) {
                 const img = await res.json()
                 realCategory = img.Category || img.category || realCategory
               }
-            } catch (err) {
-              console.warn('Failed to fetch image category from backend, using drag data', err)
+            } catch {
+              /* keep realCategory from payload */
             }
           }
 
           const rect = gridRef.current?.getBoundingClientRect()
           if (!rect) {
-            console.error('Grid ref is null, cannot get bounding rect')
             return
           }
           const { x: mouseX, y: mouseY } = clientToGridLogical(
@@ -181,8 +175,8 @@ export const useDragAndDrop = ({
             zoomLevel
           )
           setDragOffset({
-            x: mouseX - imageData.x,
-            y: mouseY - imageData.y
+            x: mouseX - (typeof imageData.x === "number" ? imageData.x : 0),
+            y: mouseY - (typeof imageData.y === "number" ? imageData.y : 0),
           })
 
           let x, y, width, height
@@ -205,7 +199,7 @@ export const useDragAndDrop = ({
           }
 
           const droppedImage: LayerImage = {
-            id: `${imageData.imageId}-${Date.now()}` || `dropped-${Date.now()}`,
+            id: `${imageData.imageId}-${Date.now()}`,
             url: imageData.url,
             x,
             y,
@@ -217,11 +211,11 @@ export const useDragAndDrop = ({
 
           onDrop(droppedImage)
         }
-      } catch (error) {
-        console.error('Error parsing drop data:', error)
+      } catch {
+        /* invalid JSON */
       }
     }
-  }, [currentSceneId, user, onDrop, onFileDrop, onPlayerPlaceToken, gridSize, zoomLevel])
+  }, [currentSceneId, user, onDrop, onPlayerPlaceToken, gridSize, zoomLevel, setDragOffset])
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -300,10 +294,14 @@ export const useDragAndDrop = ({
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return
     
-    const referenceItem = middleLayerImages.find((i) => i.id === draggingIds[0]) || 
-                         topLayerImages.find((i) => i.id === draggingIds[0])
+    const refId = draggingIds[0]
+    const refMiddle = middleLayerImages.find((i) => i.id === refId)
+    const refTop = topLayerImages.find((i) => i.id === refId)
+    const referenceItem = refMiddle ?? refTop
     if (!referenceItem) return
-    
+
+    const isTopLayerDrag = refMiddle === undefined && refTop !== undefined
+
     const { x: mouseX, y: mouseY } = clientToGridLogical(
       e.clientX,
       e.clientY,
@@ -311,26 +309,22 @@ export const useDragAndDrop = ({
       zoomLevel
     )
 
-    // Check if this is a token (top layer) or map image (middle layer)
-    const isToken = topLayerImages.some(token => token.id === referenceItem.id)
-    
-    let newX, newY
-    
-    if (isToken) {
-      // Tokens: snap to grid
-      newX = Math.floor((mouseX - dragOffset.x) / gridSize) * gridSize
-      newY = Math.floor((mouseY - dragOffset.y) / gridSize) * gridSize
+    // Top-layer (tokens): place by grid cell under cursor so snap matches "that square", not grab-offset top-left.
+    // Middle layer: keep grab point under cursor (free move).
+    let dx: number
+    let dy: number
+    if (isTopLayerDrag) {
+      const cellX = Math.floor(mouseX / gridSize) * gridSize
+      const cellY = Math.floor(mouseY / gridSize) * gridSize
+      dx = cellX - referenceItem.x
+      dy = cellY - referenceItem.y
     } else {
-      // Map images: free movement (no grid snapping)
-      newX = mouseX - dragOffset.x
-      newY = mouseY - dragOffset.y
+      const newX = mouseX - dragOffset.x
+      const newY = mouseY - dragOffset.y
+      dx = newX - referenceItem.x
+      dy = newY - referenceItem.y
     }
-    
-    const dx = newX - referenceItem.x
-    const dy = newY - referenceItem.y
 
-
-    
     const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy)
     onUpdateImages?.(middleLayer, topLayer)
   }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages, zoomLevel])
@@ -351,6 +345,8 @@ export const useDragAndDrop = ({
 
     setDraggingIds(null)
     setDragOffset(null)
+    draggedItem.current = null
+    isDragging.current = false
   }, [draggingIds, middleLayerImages, topLayerImages, onUpdateImages, currentUserRole, currentUserId, currentSceneId, onPlayerUpdateTokenPosition])
 
   const handleTokenMove = useCallback((tokenId: string, newX: number, newY: number) => {

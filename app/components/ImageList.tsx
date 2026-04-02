@@ -32,7 +32,6 @@ interface ImageListProps {
   onUpdateSceneBorderSize?: (image: DMImage, borderSize: number) => Promise<void>
   characters?: Character[]
   currentUserRole?: string
-  onDropImage?: (category: string, image: DMImage, x: number, y: number) => void
   onMakeSceneActive?: (sceneId: number) => void
 }
 
@@ -48,7 +47,6 @@ export default function ImageList({
   onUpdateSceneBorderSize,
   characters = [],
   currentUserRole,
-  onDropImage,
   onMakeSceneActive,
 }: ImageListProps) {
   const [activeCategory, setActiveCategory] = useState<string>("Scene")
@@ -239,21 +237,13 @@ export default function ImageList({
                       className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
                       draggable={image.Category !== "Scene"}
                       onDragStart={image.Category !== "Scene" ? (e) => {
-                        console.log('ImageList drag start triggered for:', image.Name, image.Category);
-                        
-                        // Set the data in the format expected by useDragAndDrop
                         const imageData = {
                           imageId: image.Id.toString(),
                           url: image.Link,
-                          category: image.Category
+                          category: image.Category,
                         }
-                        
-                        console.log('ImageList drag start:', imageData);
-                        
                         e.dataTransfer.setData("application/json", JSON.stringify(imageData))
-                        
-                        // Set effectAllowed to prevent file drag
-                        e.dataTransfer.effectAllowed = "copy";
+                        e.dataTransfer.effectAllowed = "copy"
                       } : undefined}
                       onClick={() => handleImageClick(image)}
                     >

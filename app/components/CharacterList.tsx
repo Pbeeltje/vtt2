@@ -100,17 +100,11 @@ export default function CharacterList({
   }, [onDeleteCharacter])
 
   const handleDragStart = useCallback((e: React.DragEvent<HTMLLIElement>, character: Character) => {
-    console.log('CharacterList drag start triggered for:', character.Name, character.Category);
-    
-    // Set the data in the format expected by useDragAndDrop
     const imageData = {
       imageId: character.CharacterId.toString(),
       url: character.TokenUrl || character.PortraitUrl || "/placeholder.svg",
-      category: "Token"
+      category: "Token",
     }
-    
-    console.log('CharacterList drag start:', imageData);
-    
     e.dataTransfer.setData("application/json", JSON.stringify(imageData))
     
     // Also set character data for token functionality

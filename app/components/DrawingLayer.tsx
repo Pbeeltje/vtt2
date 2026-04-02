@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from "@/lib/utils";
+import type { MapInteractionTool } from '../types/mapTool';
 
 interface DrawingLayerProps {
   isDrawingMode: boolean;
   currentColor: string;
-  currentTool: 'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush';
+  currentTool: MapInteractionTool;
   drawings: DrawingObject[];
   onDrawingComplete: (drawing: DrawingObject) => void;
   onDrawingSelect: (drawing: DrawingObject | null) => void;

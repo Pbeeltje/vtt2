@@ -2,9 +2,14 @@ import React from 'react';
 
 export interface DarknessPath {
   id: string;
-  path: string;
-  type: 'erase' | 'paint';
+  type: "erase" | "paint";
   createdAt: string;
+  /** Stroke-based edit (omit when using cellRect). */
+  path?: string;
+  /** Brush diameter in scene pixels; defaults to 50 for legacy paths. */
+  strokeWidth?: number;
+  /** Single grid cell in scene coordinates. */
+  cellRect?: { x: number; y: number; width: number; height: number };
 }
 
 interface DarknessLayerProps {
@@ -27,8 +32,40 @@ export default function DarknessLayer({
   // Don't render anything if not visible
   if (!isVisible) return null;
 
-  const erasePaths = darknessPaths.filter(p => p.type === 'erase');
-  const paintPaths = darknessPaths.filter(p => p.type === 'paint');
+  /** Paint vs erase must interleave by time; if all paints render after all erases, fog paint blocks later reveals forever. */
+  const orderedPaths = [...darknessPaths].sort((a, b) => {
+    const t = (a.createdAt || "").localeCompare(b.createdAt || "");
+    if (t !== 0) return t;
+    return a.id.localeCompare(b.id);
+  });
+
+  const maskOperationNodes = orderedPaths.map((p) => {
+    const ink = p.type === "erase" ? "black" : "white";
+    if (p.cellRect) {
+      return (
+        <rect
+          key={p.id}
+          x={p.cellRect.x}
+          y={p.cellRect.y}
+          width={p.cellRect.width}
+          height={p.cellRect.height}
+          fill={ink}
+        />
+      );
+    }
+    if (!p.path) return null;
+    return (
+      <path
+        key={p.id}
+        d={p.path}
+        stroke={ink}
+        strokeWidth={p.strokeWidth ?? 50}
+        fill="none"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    );
+  });
 
   // For players, show solid black overlay with erased areas creating transparent holes
   if (!isDM) {
@@ -51,30 +88,8 @@ export default function DarknessLayer({
             <mask id="darkness-mask-player">
               {/* White background = visible darkness */}
               <rect width="100%" height="100%" fill="white" />
-              {/* Black strokes = transparent holes (erased areas) */}
-              {erasePaths.map(path => (
-                <path
-                  key={path.id}
-                  d={path.path}
-                  stroke="black"
-                  strokeWidth="50"
-                  fill="none"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              ))}
-              {/* White strokes = restored darkness (paint paths restore erased areas) */}
-              {paintPaths.map(path => (
-                <path
-                  key={path.id}
-                  d={path.path}
-                  stroke="white"
-                  strokeWidth="50"
-                  fill="none"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              ))}
+              {/* Chronological: black = reveal, white = fog; newest wins per pixel */}
+              {maskOperationNodes}
             </mask>
           </defs>
           
@@ -110,30 +125,7 @@ export default function DarknessLayer({
           <mask id="darkness-mask-dm">
             {/* White background = visible darkness */}
             <rect width="100%" height="100%" fill="white" />
-            {/* Black strokes = transparent holes (erased areas) */}
-            {erasePaths.map(path => (
-              <path
-                key={path.id}
-                d={path.path}
-                stroke="black"
-                strokeWidth="50"
-                fill="none"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            ))}
-            {/* White strokes = restored darkness (paint paths restore erased areas) */}
-            {paintPaths.map(path => (
-              <path
-                key={path.id}
-                d={path.path}
-                stroke="white"
-                strokeWidth="50"
-                fill="none"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            ))}
+            {maskOperationNodes}
           </mask>
         </defs>
         

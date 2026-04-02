@@ -43,7 +43,6 @@ interface RightSideMenuProps {
   onSetBackground: (url: string) => void
   scenes: DMImage[]
   onLoadScene: (scene: DMImage) => void
-  onDropImage: (category: string, image: DMImage, x: number, y: number) => void
   onDeleteSceneData: (image: DMImage) => Promise<void>
   onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
   onUpdateSceneBorderSize?: (image: DMImage, borderSize: number) => Promise<void>
@@ -73,7 +72,6 @@ export default function RightSideMenu({
   onSetBackground,
   scenes,
   onLoadScene,
-  onDropImage,
   onDeleteSceneData,
   onUpdateSceneScale,
   onUpdateSceneBorderSize,
@@ -368,7 +366,6 @@ export default function RightSideMenu({
                   onUpdateSceneBorderSize={onUpdateSceneBorderSize}
                   characters={characters}
                   currentUserRole={user?.role}
-                  onDropImage={onDropImage}
                   onMakeSceneActive={onMakeSceneActive}
                 />
               </div>

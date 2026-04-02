@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useCallback, useState } from "react"
-import { toast } from "@/components/ui/use-toast" 
+import { toast } from "@/components/ui/use-toast"
+import { clientToGridLogical } from "@/lib/utils"
 import type { LayerImage } from "../types/layerImage"
 import DrawingToolbar from "./DrawingToolbar"
 import type { DrawingObject } from './DrawingLayer'; 
@@ -14,6 +15,8 @@ import ZoomControls from "./main-content/ZoomControls"
 import StatusModal from "./main-content/StatusModal"
 import TokenSettingsModal from "./TokenSettingsModal"
 import type { DarknessPath } from "./main-content/DarknessLayer"
+import type { MapInteractionTool } from "../types/mapTool"
+import { isAnyFogTool, isCanvasStrokeTool, isFogCellTool } from "../types/mapTool"
 
 interface MainContentProps {
   backgroundImage: string | null
@@ -25,8 +28,10 @@ interface MainContentProps {
   gridColor: string
   onGridSizeChange: (size: number) => void
   onGridColorChange: (color: string) => void
-  currentTool: 'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush'
-  onToolChange: (tool: 'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush') => void
+  currentTool: MapInteractionTool
+  onToolChange: (tool: MapInteractionTool) => void
+  fogBrushDiameter?: number
+  onFogBrushDiameterChange?: (diameter: number) => void
   currentColor: string
   onColorChange: (color: string) => void
   sceneScale: number
@@ -76,6 +81,8 @@ export default function MainContent({
   onGridColorChange,
   currentTool,
   onToolChange,
+  fogBrushDiameter = 50,
+  onFogBrushDiameterChange,
   currentColor,
   onColorChange,
   sceneScale = 1,
@@ -104,7 +111,6 @@ export default function MainContent({
   
   // Handle darkness layer changes
   const handleDarknessChange = useCallback((paths: DarknessPath[]) => {
-    console.log('[MainContent] handleDarknessChange called with paths:', paths);
     if (onDarknessChange) {
       onDarknessChange(paths)
     }
@@ -171,28 +177,14 @@ export default function MainContent({
 
   // Create proper handlers for drag and drop
   const handleImageDrop = useCallback((imageData: LayerImage) => {
-    // Determine which layer the item should go to based on category
     if (imageData.category === "Token" || imageData.character) {
-      // Tokens go to top layer
-      console.log('Adding token to top layer:', imageData);
       onUpdateImages?.(middleLayerImages, [...topLayerImages, imageData]);
     } else if (imageData.category === "Prop") {
-      // Props go to middle layer
-      console.log('Adding prop to middle layer:', imageData);
       onUpdateImages?.([...middleLayerImages, imageData], topLayerImages);
     } else {
-      // Regular images go to middle layer
-      console.log('Adding image to middle layer:', imageData);
       onUpdateImages?.([...middleLayerImages, imageData], topLayerImages);
     }
   }, [middleLayerImages, topLayerImages, onUpdateImages]);
-
-  const handleFileDropCallback = useCallback((files: FileList) => {
-    if (files && files.length > 0 && onAddImage) {
-      const file = files[0];
-      onAddImage('Image', file);
-    }
-  }, [onAddImage]);
 
   const {
     handleDrop,
@@ -221,10 +213,8 @@ export default function MainContent({
     onPlayerPlaceToken,
     onPlayerUpdateTokenPosition,
     onDrop: handleImageDrop,
-    onFileDrop: handleFileDropCallback,
     onPlayerRequestTokenDelete: onPlayerRequestTokenDelete || (() => {}),
     user: currentUserRole ? { id: currentUserId || 0, role: currentUserRole } : null,
-    selectedSceneId: currentSceneId || null,
   })
 
   // Drawing functionality
@@ -236,6 +226,8 @@ export default function MainContent({
     handleDrawingClick,
   } = useDrawing({
     gridRef,
+    gridSize,
+    fogBrushDiameter,
     currentTool,
     currentColor,
     zoomLevel,
@@ -352,7 +344,7 @@ export default function MainContent({
                            target.closest('[draggable="true"]');
     
     // Don't clear selections if we just finished selecting or if clicking on a token or using brush
-    if (!isClickingToken && currentTool !== 'brush' && !isSelecting) {
+    if (!isClickingToken && currentTool !== "brush" && !isAnyFogTool(currentTool) && !isSelecting) {
       setSelectedIds([]);
       setSelectedDrawingIds([]);
     }
@@ -360,7 +352,7 @@ export default function MainContent({
 
   const handleItemClick = useCallback((e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
     e.stopPropagation();
-    if (currentTool === 'brush') return;
+    if (currentTool === "brush" || isAnyFogTool(currentTool)) return;
     
     if (e.shiftKey) {
       setSelectedIds((prev) => 
@@ -514,15 +506,15 @@ export default function MainContent({
 
   // Reset darkness handler
   const handleResetDarkness = useCallback(() => {
-    if (window.confirm('Are you sure you want to reset the darkness layer? This will remove all erased areas and make the entire layer dark again.')) {
+    if (window.confirm("Reset fog of war? This removes all revealed areas and fills the map with fog again.")) {
       onDarknessChange?.([]);
     }
   }, [onDarknessChange]);
 
   // Auto-switch tool when darkness layer is toggled off
   useEffect(() => {
-    if (!isDarknessLayerVisible && (currentTool === 'darknessEraser' || currentTool === 'darknessBrush')) {
-      onToolChange('cursor');
+    if (!isDarknessLayerVisible && isAnyFogTool(currentTool)) {
+      onToolChange("cursor");
     }
   }, [isDarknessLayerVisible, currentTool, onToolChange]);
 
@@ -856,69 +848,65 @@ export default function MainContent({
     e.dataTransfer.dropEffect = 'copy';
   }, [currentUserRole]);
 
-  const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const files = e.dataTransfer.files;
-    if (files && files.length > 0 && onAddImage) {
-      const file = files[0];
-      
-      // Calculate drop position relative to the grid
-      const rect = gridRef.current?.getBoundingClientRect();
+  const handleFileDrop = useCallback(
+    async (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      const files = e.dataTransfer.files
+      if (!files?.length || !onAddImage) return
+
+      const file = files[0]
+
+      const rect = gridRef.current?.getBoundingClientRect()
       if (!rect) {
-        console.error('Grid ref is null, cannot get drop position');
-        await onAddImage('Image', file);
-        return;
+        await onAddImage("Image", file)
+        return
       }
-      
-      // Calculate position relative to the grid, accounting for zoom and borders
-      const mouseX = (e.clientX - rect.left) / zoomLevel;
-      const mouseY = (e.clientY - rect.top) / zoomLevel;
-      
-      console.log('File drop at position:', { x: mouseX, y: mouseY });
-      
+
+      const { x: mouseX, y: mouseY } = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel)
+
       try {
-        // Upload the image first
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("category", "Image");
-        
-        const response = await fetch('/api/images', {
-          method: 'POST',
+        const formData = new FormData()
+        formData.append("file", file)
+        formData.append("category", "Image")
+
+        const response = await fetch("/api/images", {
+          method: "POST",
           body: formData,
-        });
-        
+          credentials: "include",
+        })
+
         if (response.ok) {
-          const uploadedImage = await response.json();
-          console.log('Image uploaded successfully:', uploadedImage);
-          
-          // Create a LayerImage to place on the map
+          const uploadedImage = await response.json()
           const imageData: LayerImage = {
             id: `${uploadedImage.Id}-${Date.now()}`,
             url: uploadedImage.Link,
             x: mouseX,
             y: mouseY,
-            width: 100, // Default size for dropped images
+            width: 100,
             height: 100,
-            category: "Image"
-          };
-          
-          // Add to middle layer (regular images)
-          onUpdateImages?.([...middleLayerImages, imageData], topLayerImages);
-          
-          // Call onAddImage to update the images list in the parent
-          await onAddImage('Image', file);
-          
-          console.log('Image placed on map at:', { x: mouseX, y: mouseY });
+            category: "Image",
+          }
+          onUpdateImages?.([...middleLayerImages, imageData], topLayerImages)
+          // One upload only: merge into sidebar library without calling onAddImage again (that would POST twice).
+          if (onImageUploaded) {
+            onImageUploaded(uploadedImage)
+            toast({
+              title: "Image on map",
+              description: `${uploadedImage.Name ?? "Image"} added to the scene and image list.`,
+            })
+          } else {
+            await onAddImage("Image", file)
+          }
         } else {
-          console.error('Failed to upload image');
-          await onAddImage('Image', file); // Fallback to original behavior
+          await onAddImage("Image", file)
         }
       } catch (error) {
-        console.error('Error uploading and placing image:', error);
-        await onAddImage('Image', file); // Fallback to original behavior
+        console.error("Error uploading and placing image:", error)
+        await onAddImage("Image", file)
       }
-    }
-  }, [onAddImage, onUpdateImages, middleLayerImages, topLayerImages, zoomLevel]);
+    },
+    [onAddImage, onImageUploaded, onUpdateImages, middleLayerImages, topLayerImages, zoomLevel]
+  )
 
   const handleContainerDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -983,6 +971,8 @@ export default function MainContent({
             isDarknessLayerVisible={isDarknessLayerVisible}
             onToggleDarknessLayer={onToggleDarknessLayer}
             onResetDarkness={handleResetDarkness}
+            fogBrushDiameter={fogBrushDiameter}
+            onFogBrushDiameterChange={onFogBrushDiameterChange}
           />
           <ZoomControls
             zoomLevel={zoomLevel}
@@ -998,6 +988,7 @@ export default function MainContent({
           imageDimensions={imageDimensions}
           zoomLevel={zoomLevel}
           currentTool={currentTool}
+          fogBrushDiameter={fogBrushDiameter}
           gridSize={gridSize}
           gridColor={gridColor}
           sceneBorderSize={sceneBorderSize}
@@ -1022,8 +1013,8 @@ export default function MainContent({
           onFileDrop={handleFileDrop}
           onGridClick={handleGridClick}
           onMouseDown={(e) => {
-            const isDrawingTool = currentTool === 'brush' || currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
-            if (isDrawingTool) {
+            const isFogPaintTool = isCanvasStrokeTool(currentTool) || isFogCellTool(currentTool);
+            if (isFogPaintTool) {
               startDrawing(e);
               e.stopPropagation();
             } else if (e.button === 0) {
@@ -1044,8 +1035,8 @@ export default function MainContent({
             }
           }}
           onMouseMove={(e) => {
-            const isDrawingTool = currentTool === 'brush' || currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
-            if (isDrawing && isDrawingTool) {
+            const isStrokeOrCellFog = isCanvasStrokeTool(currentTool) || isFogCellTool(currentTool);
+            if (isDrawing && isStrokeOrCellFog) {
               draw(e);
               e.stopPropagation();
             } else if (isSelecting && selectionStart) {
@@ -1058,8 +1049,8 @@ export default function MainContent({
             }
           }}
           onMouseUp={(e) => {
-            const isDrawingTool = currentTool === 'brush' || currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
-            if (isDrawing && isDrawingTool) {
+            const isStrokeOrCellFog = isCanvasStrokeTool(currentTool) || isFogCellTool(currentTool);
+            if (isDrawing && isStrokeOrCellFog) {
               endDrawing(e);
               e.stopPropagation();
             } else if (isSelecting) {

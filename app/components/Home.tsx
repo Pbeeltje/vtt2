@@ -18,6 +18,7 @@ import type { LayerImage } from "../types/layerImage";
 import DrawingLayer, { DrawingObject } from './DrawingLayer'; 
 import CharacterPopup from "./character-popup/CharacterPopup";
 import type { DarknessPath } from "./main-content/DarknessLayer";
+import type { MapInteractionTool } from "../types/mapTool";
 
 // Define NewDrawingData here for now, ensure MainContent can import it or define its own.
 export type NewDrawingData = Omit<DrawingObject, 'id' | 'createdAt' | 'createdBy' | 'sceneId'>;
@@ -64,7 +65,8 @@ export default function Home() {
   const [gridSize, setGridSize] = useState<number>(50);
   const [gridColor, setGridColor] = useState<string>("rgba(0,0,0,0.1)");
   const [isInitialized, setIsInitialized] = useState(false);
-  const [currentTool, setCurrentTool] = useState<'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush'>('cursor');
+  const [currentTool, setCurrentTool] = useState<MapInteractionTool>("cursor");
+  const [fogBrushDiameter, setFogBrushDiameter] = useState(50);
   const [currentColor, setCurrentColor] = useState('#000000');
   const [drawings, setDrawings] = useState<DrawingObject[]>([]);
   const [selectedDrawing, setSelectedDrawing] = useState<DrawingObject | null>(null);
@@ -919,7 +921,6 @@ export default function Home() {
     }
   };
   const handleSetBackground = async (url:string) => { const sceneImage=images.find(img=>img.Link===url); await handleLoadScene(sceneImage||null);};
-  const handleDropImage = (category:string,image:DMImage,x:number,y:number) => {};
   const handleUpdateImages = (middleLayer:LayerImage[],topLayer:LayerImage[]) => {
     setMiddleLayerImages(middleLayer);
     setTopLayerImages(topLayer);
@@ -1092,17 +1093,17 @@ export default function Home() {
     }
 
     if (middleLayerImages.length === 0 && topLayerImages.length === 0 && darknessPaths.length === 0) {
-      toast({ title: "Scene Empty", description: "There are no tokens, images, or darkness on the current scene to clear.", variant: "default" });
+      toast({ title: "Scene Empty", description: "There are no tokens, images, or fog of war on the current scene to clear.", variant: "default" });
       return;
     }
 
-    if (window.confirm("Are you sure you want to clear all tokens, images, and darkness from the current scene? This cannot be undone.")) {
+    if (window.confirm("Clear all tokens, images, and fog of war from the current scene? This cannot be undone.")) {
       setMiddleLayerImages([]);
       setTopLayerImages([]);
       setDarknessPaths([]);
       setIsDarknessLayerVisible(false);
       if (user?.role === 'DM') handleSaveScene();
-      toast({ title: "Scene Cleared", description: "All tokens, images, and darkness have been removed from the scene and changes are being saved." });
+      toast({ title: "Scene Cleared", description: "All tokens, images, and fog of war have been removed; changes are being saved." });
     }
   };
 
@@ -1399,7 +1400,9 @@ export default function Home() {
               backgroundImage={backgroundImage} middleLayerImages={middleLayerImages} topLayerImages={topLayerImages}
               onUpdateImages={handleUpdateImages} gridSize={gridSize} gridColor={gridColor}
               onGridSizeChange={setGridSize} onGridColorChange={handleGridColorChangeAndSave}
-              currentTool={currentTool} onToolChange={setCurrentTool} currentColor={currentColor} onColorChange={setCurrentColor}
+              currentTool={currentTool} onToolChange={setCurrentTool}
+              fogBrushDiameter={fogBrushDiameter} onFogBrushDiameterChange={setFogBrushDiameter}
+              currentColor={currentColor} onColorChange={setCurrentColor}
               sceneScale={sceneScale} zoomLevel={zoomLevel} setZoomLevel={setZoomLevel}
               currentSceneId={selectedScene?.Id} currentUserId={user?.id} currentUserRole={user?.role}
               drawings={drawings} 
@@ -1424,7 +1427,7 @@ export default function Home() {
               messages={messages} addMessage={addMessage} user={user} chatBackgroundColor={chatBackgroundColor}
               characters={characters} onAddCharacter={handleAddCharacter} onUpdateCharacter={handleUpdateCharacter} onDeleteCharacter={handleDeleteCharacter}
               onLogout={handleLogout} images={images} onAddImage={handleAddImage} onDeleteImage={handleDeleteImage}
-              onRenameImage={handleRenameImage} onSetBackground={handleSetBackground} onDropImage={handleDropImage}
+              onRenameImage={handleRenameImage} onSetBackground={handleSetBackground}
               scenes={scenes} onLoadScene={handleLoadScene}
               onDeleteSceneData={handleDeleteSceneData} onUpdateSceneScale={handleUpdateSceneScale} onUpdateSceneBorderSize={handleUpdateSceneBorderSize} setImages={setImages}
               onClearSceneElements={handleClearSceneElements}

@@ -1,12 +1,56 @@
-import { useCallback } from "react"
+import { useCallback, useRef } from "react"
 import { clientToGridLogical } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
 import type { NewDrawingData } from '../components/Home'
 import type { DarknessPath } from '../components/main-content/DarknessLayer'
+import type { MapInteractionTool } from "../types/mapTool"
+import { isFogCellTool, isFogStrokeTool, isCanvasStrokeTool } from "../types/mapTool"
+
+/** Grid indices from (gx0,gy0) to (gx1,gy1), inclusive; fills gaps when dragging fast. */
+function gridCellsAlongLine(gx0: number, gy0: number, gx1: number, gy1: number): Array<[number, number]> {
+  const cells: Array<[number, number]> = []
+  let x = gx0
+  let y = gy0
+  const dx = Math.abs(gx1 - gx0)
+  const dy = Math.abs(gy1 - gy0)
+  const sx = gx0 < gx1 ? 1 : gx0 > gx1 ? -1 : 0
+  const sy = gy0 < gy1 ? 1 : gy0 > gy1 ? -1 : 0
+  let err = dx - dy
+  for (;;) {
+    cells.push([x, y])
+    if (x === gx1 && y === gy1) break
+    const e2 = 2 * err
+    if (e2 > -dy) {
+      err -= dy
+      x += sx
+    }
+    if (e2 < dx) {
+      err += dx
+      y += sy
+    }
+  }
+  return cells
+}
+
+function makeFogCellPath(
+  ix: number,
+  iy: number,
+  gridSize: number,
+  tool: MapInteractionTool
+): DarknessPath {
+  return {
+    id: `darkness-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+    type: tool === "darknessEraserCell" ? "erase" : "paint",
+    createdAt: new Date().toISOString(),
+    cellRect: { x: ix * gridSize, y: iy * gridSize, width: gridSize, height: gridSize },
+  }
+}
 
 interface UseDrawingProps {
   gridRef: React.RefObject<HTMLDivElement>
-  currentTool: 'brush' | 'cursor' | 'darknessEraser' | 'darknessBrush'
+  gridSize: number
+  fogBrushDiameter: number
+  currentTool: MapInteractionTool
   currentColor: string
   zoomLevel: number
   currentSceneId?: number | null
@@ -27,6 +71,8 @@ interface UseDrawingProps {
 
 export const useDrawing = ({
   gridRef,
+  gridSize,
+  fogBrushDiameter,
   currentTool,
   currentColor,
   zoomLevel,
@@ -44,11 +90,20 @@ export const useDrawing = ({
   darknessPaths,
   onDarknessChange,
 }: UseDrawingProps) => {
+  const fogCellInitialRef = useRef<DarknessPath[]>([])
+  const fogCellAddedRef = useRef<DarknessPath[]>([])
+  const fogCellVisitedRef = useRef<Set<string>>(new Set())
+  const fogCellLastIdxRef = useRef<{ ix: number; iy: number } | null>(null)
+
+  const resetFogCellDrag = useCallback(() => {
+    fogCellInitialRef.current = []
+    fogCellAddedRef.current = []
+    fogCellVisitedRef.current = new Set()
+    fogCellLastIdxRef.current = null
+  }, [])
 
   const startDrawing = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const isDarknessMode = currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
-    
-    if (currentTool !== 'brush' && !isDarknessMode) {
+    if (!isCanvasStrokeTool(currentTool) && !isFogCellTool(currentTool)) {
       return;
     }
 
@@ -71,28 +126,86 @@ export const useDrawing = ({
 
     const { x, y } = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel);
 
+    if (isFogCellTool(currentTool)) {
+      if (onDarknessChange && darknessPaths) {
+        const ix = Math.floor(x / gridSize)
+        const iy = Math.floor(y / gridSize)
+        const key = `${ix},${iy}`
+        fogCellInitialRef.current = [...darknessPaths]
+        fogCellAddedRef.current = []
+        fogCellVisitedRef.current = new Set([key])
+        fogCellLastIdxRef.current = { ix, iy }
+        const first = makeFogCellPath(ix, iy, gridSize, currentTool)
+        fogCellAddedRef.current.push(first)
+        onDarknessChange([...fogCellInitialRef.current, ...fogCellAddedRef.current])
+        setIsDrawing(true)
+        setCurrentPath("")
+      }
+      e.preventDefault()
+      return
+    }
+
+    resetFogCellDrag()
     setIsDrawing(true);
     setCurrentPath(`M${x},${y}`);
     e.preventDefault();
-  }, [currentTool, zoomLevel, currentSceneId, currentUserId]);
+  }, [currentTool, zoomLevel, currentSceneId, currentUserId, gridSize, darknessPaths, onDarknessChange, resetFogCellDrag]);
     
   const draw = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const isDarknessMode = currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
-    
-    if (!isDrawing || (currentTool !== 'brush' && !isDarknessMode)) return;
-    
+    if (!isDrawing) return
+
+    if (isFogCellTool(currentTool)) {
+      if (!onDarknessChange) return
+      const rect = gridRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const { x, y } = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel)
+      const ix1 = Math.floor(x / gridSize)
+      const iy1 = Math.floor(y / gridSize)
+      const last = fogCellLastIdxRef.current
+      if (!last) return
+      if (last.ix === ix1 && last.iy === iy1) {
+        e.preventDefault()
+        return
+      }
+      const segment = gridCellsAlongLine(last.ix, last.iy, ix1, iy1)
+      let anyNew = false
+      for (const [ix, iy] of segment) {
+        const k = `${ix},${iy}`
+        if (fogCellVisitedRef.current.has(k)) continue
+        fogCellVisitedRef.current.add(k)
+        fogCellAddedRef.current.push(makeFogCellPath(ix, iy, gridSize, currentTool))
+        anyNew = true
+      }
+      fogCellLastIdxRef.current = { ix: ix1, iy: iy1 }
+      if (anyNew) {
+        onDarknessChange([...fogCellInitialRef.current, ...fogCellAddedRef.current])
+      }
+      e.preventDefault()
+      return
+    }
+
+    if (!isCanvasStrokeTool(currentTool)) return
+
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
 
     const { x, y } = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel);
     setCurrentPath(prev => `${prev} L${x},${y}`);
     e.preventDefault();
-  }, [isDrawing, currentTool, zoomLevel]);
+  }, [isDrawing, currentTool, zoomLevel, gridSize, onDarknessChange]);
 
   const endDrawing = useCallback((e?: React.MouseEvent<any>) => {
-    const isDarknessMode = currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
-    
-    if (!isDrawing || !currentPath || (currentTool !== 'brush' && !isDarknessMode)) return;
+    if (!isDrawing) return
+
+    if (isFogCellTool(currentTool)) {
+      e?.preventDefault()
+      resetFogCellDrag()
+      setIsDrawing(false)
+      setCurrentPath("")
+      return
+    }
+
+    if (!currentPath || !isCanvasStrokeTool(currentTool)) return;
     
     e?.preventDefault();
     
@@ -118,14 +231,14 @@ export const useDrawing = ({
       return;
     }
 
-    if (isDarknessMode) {
-      // Handle darkness path
+    if (isFogStrokeTool(currentTool)) {
       if (onDarknessChange && darknessPaths) {
         const newPath: DarknessPath = {
           id: `darkness-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           path: currentPath,
-          type: currentTool === 'darknessEraser' ? 'erase' : 'paint',
+          type: currentTool === "darknessEraser" ? "erase" : "paint",
           createdAt: new Date().toISOString(),
+          strokeWidth: fogBrushDiameter,
         };
         onDarknessChange([...darknessPaths, newPath]);
       } else {
@@ -142,14 +255,17 @@ export const useDrawing = ({
     
     setIsDrawing(false); 
     setCurrentPath('');
-  }, [isDrawing, currentPath, currentTool, currentSceneId, currentUserId, currentColor, onDrawingAdd, darknessPaths, onDarknessChange]);
+  }, [isDrawing, currentPath, currentTool, currentSceneId, currentUserId, currentColor, onDrawingAdd, darknessPaths, onDarknessChange, fogBrushDiameter, resetFogCellDrag]);
 
   const handleMouseLeave = useCallback(() => {
     if (isDrawing) {
+      if (isFogCellTool(currentTool)) {
+        resetFogCellDrag()
+      }
       setIsDrawing(false);
       setCurrentPath('');
     }
-  }, [isDrawing, setIsDrawing, setCurrentPath]);
+  }, [isDrawing, currentTool, setIsDrawing, setCurrentPath, resetFogCellDrag]);
 
   const handleDrawingClick = useCallback((e: React.MouseEvent<SVGPathElement>, drawing: {id: string, path: string, color: string, sceneId: number, createdBy: number, createdAt: string}) => {
     e.stopPropagation();
