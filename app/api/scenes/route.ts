@@ -9,8 +9,8 @@ const client = createClient({
 
 export async function GET(req: Request) {
   try {
-    // Only DMs can access scenes
-    const user = await requireAuth('DM');
+    // Any logged-in user can list/load scenes; only DM can save (POST).
+    await requireAuth();
 
     const result = await client.execute({
       sql: "SELECT * FROM DMImage WHERE Category = 'Scene' AND SceneData IS NOT NULL",
@@ -21,9 +21,6 @@ export async function GET(req: Request) {
     if (error instanceof Error) {
       if (error.message === "Authentication required") {
         return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-      }
-      if (error.message === "Insufficient permissions") {
-        return NextResponse.json({ error: "Not authorized - DM access required" }, { status: 403 })
       }
     }
     return NextResponse.json({ error: "Failed to fetch scenes" }, { status: 500 });

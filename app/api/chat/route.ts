@@ -67,9 +67,9 @@ export async function POST(req: Request) {
 
     // Emit event for new chat message
     try {
-      const { getIO } = await import('../../../lib/socket');
+      const { getIO, AUTHENTICATED_ROOM } = await import('../../../lib/socket');
       const io = getIO();
-      io.emit('new_message', savedMessageObject);
+      io.to(AUTHENTICATED_ROOM).emit('new_message', savedMessageObject);
     } catch (socketError) {
       console.error("Socket.IO emit error in POST /api/chat:", socketError);
     }

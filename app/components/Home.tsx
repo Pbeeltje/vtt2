@@ -7,9 +7,9 @@ import LoginForm from "./LoginForm";
 import RegisterForm from "./RegisterForm";
 import MainContent from "./MainContent";
 import RightSideMenu from "./RightSideMenu";
+import MiniChat from "./MiniChat";
 import BottomBar from "./BottomBar";
 import { toast } from "@/components/ui/use-toast";
-import { getUserFromCookie } from "@/lib/auth";
 import type { User } from "../types/user";
 import type { Character } from "../types/character";
 import ErrorBoundary from "./ErrorBoundary";
@@ -36,6 +36,18 @@ export interface ChatMessage {
   senderRole?: string;
 }
 
+const RIGHT_SIDEBAR_MODE_KEY = "vtt-right-sidebar-mode";
+
+async function fetchSessionUser(): Promise<User | null> {
+  try {
+    const res = await fetch("/api/user", { credentials: "include" });
+    if (res.status === 401 || !res.ok) return null;
+    return (await res.json()) as User;
+  } catch {
+    return null;
+  }
+}
+
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -60,6 +72,7 @@ export default function Home() {
   const [sceneBorderSize, setSceneBorderSize] = useState<number>(0.2); // Default 20% border
   const [zoomLevel, setZoomLevel] = useState(1);
   const [activeRightMenuTab, setActiveRightMenuTab] = useState<string>('chat');
+  const [showFullRightSidebar, setShowFullRightSidebar] = useState(true);
   const [characterSheetModal, setCharacterSheetModal] = useState<Character | null>(null);
   // Darkness layer state
   const [darknessPaths, setDarknessPaths] = useState<DarknessPath[]>([]);
@@ -89,6 +102,25 @@ export default function Home() {
   useEffect(() => { userRef.current = user; }, [user]);
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
   useEffect(() => { selectedSceneRef.current = selectedScene; }, [selectedScene]);
+
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(RIGHT_SIDEBAR_MODE_KEY);
+      if (v === "compact") setShowFullRightSidebar(false);
+      else if (v === "full") setShowFullRightSidebar(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const setRightSidebarMode = useCallback((full: boolean) => {
+    setShowFullRightSidebar(full);
+    try {
+      localStorage.setItem(RIGHT_SIDEBAR_MODE_KEY, full ? "full" : "compact");
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const findMostRecentScene = (scenesToSearch: DMImage[]): DMImage | null => {
     let mostRecent = null;
@@ -162,7 +194,7 @@ export default function Home() {
       setSceneBorderSize(0.2);
     }
     try {
-        const drawingsResponse = await fetch(`/api/drawings?sceneId=${scene.Id}`);
+        const drawingsResponse = await fetch(`/api/drawings?sceneId=${scene.Id}`, { credentials: 'include' });
         if (drawingsResponse.ok) {
             const sceneDrawingsData = await drawingsResponse.json();
             if (Array.isArray(sceneDrawingsData)) setDrawings(sceneDrawingsData); else setDrawings([]);
@@ -176,27 +208,7 @@ export default function Home() {
     const initializeApp = async () => {
       setIsLoading(true);
       try {
-        const publicScenesRes = await fetch('/api/public/scenes');
-        let initialSceneToLoad: DMImage | null = null;
-        if (publicScenesRes.ok) {
-          const publicScenes = await publicScenesRes.json();
-          if (Array.isArray(publicScenes) && publicScenes.length > 0) {
-            initialSceneToLoad = findMostRecentScene(publicScenes) || publicScenes[0];
-          }
-        }
-        if (initialSceneToLoad && initialSceneToLoad.Id) {
-          await handleLoadScene(initialSceneToLoad);
-        } else {
-           const drawingsResponse = await fetch('/api/drawings'); 
-           if (drawingsResponse.ok) {
-             const existingDrawings = await drawingsResponse.json();
-             if(Array.isArray(existingDrawings)) setDrawings(existingDrawings); else setDrawings([]);
-           } else { 
-             if(drawingsResponse.status !== 400) console.error("Failed to fetch initial drawings (no scene):", drawingsResponse.statusText);
-             setDrawings([]);
-           }
-        }
-        const userData = await getUserFromCookie();
+        const userData = await fetchSessionUser();
         if (userData) {
           setUser(userData);
           const [characterData, chatData, userScenesData] = await Promise.all([
@@ -222,8 +234,8 @@ export default function Home() {
             await fetchImages();
             await fetchAllUsers(userData.role);
           }
-          if (!initialSceneToLoad && userScenesData.length > 0) {
-            const mostRecentUserScene = findMostRecentScene(userScenesData);
+          if (userScenesData.length > 0) {
+            const mostRecentUserScene = findMostRecentScene(userScenesData) || userScenesData[0];
             if (mostRecentUserScene) await handleLoadScene(mostRecentUserScene);
           }
         }
@@ -232,7 +244,7 @@ export default function Home() {
     };
     void initializeApp();
 
-    socketRef.current = io(); 
+    socketRef.current = io({ withCredentials: true }); 
     const socket = socketRef.current;
     socket.on('connect', () => {
       console.log('Socket.IO: Connected to server with ID:', socket.id);
@@ -346,7 +358,7 @@ export default function Home() {
         
         const fetchSceneDetailsAndLoad = async (id: string | number) => {
           try {
-            const response = await fetch(`/api/scenes/${id}`); // Uses the new GET /api/scenes/[id]
+            const response = await fetch(`/api/scenes/${id}`, { credentials: 'include' });
             if (!response.ok) {
               const errorData = await response.json().catch(() => ({}));
               let errorMessage = `Failed to fetch scene ${id}`;
@@ -541,7 +553,7 @@ export default function Home() {
       return;
     }
     try {
-      const response = await fetch("/api/users");
+      const response = await fetch("/api/users", { credentials: "include" });
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data)) {
@@ -601,6 +613,12 @@ export default function Home() {
       setAllUsers([]); // Clear allUsers if the newly loaded user is not DM
       setImages([]); // Clear images if not DM
     }
+
+    const s = socketRef.current;
+    if (s) {
+      s.disconnect();
+      s.connect();
+    }
   };
 
   const handleLogin = async (_username: string, _role: string) => {
@@ -608,7 +626,7 @@ export default function Home() {
     // This function is now primarily for updating client-side state post-login.
     setIsLoading(true);
     try {
-      const userDataFromCookie = await getUserFromCookie();
+      const userDataFromCookie = await fetchSessionUser();
       if (userDataFromCookie) {
         await loadUserData(userDataFromCookie);
         toast({ title: "Login Successful", description: `Welcome back, ${userDataFromCookie.username}!` });
@@ -632,6 +650,7 @@ export default function Home() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ type, content, speakerName, senderType }),
       });
 
@@ -716,15 +735,8 @@ export default function Home() {
       setDrawings([]); // Clear drawings on logout
       currentSceneIdRef.current = null;
       toast({ title: "Logged Out", description: "You have been successfully logged out." });
-      // Optionally, load a default public scene
-        const publicScenesRes = await fetch('/api/public/scenes');
-        if (publicScenesRes.ok) {
-            const publicScenesData = await publicScenesRes.json();
-            if (Array.isArray(publicScenesData) && publicScenesData.length > 0) {
-                const initialPublicScene = findMostRecentScene(publicScenesData) || publicScenesData[0];
-                if (initialPublicScene) await handleLoadScene(initialPublicScene);
-            }
-        }
+      socketRef.current?.disconnect();
+      socketRef.current?.connect();
     } catch (error) {
       console.error("Logout error:", error);
       toast({ title: "Logout Error", description: "Failed to log out.", variant: "destructive" });
@@ -762,6 +774,7 @@ export default function Home() {
       const response = await fetch(`/api/characters/${updatedCharacter.CharacterId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(updatedCharacter),
       });
 
@@ -798,7 +811,8 @@ export default function Home() {
     try {
       const response = await fetch(`/api/characters/${characterToDelete.CharacterId}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' }, // Optional for DELETE with no body, but good practice
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
       });
 
       if (response.ok) {
@@ -839,7 +853,7 @@ export default function Home() {
       const response = await fetch('/api/images', {
         method: 'POST',
         body: formData,
-        // No 'Content-Type' header for FormData, browser sets it with boundary
+        credentials: 'include',
       });
 
       if (response.ok) {
@@ -860,7 +874,7 @@ export default function Home() {
   const handleDeleteImage = async (image:DMImage) => {
     console.log("Attempting to delete image (Home.tsx):", image);
     try {
-      const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE" });
+      const response = await fetch(`/api/images/${image.Id}`, { method: "DELETE", credentials: 'include' });
       if (response.ok) {
         setImages((prev) => prev.filter((i) => i.Id !== image.Id));
         toast({ title: "Success", description: "Image deleted successfully." });
@@ -884,6 +898,7 @@ export default function Home() {
       const response = await fetch(`/api/images/${image.Id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ name: newName })
       });
 
@@ -921,6 +936,7 @@ export default function Home() {
       const response = await fetch("/api/scenes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify({
           sceneId: image.Id,
           sceneData: null
@@ -988,6 +1004,7 @@ export default function Home() {
       const response = await fetch('/api/scenes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           sceneId: selectedScene.Id,
           sceneData: sceneDataToSave,
@@ -1111,6 +1128,7 @@ export default function Home() {
       const response = await fetch('/api/drawings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(drawingToSend)
       });
 
@@ -1153,7 +1171,7 @@ export default function Home() {
         const drawingToDelete = drawings.find(d => d.id === drawingId); // Get sceneId from local state for safety
         const currentSceneIdForDrawing = drawingToDelete?.sceneId || sceneIdForBroadcast;
 
-        const response = await fetch(`/api/drawings?id=${drawingId}&sceneId=${currentSceneIdForDrawing}`, { method: 'DELETE' });
+        const response = await fetch(`/api/drawings?id=${drawingId}&sceneId=${currentSceneIdForDrawing}`, { method: 'DELETE', credentials: 'include' });
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
           toast({ title: "Delete Error", description: `Failed to delete drawing ${drawingId.substring(0,8)}: ${errorData.error || response.statusText}`, variant: "destructive" });
@@ -1190,6 +1208,7 @@ export default function Home() {
       const response = await fetch('/api/scenes/player-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ sceneId, tokenData }),
       });
 
@@ -1221,6 +1240,7 @@ export default function Home() {
     try {
       const response = await fetch(`/api/scenes/player-token?sceneId=${sceneId}&tokenId=${tokenId}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
 
       if (response.ok) {
@@ -1251,6 +1271,7 @@ export default function Home() {
       const response = await fetch('/api/scenes/player-token', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ sceneId, tokenData }),
       });
 
@@ -1267,9 +1288,22 @@ export default function Home() {
     }
   };
 
-  const handleMakeSceneActive = (sceneId: number) => {
-    if (user?.role === 'DM' && socketRef.current?.connected) {
-      socketRef.current.emit('dm_set_active_scene', sceneId);
+  const handleMakeSceneActive = async (sceneId: number) => {
+    if (user?.role !== 'DM') return;
+    try {
+      const res = await fetch('/api/scenes/set-active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ sceneId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: 'Could not set active scene', description: err.error || res.statusText, variant: 'destructive' });
+      }
+    } catch (e) {
+      console.error(e);
+      toast({ title: 'Network error', description: 'Could not set active scene.', variant: 'destructive' });
     }
   };
 
@@ -1385,19 +1419,31 @@ export default function Home() {
               onCloseTextBalloon={handleCloseTextBalloon}
             />
           </div>
-          <RightSideMenu
-            messages={messages} addMessage={addMessage} user={user} chatBackgroundColor={chatBackgroundColor}
-            characters={characters} onAddCharacter={handleAddCharacter} onUpdateCharacter={handleUpdateCharacter} onDeleteCharacter={handleDeleteCharacter}
-            onLogout={handleLogout} images={images} onAddImage={handleAddImage} onDeleteImage={handleDeleteImage}
-            onRenameImage={handleRenameImage} onSetBackground={handleSetBackground} onDropImage={handleDropImage}
-            scenes={scenes} onLoadScene={handleLoadScene}
-            onDeleteSceneData={handleDeleteSceneData} onUpdateSceneScale={handleUpdateSceneScale} onUpdateSceneBorderSize={handleUpdateSceneBorderSize} setImages={setImages}
-            onClearSceneElements={handleClearSceneElements}
-            onMakeSceneActive={handleMakeSceneActive}
-            activeTab={activeRightMenuTab}
-            setActiveTab={setActiveRightMenuTab}
-            allUsers={allUsers}
-          />
+          {showFullRightSidebar ? (
+            <RightSideMenu
+              messages={messages} addMessage={addMessage} user={user} chatBackgroundColor={chatBackgroundColor}
+              characters={characters} onAddCharacter={handleAddCharacter} onUpdateCharacter={handleUpdateCharacter} onDeleteCharacter={handleDeleteCharacter}
+              onLogout={handleLogout} images={images} onAddImage={handleAddImage} onDeleteImage={handleDeleteImage}
+              onRenameImage={handleRenameImage} onSetBackground={handleSetBackground} onDropImage={handleDropImage}
+              scenes={scenes} onLoadScene={handleLoadScene}
+              onDeleteSceneData={handleDeleteSceneData} onUpdateSceneScale={handleUpdateSceneScale} onUpdateSceneBorderSize={handleUpdateSceneBorderSize} setImages={setImages}
+              onClearSceneElements={handleClearSceneElements}
+              onMakeSceneActive={handleMakeSceneActive}
+              activeTab={activeRightMenuTab}
+              setActiveTab={setActiveRightMenuTab}
+              allUsers={allUsers}
+              onRequestCompactChat={() => setRightSidebarMode(false)}
+            />
+          ) : (
+            <MiniChat
+              messages={messages}
+              addMessage={addMessage}
+              user={user}
+              chatBackgroundColor={chatBackgroundColor}
+              characters={characters}
+              onRequestFullSidebar={() => setRightSidebarMode(true)}
+            />
+          )}
         </div>
         <BottomBar onDiceRoll={handleDiceRoll} onPhaseChange={handlePhaseChange} userRole={user.role} />
       </div>

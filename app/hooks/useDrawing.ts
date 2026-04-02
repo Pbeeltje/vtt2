@@ -1,4 +1,5 @@
 import { useCallback } from "react"
+import { clientToGridLogical } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
 import type { NewDrawingData } from '../components/Home'
 import type { DarknessPath } from '../components/main-content/DarknessLayer'
@@ -22,8 +23,6 @@ interface UseDrawingProps {
   // Darkness functionality
   darknessPaths?: DarknessPath[]
   onDarknessChange?: (paths: DarknessPath[]) => void
-  borderWidth?: number
-  borderHeight?: number
 }
 
 export const useDrawing = ({
@@ -44,8 +43,6 @@ export const useDrawing = ({
   onDrawingAdd,
   darknessPaths,
   onDarknessChange,
-  borderWidth = 0,
-  borderHeight = 0,
 }: UseDrawingProps) => {
 
   const startDrawing = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -71,14 +68,13 @@ export const useDrawing = ({
 
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
-    
-    const x = (e.clientX - rect.left - borderWidth) / zoomLevel;
-    const y = (e.clientY - rect.top - borderHeight) / zoomLevel;
-    
+
+    const { x, y } = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel);
+
     setIsDrawing(true);
     setCurrentPath(`M${x},${y}`);
     e.preventDefault();
-  }, [currentTool, zoomLevel, currentSceneId, currentUserId, borderWidth, borderHeight]);
+  }, [currentTool, zoomLevel, currentSceneId, currentUserId]);
     
   const draw = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const isDarknessMode = currentTool === 'darknessEraser' || currentTool === 'darknessBrush';
@@ -87,12 +83,11 @@ export const useDrawing = ({
     
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
-    
-    const x = (e.clientX - rect.left - borderWidth) / zoomLevel;
-    const y = (e.clientY - rect.top - borderHeight) / zoomLevel;
+
+    const { x, y } = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel);
     setCurrentPath(prev => `${prev} L${x},${y}`);
     e.preventDefault();
-  }, [isDrawing, currentTool, zoomLevel, borderWidth, borderHeight]);
+  }, [isDrawing, currentTool, zoomLevel]);
 
   const endDrawing = useCallback((e?: React.MouseEvent<any>) => {
     const isDarknessMode = currentTool === 'darknessEraser' || currentTool === 'darknessBrush';

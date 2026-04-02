@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from "react"
+import { useRef, useState, useEffect, useCallback, useMemo } from "react"
 import { toast } from "@/components/ui/use-toast"
 import type { LayerImage } from "../types/layerImage"
 import type { DrawingObject } from '../components/DrawingLayer'
@@ -16,6 +16,7 @@ interface UseMainContentProps {
   currentUserId?: number | null
   currentUserRole?: string | null
   onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void
+  sceneBorderSize?: number
 }
 
 export const useMainContent = ({
@@ -30,6 +31,7 @@ export const useMainContent = ({
   currentUserId,
   currentUserRole,
   onUpdateImages,
+  sceneBorderSize,
 }: UseMainContentProps) => {
   // Refs
   const gridRef = useRef<HTMLDivElement>(null)
@@ -90,6 +92,16 @@ export const useMainContent = ({
   useEffect(() => {
     localStorage.setItem('dmScreenZoomLevel', zoomLevel.toString())
   }, [zoomLevel])
+
+  const borderFraction = sceneBorderSize ?? 0.2
+  const borderWidth = useMemo(
+    () => (imageDimensions ? Math.round(imageDimensions.width * borderFraction) : 0),
+    [imageDimensions, borderFraction]
+  )
+  const borderHeight = useMemo(
+    () => (imageDimensions ? Math.round(imageDimensions.height * borderFraction) : 0),
+    [imageDimensions, borderFraction]
+  )
 
   // Utility functions
   const generateUniqueId = useCallback((baseId: string) => 
@@ -185,6 +197,8 @@ export const useMainContent = ({
     resizeStart,
     setResizeStart,
     imageDimensions,
+    borderWidth,
+    borderHeight,
     isPanning,
     setIsPanning,
     panStart,

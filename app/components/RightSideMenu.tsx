@@ -4,9 +4,10 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { MessageSquare, Users, Map, Settings, LogOut, Trash2, Save, Upload } from "lucide-react"
+import { MessageSquare, Users, Map, PanelRightClose, UserCog } from "lucide-react"
 import CharacterList from "./CharacterList"
 import ImageList from "./ImageList"
+import DmPlayerAccounts from "./DmPlayerAccounts"
 import { toast } from "@/components/ui/use-toast"
 // import MapList from "./MapList"
 
@@ -52,6 +53,7 @@ interface RightSideMenuProps {
   activeTab?: string;
   setActiveTab?: (tabName: string) => void;
   allUsers?: User[]; // Add allUsers prop
+  onRequestCompactChat?: () => void;
 }
 
 export default function RightSideMenu({
@@ -81,6 +83,7 @@ export default function RightSideMenu({
   activeTab,
   setActiveTab,
   allUsers, // Destructure allUsers
+  onRequestCompactChat,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -91,10 +94,10 @@ export default function RightSideMenu({
   // console.log("[RightSideMenu.tsx] Current user role:", user?.role);
 
   useEffect(() => {
-    if (user?.role !== 'DM' && activeTab === 'maps' && setActiveTab) {
-      setActiveTab('chat');
+    if (user?.role !== "DM" && setActiveTab && (activeTab === "maps" || activeTab === "players")) {
+      setActiveTab("chat")
     }
-  }, [user?.role, activeTab, setActiveTab]);
+  }, [user?.role, activeTab, setActiveTab])
 
   useEffect(() => {
     setSelectedSpeaker({ name: user.username, type: 'user' });
@@ -174,16 +177,42 @@ export default function RightSideMenu({
   return (
     <div className="w-[40rem] flex-shrink-0 bg-white border-l flex flex-col" style={{ backgroundImage: 'url("images/rightsidemenu.jpeg")', backgroundSize: '100% auto', backgroundRepeat: 'repeat-y' }}>
       <div className="p-4 border-b w-full">
-        <Tabs 
-          value={activeTab || 'chat'} 
-          onValueChange={(value) => setActiveTab ? setActiveTab(value) : null} 
-          className="w-full"
-        >
-          <TabsList className={`grid w-full ${user?.role === 'DM' ? 'grid-cols-3' : 'grid-cols-2'} bg-stone-300`}>
-            <TabsTrigger value="chat" title="Chat"><MessageSquare className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Chat</span></TabsTrigger>
-            <TabsTrigger value="characters" title="Characters"><Users className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Characters</span></TabsTrigger>
-            {user?.role === 'DM' && (
-              <TabsTrigger value="maps" title="Maps"><Map className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Maps</span></TabsTrigger>
+        <div className="flex items-start gap-2 w-full">
+          {onRequestCompactChat && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="flex-shrink-0 h-9 w-9 bg-stone-200 mt-0.5"
+              onClick={onRequestCompactChat}
+              title="Mini chat + full map"
+            >
+              <PanelRightClose className="h-4 w-4" />
+            </Button>
+          )}
+          <Tabs
+            value={activeTab || "chat"}
+            onValueChange={(value) => (setActiveTab ? setActiveTab(value) : null)}
+            className="flex-1 min-w-0 w-full"
+          >
+          <TabsList
+            className={`grid w-full gap-0.5 ${user?.role === "DM" ? "grid-cols-4" : "grid-cols-2"} bg-stone-300`}
+          >
+            <TabsTrigger value="chat" title="Chat">
+              <MessageSquare className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Chat</span>
+            </TabsTrigger>
+            <TabsTrigger value="characters" title="Characters">
+              <Users className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Characters</span>
+            </TabsTrigger>
+            {user?.role === "DM" && (
+              <>
+                <TabsTrigger value="maps" title="Maps">
+                  <Map className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Maps</span>
+                </TabsTrigger>
+                <TabsTrigger value="players" title="Players & passwords">
+                  <UserCog className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Players</span>
+                </TabsTrigger>
+              </>
             )}
           </TabsList>
           <TabsContent value="chat" className="w-full">
@@ -267,8 +296,11 @@ export default function RightSideMenu({
                   <select 
                     value={`${selectedSpeaker.type}-${selectedSpeaker.name}`}
                     onChange={(e) => {
-                      const [type, name] = e.target.value.split('-');
-                      setSelectedSpeaker({ name, type: type as 'user' | 'character' });
+                      const raw = e.target.value;
+                      const i = raw.indexOf("-");
+                      const type = (i >= 0 ? raw.slice(0, i) : raw) as "user" | "character";
+                      const name = i >= 0 ? raw.slice(i + 1) : "";
+                      setSelectedSpeaker({ name, type });
                     }}
                     className="mr-2 p-2 h-full border rounded-md bg-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     title="Speak as"
@@ -317,7 +349,7 @@ export default function RightSideMenu({
               )}
             </div>
           </TabsContent>
-          {user?.role === 'DM' && (
+          {user?.role === "DM" && (
             <TabsContent value="maps" className="w-full">
               <div className="p-4 w-full">
                 <div className="flex justify-between items-center mb-4">
@@ -342,7 +374,16 @@ export default function RightSideMenu({
               </div>
             </TabsContent>
           )}
+          {user?.role === "DM" && allUsers && (
+            <TabsContent value="players" className="w-full">
+              <div className="p-4 w-full max-h-[calc(100vh-8rem)] overflow-y-auto">
+                <h2 className="text-lg text-white font-semibold mb-3">Player accounts</h2>
+                <DmPlayerAccounts allUsers={allUsers} />
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
+        </div>
       </div>
     </div>
   )

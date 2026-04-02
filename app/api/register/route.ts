@@ -9,10 +9,20 @@ const client = createClient({
 
 export async function POST(req: Request) {
   try {
-    const { username, password } = await req.json();
+    const { username, password, inviteCode } = await req.json();
 
     if (!username || !password) {
       return NextResponse.json({ error: "Username and password are required" }, { status: 400 });
+    }
+
+    const registrationSecret = process.env.REGISTRATION_SECRET?.trim();
+    if (registrationSecret) {
+      if (typeof inviteCode !== "string" || inviteCode !== registrationSecret) {
+        return NextResponse.json(
+          { error: "Invalid or missing invite code" },
+          { status: 403 }
+        );
+      }
     }
 
     // Sanitize inputs
@@ -23,8 +33,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Username must be at least 3 characters long" }, { status: 400 });
     }
 
-    if (sanitizedPassword.length < 6) {
-      return NextResponse.json({ error: "Password must be at least 6 characters long" }, { status: 400 });
+    if (sanitizedPassword.length < 8) {
+      return NextResponse.json({ error: "Password must be at least 8 characters long" }, { status: 400 });
     }
 
     // Check if username already exists

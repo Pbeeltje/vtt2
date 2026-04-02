@@ -133,6 +133,8 @@ export default function MainContent({
     resizeStart,
     setResizeStart,
     imageDimensions,
+    borderWidth,
+    borderHeight,
     isPanning,
     setIsPanning,
     panStart,
@@ -164,11 +166,8 @@ export default function MainContent({
     currentUserId,
     currentUserRole,
     onUpdateImages,
+    sceneBorderSize,
   })
-
-  // Calculate border dimensions
-  const borderWidth = imageDimensions ? Math.round(imageDimensions.width * (sceneBorderSize || 0.2)) : 0;
-  const borderHeight = imageDimensions ? Math.round(imageDimensions.height * (sceneBorderSize || 0.2)) : 0;
 
   // Create proper handlers for drag and drop
   const handleImageDrop = useCallback((imageData: LayerImage) => {
@@ -226,8 +225,6 @@ export default function MainContent({
     onPlayerRequestTokenDelete: onPlayerRequestTokenDelete || (() => {}),
     user: currentUserRole ? { id: currentUserId || 0, role: currentUserRole } : null,
     selectedSceneId: currentSceneId || null,
-    borderWidth,
-    borderHeight,
   })
 
   // Drawing functionality
@@ -255,8 +252,6 @@ export default function MainContent({
     onDrawingAdd,
     darknessPaths,
     onDarknessChange: handleDarknessChange,
-    borderWidth,
-    borderHeight,
   })
 
   // Resize handlers

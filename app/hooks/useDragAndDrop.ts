@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react'
+import { clientToGridLogical } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
 import type { LayerImage } from "../types/layerImage"
 
@@ -27,8 +28,6 @@ interface UseDragAndDropProps {
   onPlayerRequestTokenDelete: (tokenId: string) => void
   user: { id: number; role: string } | null
   selectedSceneId: number | null
-  borderWidth?: number
-  borderHeight?: number
 }
 
 export const useDragAndDrop = ({
@@ -56,8 +55,6 @@ export const useDragAndDrop = ({
   onPlayerRequestTokenDelete,
   user,
   selectedSceneId,
-  borderWidth = 0,
-  borderHeight = 0,
 }: UseDragAndDropProps) => {
   const draggedItem = useRef<LayerImage | null>(null)
   const isDragging = useRef(false)
@@ -89,8 +86,12 @@ export const useDragAndDrop = ({
         const character = JSON.parse(characterData)
         
         const rect = e.currentTarget.getBoundingClientRect()
-        const adjustedX = (e.clientX - rect.left - borderWidth) / zoomLevel
-        const adjustedY = (e.clientY - rect.top - borderHeight) / zoomLevel
+        const { x: adjustedX, y: adjustedY } = clientToGridLogical(
+          e.clientX,
+          e.clientY,
+          rect,
+          zoomLevel
+        )
         
         // Tokens snap to grid
         const x = Math.floor(adjustedX / gridSize) * gridSize
@@ -136,8 +137,12 @@ export const useDragAndDrop = ({
           // Player dropping their own token
           if (draggedItem.current && draggedItem.current.character?.userId === user.id) {
             const rect = e.currentTarget.getBoundingClientRect()
-            const x = (e.clientX - rect.left - borderWidth) / 1 // Assuming zoom level of 1 for now
-            const y = (e.clientY - rect.top - borderHeight) / 1
+            const { x, y } = clientToGridLogical(
+              e.clientX,
+              e.clientY,
+              rect,
+              zoomLevel
+            )
 
             const updatedToken = {
               ...draggedItem.current,
@@ -169,8 +174,12 @@ export const useDragAndDrop = ({
             console.error('Grid ref is null, cannot get bounding rect')
             return
           }
-          const mouseX = (e.clientX - rect.left - borderWidth) / zoomLevel;
-          const mouseY = (e.clientY - rect.top - borderHeight) / zoomLevel;
+          const { x: mouseX, y: mouseY } = clientToGridLogical(
+            e.clientX,
+            e.clientY,
+            rect,
+            zoomLevel
+          )
           setDragOffset({
             x: mouseX - imageData.x,
             y: mouseY - imageData.y
@@ -244,8 +253,12 @@ export const useDragAndDrop = ({
     setDraggingIds(dragIds)
     const rect = gridRef.current?.getBoundingClientRect()
     if (!rect) return
-    const mouseX = (e.clientX - rect.left - borderWidth) / zoomLevel;
-    const mouseY = (e.clientY - rect.top - borderHeight) / zoomLevel;
+    const { x: mouseX, y: mouseY } = clientToGridLogical(
+      e.clientX,
+      e.clientY,
+      rect,
+      zoomLevel
+    )
     setDragOffset({
       x: mouseX - item.x,
       y: mouseY - item.y
@@ -279,7 +292,7 @@ export const useDragAndDrop = ({
 
     isDragging.current = true
     draggedItem.current = item
-  }, [selectedIds, gridSize, currentUserRole, currentUserId])
+  }, [selectedIds, gridSize, currentUserRole, currentUserId, zoomLevel])
 
   const handleItemDrag = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     if (!draggingIds || !dragOffset || e.clientX === 0 || e.clientY === 0) return
@@ -291,9 +304,13 @@ export const useDragAndDrop = ({
                          topLayerImages.find((i) => i.id === draggingIds[0])
     if (!referenceItem) return
     
-    const mouseX = (e.clientX - rect.left - borderWidth) / zoomLevel;
-    const mouseY = (e.clientY - rect.top - borderHeight) / zoomLevel;
-    
+    const { x: mouseX, y: mouseY } = clientToGridLogical(
+      e.clientX,
+      e.clientY,
+      rect,
+      zoomLevel
+    )
+
     // Check if this is a token (top layer) or map image (middle layer)
     const isToken = topLayerImages.some(token => token.id === referenceItem.id)
     

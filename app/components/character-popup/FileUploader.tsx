@@ -28,10 +28,16 @@ export function FileUploader({ imageUrl, onUpload, label, width, height, isToken
       setUploading(true);
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('category', 'Image');
       try {
-        const response = await fetch('/api/imgur-upload', { method: 'POST', body: formData });
+        const response = await fetch('/api/images', {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+        });
         if (!response.ok) throw new Error('Failed to upload image');
-        const { url } = await response.json();
+        const row = await response.json();
+        const url = row.Link as string;
         onUpload(url);
         toast({ title: `${label} Uploaded`, description: `${label} uploaded successfully!` });
       } catch (error) {

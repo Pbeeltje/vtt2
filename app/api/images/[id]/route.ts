@@ -134,6 +134,11 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 }
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
+  const sessionUser = await getUserFromCookie();
+  if (!sessionUser) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
   const imageId = params.id;
   const imageIdNumber = parseInt(imageId, 10);
   if (isNaN(imageIdNumber)) {

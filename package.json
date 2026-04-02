@@ -6,7 +6,9 @@
     "dev": "tsc --project tsconfig.server.json && nodemon .next/server_custom_build/server.js",
     "build": "next build && tsc --project tsconfig.server.json",
     "start": "cross-env NODE_ENV=production node .next/server_custom_build/server.js",
-    "lint": "next lint"
+    "lint": "next lint",
+    "tunnel:cloudflare": "cloudflared tunnel --url http://127.0.0.1:3000",
+    "tunnel:ngrok": "ngrok http 3000"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -41,7 +43,6 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "@vercel/blob": "latest",
     "autoprefixer": "^10.4.20",
     "bcryptjs": "latest",
     "better-sqlite3": "^11.8.1",
@@ -54,7 +55,7 @@
     "input-otp": "1.4.1",
     "iron-session": "latest",
     "lucide-react": "^0.454.0",
-    "next": "^14.2.28",
+    "next": "^15.5.14",
     "next-themes": "^0.4.4",
     "react": "^18",
     "react-day-picker": "^9.5.1",

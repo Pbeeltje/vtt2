@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@libsql/client'
-import { getIO } from '../../../../lib/socket'; // Adjust path as necessary
-import { getUserFromCookie } from '@/lib/auth'; // Added for authorization
+import { getIO, AUTHENTICATED_ROOM } from '../../../../lib/socket';
+import { getUserFromCookie } from '@/lib/auth';
 
 const client = createClient({
   url: "file:./vttdatabase.db",
@@ -16,6 +16,24 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Character ID is required' }, { status: 400 })
   }
 
+  const user = await getUserFromCookie()
+  if (!user) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
+  const ownerResult = await client.execute({
+    sql: 'SELECT UserId FROM Character WHERE CharacterId = ?',
+    args: [id],
+  })
+  if (ownerResult.rows.length === 0) {
+    return NextResponse.json({ error: 'Character not found' }, { status: 404 })
+  }
+  const ownerId = ownerResult.rows[0].UserId as number
+  const isDM = user.role === 'DM'
+  if (!isDM && ownerId !== user.id) {
+    return NextResponse.json({ error: 'Not authorized to edit this character' }, { status: 403 })
+  }
+
   const allowedFields = [
     'Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'Armor', 
     'MaxGuard', 'Strength', 'MaxStrength', 'Dexternity', 'MaxDexternity', 
@@ -24,10 +42,13 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   ];
   const potentiallyNullableAllowedFields = ['InventoryId', 'JobId'];
 
-  const updateFields = Object.keys(updatedCharacter).filter(key => 
+  let updateFields = Object.keys(updatedCharacter).filter(key => 
     allowedFields.includes(key) || 
     (potentiallyNullableAllowedFields.includes(key) && updatedCharacter[key] !== undefined)
   );
+  if (!isDM) {
+    updateFields = updateFields.filter((key) => key !== 'userId')
+  }
   
   potentiallyNullableAllowedFields.forEach(key => {
     if (updatedCharacter.hasOwnProperty(key) && updatedCharacter[key] === null && !updateFields.includes(key)) {
@@ -66,7 +87,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     // Emit WebSocket event
     try {
       const io = getIO();
-      io.emit('character_updated', finalUpdatedCharacter);
+      io.to(AUTHENTICATED_ROOM).emit('character_updated', finalUpdatedCharacter);
       console.log(`[API /characters/${id}] Emitted 'character_updated' for CharacterId: ${id}`, finalUpdatedCharacter);
     } catch (socketError) {
       console.error(`[API /characters/${id}] Socket.IO emit error:`, socketError);
@@ -195,7 +216,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     // Emit socket events after successful commit
     try {
       const io = getIO();
-      io.emit('character_deleted', characterIdToDelete);
+      io.to(AUTHENTICATED_ROOM).emit('character_deleted', characterIdToDelete);
       console.log(`[API /characters/${characterIdToDeleteString}] Emitted \'character_deleted\'`);
 
       for (const { sceneId, sceneData } of scenesToUpdate) {

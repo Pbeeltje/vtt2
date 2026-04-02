@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@libsql/client";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, getUserFromCookie } from "@/lib/auth";
 import fs from 'fs';
 import path from 'path';
 
@@ -39,8 +39,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    // Only DMs can upload images
-    const user = await requireAuth('DM');
+    const user = await getUserFromCookie();
+    if (!user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
 
     const formData = await req.formData();
     const file = formData.get("file") as File;
@@ -59,6 +61,11 @@ export async function POST(req: Request) {
     const validCategories = ['Image', 'Prop', 'Scene'];
     if (!validCategories.includes(category)) {
       return NextResponse.json({ error: "Invalid category. Must be one of: Image, Prop, Scene" }, { status: 400 });
+    }
+
+    // Players may only upload generic images (e.g. portraits); DM can upload all categories.
+    if (user.role !== 'DM' && category !== 'Image') {
+      return NextResponse.json({ error: "Only DMs can upload this category" }, { status: 403 });
     }
 
     // Validate file type
@@ -119,14 +126,6 @@ export async function POST(req: Request) {
     return NextResponse.json(responseImage);
 
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === "Authentication required") {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-      }
-      if (error.message === "Insufficient permissions") {
-        return NextResponse.json({ error: "Not authorized - DM access required" }, { status: 403 })
-      }
-    }
     console.error("Error uploading image:", error);
     return NextResponse.json({ error: "Failed to upload image" }, { status: 500 });
   }

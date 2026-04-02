@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/use-toast"
 export default function RegisterForm({ onRegister }) {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [inviteCode, setInviteCode] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -18,7 +19,7 @@ export default function RegisterForm({ onRegister }) {
       const response = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, inviteCode: inviteCode.trim() || undefined }),
       })
 
       const data = await response.json()
@@ -56,10 +57,19 @@ export default function RegisterForm({ onRegister }) {
       />
       <Input
         type="password"
-        placeholder="Password"
+        placeholder="Password (min 8 characters)"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
+        minLength={8}
+        autoComplete="new-password"
+      />
+      <Input
+        type="password"
+        placeholder="Invite code (if your host set REGISTRATION_SECRET)"
+        value={inviteCode}
+        onChange={(e) => setInviteCode(e.target.value)}
+        autoComplete="off"
       />
       <Button type="submit" className="w-full" disabled={isLoading}>
         {isLoading ? "Registering..." : "Register"}

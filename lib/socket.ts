@@ -1,7 +1,10 @@
 // lib/socket.ts
 import { Server as SocketIOServer } from 'socket.io';
 import { Server as HttpServerNode } from 'http';
-import { IncomingMessage, ServerResponse } from 'http';
+import {
+  parseUserFromCookieHeader,
+  AUTHENTICATED_ROOM,
+} from './parse-user-cookie';
 
 const GLOBAL_SOCKET_IO_KEY = Symbol('socket.io.server');
 
@@ -11,6 +14,8 @@ interface AppGlobal {
 
 const globalNode = globalThis as AppGlobal;
 
+export { AUTHENTICATED_ROOM };
+
 export const initSocketIO = (httpServer: HttpServerNode): SocketIOServer => {
   if (globalNode[GLOBAL_SOCKET_IO_KEY]) {
     return globalNode[GLOBAL_SOCKET_IO_KEY];
@@ -18,15 +23,30 @@ export const initSocketIO = (httpServer: HttpServerNode): SocketIOServer => {
 
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: "*", // Allows all origins, adjust for production if needed
-      methods: ["GET", "POST"]
-    }
+      origin: true,
+      credentials: true,
+    },
   });
-  
+
+  io.use((socket, next) => {
+    const user = parseUserFromCookieHeader(socket.handshake.headers.cookie);
+    (socket.data as { user?: typeof user }).user = user;
+    if (user) {
+      void socket.join(AUTHENTICATED_ROOM);
+    }
+    next();
+  });
+
   io.on('connection', (socket) => {
-    console.log('Socket.IO: A user connected:', socket.id);
+    const u = (socket.data as { user?: ReturnType<typeof parseUserFromCookieHeader> }).user;
+    console.log('Socket.IO: connected:', socket.id, u ? `user=${u.username}` : 'guest');
 
     socket.on('join_scene', (sceneId: string) => {
+      const user = (socket.data as { user?: ReturnType<typeof parseUserFromCookieHeader> }).user;
+      if (!user) {
+        console.warn('Socket.IO: join_scene ignored (not authenticated)');
+        return;
+      }
       socket.join(sceneId);
     });
 
@@ -34,13 +54,8 @@ export const initSocketIO = (httpServer: HttpServerNode): SocketIOServer => {
       socket.leave(sceneId);
     });
 
-    socket.on('dm_set_active_scene', (sceneId: string | number) => {
-      // Emit to all connected clients, including the sender (DM)
-      io.emit('force_scene_change', sceneId);
-    });
-
     socket.on('disconnect', () => {
-      console.log('Socket.IO: User disconnected:', socket.id);
+      console.log('Socket.IO: disconnected:', socket.id);
     });
   });
 

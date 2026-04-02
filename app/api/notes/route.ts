@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '../../lib/db'
 import { requireAuth } from '../../../lib/auth'
-import { getIO } from '../../../lib/socket'
+import { getIO, AUTHENTICATED_ROOM } from '../../../lib/socket'
 import type { Note } from '../../types/note'
 
 export async function GET() {
@@ -59,7 +59,7 @@ export async function PUT(request: Request) {
     // Emit event to all connected clients with all notes
     try {
       const io = getIO()
-      io.emit('notes_updated', allNotes)
+      io.to(AUTHENTICATED_ROOM).emit('notes_updated', allNotes)
     } catch (socketError) {
       console.error("Socket.IO emit error in PUT /api/notes:", socketError)
     }
@@ -91,7 +91,7 @@ export async function DELETE() {
     // Emit event to all connected clients with empty notes array
     try {
       const io = getIO()
-      io.emit('notes_updated', [])
+      io.to(AUTHENTICATED_ROOM).emit('notes_updated', [])
     } catch (socketError) {
       console.error("Socket.IO emit error in DELETE /api/notes:", socketError)
     }

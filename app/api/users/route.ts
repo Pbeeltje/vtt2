@@ -18,7 +18,13 @@ export async function GET(req: Request) {
       args: [],
     });
 
-    return NextResponse.json(result.rows);
+    const users = result.rows.map((row) => ({
+      id: Number(row.UserId),
+      username: String(row.Username ?? ""),
+      role: String(row.Role ?? "player"),
+    }));
+
+    return NextResponse.json(users);
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Authentication required") {

@@ -28,8 +28,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 8 characters long" }, { status: 400 });
     }
 
-    // Test login bypass for development (remove in production)
-    if (sanitizedUsername === "DM_User" && password === "dm_password") {
+    // Dev-only DM bypass: set ALLOW_TEST_LOGIN=true in .env
+    if (
+      process.env.ALLOW_TEST_LOGIN === "true" &&
+      sanitizedUsername === "DM_User" &&
+      password === "dm_password"
+    ) {
       const userForCookie = {
         id: 0,
         username: "DM_User",

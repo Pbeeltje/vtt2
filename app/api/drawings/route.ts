@@ -5,6 +5,11 @@ import { getIO } from '../../../lib/socket' // Import Socket.IO instance getter
 
 export async function GET(request: Request) {
   try {
+    const u = await getUserFromCookie()
+    if (!u) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    }
+
     const { searchParams } = new URL(request.url)
     const sceneId = searchParams.get('sceneId')
     
@@ -25,18 +30,26 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const u = await getUserFromCookie()
+    if (!u) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    }
+
     const data = await request.json()
     
-    // Validate required fields (basic example)
-    if (!data.id || !data.path || !data.color || data.createdBy === undefined || data.createdBy === null || !data.sceneId) {
+    if (!data.id || !data.path || !data.color || !data.sceneId) {
        return NextResponse.json({ error: 'Missing required drawing data fields' }, { status: 400 });
     }
+
+    const createdBy = u.id
+    const createdAt = data.createdAt || new Date().toISOString()
+    const payload = { ...data, createdBy, createdAt }
 
     // Use synchronous methods with better-sqlite3
     const stmt = db.prepare(
       'INSERT INTO drawing (id, path, color, createdBy, sceneId, createdAt) VALUES (?, ?, ?, ?, ?, ?)'
     );
-    const info = stmt.run(data.id, data.path, data.color, data.createdBy, data.sceneId, data.createdAt || new Date().toISOString());
+    const info = stmt.run(data.id, data.path, data.color, createdBy, data.sceneId, createdAt);
 
     // Check if insert was successful
     if (info.changes === 0) {
@@ -50,16 +63,15 @@ export async function POST(request: Request) {
       // Ensure data.sceneId is a string for room name
       const sceneRoom = typeof data.sceneId === 'number' ? data.sceneId.toString() : data.sceneId;
       if (sceneRoom) {
-        io.to(sceneRoom).emit('drawing_added', data); // 'data' should be the complete new drawing object
-        console.log(`Socket.IO: Emitted drawing_added to room ${sceneRoom}`, data);
+        io.to(sceneRoom).emit('drawing_added', payload);
+        console.log(`Socket.IO: Emitted drawing_added to room ${sceneRoom}`, payload);
       }
     } catch (socketError) {
       console.error("Socket.IO emit error in POST /drawings:", socketError);
       // Decide if this should affect the HTTP response. For now, it won't.
     }
     
-    // Return the full drawing object that was created and emitted
-    return NextResponse.json(data); // 'data' is the object that was inserted and emitted
+    return NextResponse.json(payload);
   } catch (error) {
     console.error('Error creating drawing:', error);
     // Provide more specific error feedback if possible

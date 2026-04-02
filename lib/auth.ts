@@ -14,7 +14,7 @@ const SESSION_TIMEOUT = 7 * 24 * 60 * 60 * 1000
 
 export async function setUserCookie(user: { id: number; username: string; role: string }) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const sessionTimeout = 7 * 24 * 60 * 60 * 1000 // 7 days
     const expires = new Date(Date.now() + sessionTimeout)
     
@@ -32,7 +32,7 @@ export async function setUserCookie(user: { id: number; username: string; role: 
 
 export async function getUserFromCookie() {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const userCookie = cookieStore.get("user")
     if (userCookie && userCookie.value) {
       const user = JSON.parse(userCookie.value)
@@ -51,7 +51,7 @@ export async function getUserFromCookie() {
 
 export async function clearUserCookie() {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     cookieStore.delete("user")
   } catch (error) {
     console.error("Error in clearUserCookie:", error)
