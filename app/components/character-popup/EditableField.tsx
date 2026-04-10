@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Edit2 } from 'lucide-react';
+import { MarkdownContent } from '@/components/MarkdownContent';
+import { cn } from '@/lib/utils';
 
 interface EditableFieldProps {
   value: string;
@@ -11,9 +13,11 @@ interface EditableFieldProps {
   onSave?: (value: string) => void;
   isTextarea?: boolean;
   className?: string;
+  /** When set, non-edit view renders markdown instead of plain text. */
+  markdownDisplay?: boolean;
 }
 
-export function EditableField({ value, onChange, onSave, isTextarea = false, className }: EditableFieldProps) {
+export function EditableField({ value, onChange, onSave, isTextarea = false, className, markdownDisplay = false }: EditableFieldProps) {
   const [editing, setEditing] = useState(false);
   const [tempValue, setTempValue] = useState(value);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
@@ -48,7 +52,7 @@ export function EditableField({ value, onChange, onSave, isTextarea = false, cla
   };
 
   return (
-    <div className="flex items-center">
+    <div className="flex items-start gap-1">
       {editing ? (
         isTextarea ? (
           <Textarea
@@ -71,7 +75,17 @@ export function EditableField({ value, onChange, onSave, isTextarea = false, cla
         )
       ) : (
         <>
-          <span className={`mr-2 ${className}`}>{value}</span>
+          <div className={cn('mr-2 min-w-0 flex-1', className)}>
+            {markdownDisplay ? (
+              value.trim() ? (
+                <MarkdownContent markdown={value} />
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )
+            ) : (
+              <span>{value}</span>
+            )}
+          </div>
           <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEditing(true); }}>
             <Edit2 className="h-4 w-4" />
           </Button>

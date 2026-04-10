@@ -1,5 +1,6 @@
 // components/character-popup/StatsTab.tsx
 import { Character } from '../../types/character';
+import type { Job } from '../../hooks/useJobs';
 import { useCharacter } from '../../hooks/useCharacter';
 import { EditableField } from './EditableField';
 import { FileUploader } from './FileUploader';
@@ -10,9 +11,10 @@ import { Label } from "@/components/ui/label";
 interface StatsTabProps {
   character: Character;
   onUpdate: (updatedCharacter: Character) => void;
+  jobs: Job[];
 }
 
-export function StatsTab({ character, onUpdate }: StatsTabProps) {
+export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
   const { editedCharacter, setEditedCharacter, handleInputChange, handleSubmit } = useCharacter(character, onUpdate);
 
   const handleFieldChange = (name: string, value: string) => {
@@ -134,6 +136,7 @@ export function StatsTab({ character, onUpdate }: StatsTabProps) {
                 onChange={(value) => setEditedCharacter(prev => ({ ...prev, Description: value }))}
                 onSave={handleEditableFieldSave}
                 isTextarea
+                markdownDisplay
                 className="min-h-[100px]"
               />
             </div>
@@ -167,6 +170,20 @@ export function StatsTab({ character, onUpdate }: StatsTabProps) {
           {editedCharacter.Path === "Magic User" && renderField("Spellcraft", "Skill", "number", "MaxSkill")}
           {editedCharacter.Path === "Magic User" && renderField("MP", "Mp", "number", "MaxMp")}
         </div>
+
+        {jobs.length > 0 ? (
+          <div className="pt-2 border-t border-border">
+            <Label className="text-xs font-semibold">Jobs</Label>
+            <ul className="mt-1.5 space-y-0.5 text-sm">
+              {jobs.map((job) => (
+                <li key={job.JobId}>
+                  <span className="font-medium">{job.Name}</span>
+                  <span className="text-muted-foreground"> — Tier {job.Tier}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
       </form>
     </div>

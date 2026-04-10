@@ -1,77 +1,97 @@
 // components/character-popup/JobsTab.tsx
-import { useJobs } from '../../hooks/useJobs';
+import { useState } from 'react';
+import type { Job, JobFormPayload } from '../../hooks/useJobs';
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Edit2 } from 'lucide-react';
+import { MarkdownContent } from '@/components/MarkdownContent';
+import { FileText, Plus } from 'lucide-react';
+import { JobDetailModal } from './JobDetailModal';
 
 interface JobsTabProps {
-  characterId: number;
+  jobs: Job[];
+  handleCreateJob: (form: JobFormPayload) => Promise<boolean>;
+  handleJobSubmit: (jobId: number, form: JobFormPayload) => Promise<boolean>;
 }
 
-export function JobsTab({ characterId }: JobsTabProps) {
-  const { 
-    jobs, 
-    newJobName, 
-    setNewJobName, 
-    editingJob, 
-    jobForm, 
-    handleAddJob, 
-    handleStartEditJob,
-    cancelEditMode,
-    handleJobFormChange, 
-    handleJobSubmit 
-  } = useJobs(characterId);
+export function JobsTab({ jobs, handleCreateJob, handleJobSubmit }: JobsTabProps) {
+
+  const [modalJob, setModalJob] = useState<Job | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const openJobModal = (job: Job) => {
+    setModalJob(job);
+    setModalOpen(true);
+  };
+
+  const openNewJobModal = () => {
+    setModalJob(null);
+    setModalOpen(true);
+  };
+
+  const handleModalOpenChange = (open: boolean) => {
+    setModalOpen(open);
+    if (!open) setModalJob(null);
+  };
+
+  const modalJobLive =
+    modalJob && modalOpen ? jobs.find((j) => j.JobId === modalJob.JobId) ?? modalJob : null;
 
   return (
     <div>
       <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            {jobs.length === 0 ? "No jobs yet." : `${jobs.length} job${jobs.length === 1 ? "" : "s"}`}
+          </p>
+          <Button type="button" size="sm" className="gap-1.5" onClick={openNewJobModal}>
+            <Plus className="h-4 w-4" />
+            Add job
+          </Button>
+        </div>
+
         {jobs.length > 0 ? (
           <ul className="space-y-4">
             {jobs.map((job) => (
               <li key={job.JobId} className="border p-4 rounded-lg">
-                {editingJob === job.JobId ? (
-                  <div className="space-y-2">
-                    <div>
-                      <Label htmlFor={`job-name-${job.JobId}`}>Name</Label>
-                      <Input id={`job-name-${job.JobId}`} value={jobForm?.name || ''} onChange={(e) => handleJobFormChange('name', e.target.value)} className="w-full max-w-xs" autoFocus />
-                    </div>
-                    <div>
-                      <Label htmlFor={`job-tier-${job.JobId}`}>Tier</Label>
-                      <Input id={`job-tier-${job.JobId}`} type="number" value={jobForm?.tier || 0} onChange={(e) => handleJobFormChange('tier', e.target.value)} className="w-16" min={0} />
-                    </div>
-                    <div>
-                      <Label htmlFor={`job-desc-${job.JobId}`}>Description</Label>
-                      <Textarea id={`job-desc-${job.JobId}`} value={jobForm?.description || ''} onChange={(e) => handleJobFormChange('description', e.target.value)} className="w-full min-h-[100px]" />
-                    </div>
-                    <div className="flex space-x-2">
-                      <Button size="sm" onClick={() => handleJobSubmit()}>Save</Button>
-                      <Button size="sm" variant="outline" onClick={cancelEditMode}>Cancel</Button>
-                    </div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-medium">{job.Name} (Tier {job.Tier})</span>
+                    {job.Description?.trim() ? (
+                      <div className="relative mt-2 max-h-[7.5rem] overflow-hidden text-muted-foreground">
+                        <MarkdownContent markdown={job.Description} />
+                        <div
+                          className="pointer-events-none absolute inset-x-0 bottom-0 h-9 bg-gradient-to-t from-background to-transparent"
+                          aria-hidden
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground mt-2 italic">No description</p>
+                    )}
                   </div>
-                ) : (
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="font-medium">{job.Name} (Tier {job.Tier})</span>
-                      <p className="text-sm text-muted-foreground mt-1">{job.Description || 'No description provided'}</p>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => handleStartEditJob(job)} className="ml-2"><Edit2 className="h-4 w-4" /></Button>
-                  </div>
-                )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5 self-start"
+                    onClick={() => openJobModal(job)}
+                    title="Open full description and edit"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Details
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
-        ) : (
-          <p>Jobless..</p>
-        )}
-        <form onSubmit={handleAddJob} className="mt-4">
-          <div className="flex items-center space-x-2">
-            <Input type="text" placeholder="New Job Name" value={newJobName} onChange={(e) => setNewJobName(e.target.value)} className="w-full max-w-xs" />
-            <Button type="submit" size="sm">Add Job</Button>
-          </div>
-        </form>
+        ) : null}
       </div>
+
+      <JobDetailModal
+        job={modalOpen ? (modalJob ? modalJobLive : null) : null}
+        open={modalOpen}
+        onOpenChange={handleModalOpenChange}
+        onSave={handleJobSubmit}
+        onCreate={handleCreateJob}
+      />
     </div>
   );
 }

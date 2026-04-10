@@ -11,6 +11,7 @@ import { StatsTab } from './StatsTab';
 import { JobsTab } from './JobsTab';
 import { InventoryTab } from './InventoryTab';
 import { toast } from "@/components/ui/use-toast";
+import { useJobs } from '../../hooks/useJobs';
 
 interface CharacterPopupProps {
   character: Character;
@@ -22,6 +23,7 @@ interface CharacterPopupProps {
 
 export default function CharacterPopup({ character, onClose, onUpdate, isDM, allUsers }: CharacterPopupProps) {
   const [selectedUserIdToAssign, setSelectedUserIdToAssign] = useState<number | ''>( '');
+  const { jobs, handleCreateJob, handleJobSubmit } = useJobs(character.CharacterId);
 
   const handleAssignCharacter = async () => {
     if (selectedUserIdToAssign === '') { 
@@ -60,10 +62,11 @@ export default function CharacterPopup({ character, onClose, onUpdate, isDM, all
             {isDM && <TabsTrigger value="options">Options</TabsTrigger>}
           </TabsList>
           <TabsContent value="stats">
-            <StatsTab character={character} onUpdate={onUpdate} />
+            <StatsTab character={character} onUpdate={onUpdate} jobs={jobs} />
           </TabsContent>
-          <TabsContent value="jobs">
-            <JobsTab characterId={character.CharacterId} />
+          {/* forceMount: prefetch jobs; Radix keeps present=true so we hide inactive via data-state */}
+          <TabsContent value="jobs" forceMount className="data-[state=inactive]:hidden">
+            <JobsTab jobs={jobs} handleCreateJob={handleCreateJob} handleJobSubmit={handleJobSubmit} />
           </TabsContent>
           <TabsContent value="inventory">
             <InventoryTab characterId={character.CharacterId} maxStrength={character.MaxStrength || 0} />

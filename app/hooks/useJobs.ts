@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from "@/components/ui/use-toast";
 
-interface Job {
+export interface Job {
   JobId: number;
   Name: string;
   Description: string | null;
@@ -10,19 +10,28 @@ interface Job {
   CharacterId: number;
 }
 
-const initialJobFormState = {
-  name: '',
-  description: null,
-  tier: 0,
-};
+export type JobFormPayload = { name: string; description: string | null; tier: number };
+
+function rowToJob(row: Record<string, unknown>): Job {
+  return {
+    JobId: row.JobId as number,
+    CharacterId: row.CharacterId as number,
+    Name: (row.Name ?? row.name) as string,
+    Tier: (row.Tier ?? row.tier ?? 0) as number,
+    Description: (row.Description ?? row.description ?? null) as string | null,
+  };
+}
+
+function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && e.name === "AbortError";
+}
 
 export function useJobs(characterId: number) {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [newJobName, setNewJobName] = useState('');
-  const [editingJob, setEditingJob] = useState<number | null>(null); // JobId of the job being edited, or null
-  const [jobForm, setJobForm] = useState<{ name: string; description: string | null; tier: number }>(initialJobFormState);
 
   useEffect(() => {
+    const ac = new AbortController();
+
     const fetchJobs = async () => {
       if (typeof characterId !== 'number' || !Number.isInteger(characterId) || characterId <= 0) {
         setJobs([]);
@@ -30,115 +39,126 @@ export function useJobs(characterId: number) {
       }
 
       try {
-        const response = await fetch(`/api/characters/${characterId}/jobs`);
+        const response = await fetch(`/api/characters/${characterId}/jobs`, {
+          signal: ac.signal,
+        });
 
         if (!response.ok) {
           let errorResponseMessage = `Failed to fetch jobs: ${response.status} ${response.statusText}`;
           try {
             const errorData = await response.json();
             errorResponseMessage = errorData.error || errorData.message || errorResponseMessage;
-          } catch (jsonError) {
+          } catch {
+            /* ignore */
           }
           throw new Error(errorResponseMessage);
         }
 
-        const data: Job[] = await response.json();
-        setJobs(data);
+        const raw = await response.json();
+        const data = (Array.isArray(raw) ? raw : []).map((row) =>
+          rowToJob(row as Record<string, unknown>)
+        );
+        if (!ac.signal.aborted) setJobs(data);
       } catch (error) {
+        if (ac.signal.aborted || isAbortError(error)) return;
         const catchedError = error instanceof Error ? error : new Error(String(error));
-        toast({ 
-          title: "Error Loading Jobs", 
-          description: catchedError.message || "An unexpected error occurred.", 
-          variant: "destructive" 
+        toast({
+          title: "Error Loading Jobs",
+          description: catchedError.message || "An unexpected error occurred.",
+          variant: "destructive"
         });
         setJobs([]);
       }
     };
 
     fetchJobs();
+    return () => ac.abort();
   }, [characterId]);
 
-  const handleAddJob = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateJob = async (form: JobFormPayload): Promise<boolean> => {
     if (typeof characterId !== 'number' || characterId <= 0) {
       toast({ title: "Error", description: "Cannot add job: Invalid character identifier.", variant: "destructive" });
-      return;
+      return false;
     }
-    if (!newJobName) {
+    const name = form.name.trim();
+    if (!name) {
       toast({ title: "Error", description: "Job name is required.", variant: "destructive" });
-      return;
+      return false;
     }
     try {
       const response = await fetch(`/api/characters/${characterId}/jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newJobName, description: null, tier: 1 }),
+        body: JSON.stringify({
+          name,
+          description: form.description?.trim() ? form.description : null,
+          tier: form.tier,
+        }),
       });
-      if (!response.ok) throw new Error(`Failed to add job: ${response.statusText}`);
-      const newJob: Job = await response.json();
-      setJobs([...jobs, newJob]);
-      setNewJobName('');
+      if (!response.ok) {
+        let msg = `Failed to add job: ${response.status} ${response.statusText}`;
+        try {
+          const errBody = await response.json();
+          msg = errBody.error || errBody.details || errBody.message || msg;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+      const row = await response.json();
+      const newJob = rowToJob(row as Record<string, unknown>);
+      setJobs((prev) => [...prev, newJob]);
       toast({ title: "Job Added", description: `${newJob.Name} added successfully.` });
-    } catch (error: any) {
+      return true;
+    } catch (error: unknown) {
       console.error("Error adding job:", error);
-      toast({ title: "Error", description: "Failed to add job.", variant: "destructive" });
+      const desc = error instanceof Error ? error.message : "Failed to add job.";
+      toast({ title: "Error", description: desc, variant: "destructive" });
+      return false;
     }
   };
 
-  const handleStartEditJob = (job: Job) => {
-    setEditingJob(job.JobId);
-    setJobForm({ name: job.Name, description: job.Description, tier: job.Tier });
-  };
-
-  const cancelEditMode = () => {
-    setEditingJob(null);
-    setJobForm(initialJobFormState);
-  };
-
-  const handleJobFormChange = (field: keyof typeof jobForm, value: string | number) => {
-      setJobForm(prevForm => ({
-        ...prevForm,
-        [field]: field === 'tier' ? parseInt(value as string, 10) || 0 : value,
-      }));
-  };
-
-  const handleJobSubmit = async (jobIdToUpdate?: number) => {
-    const currentJobId = jobIdToUpdate ?? editingJob;
+  const handleJobSubmit = async (jobId: number, form: JobFormPayload): Promise<boolean> => {
     if (typeof characterId !== 'number' || characterId <= 0) {
       toast({ title: "Error", description: "Cannot update job: Invalid character identifier.", variant: "destructive" });
-      return;
-    }
-    if (!jobForm || currentJobId === null) {
-        toast({ title: "Error", description: "No job selected for update or form is empty.", variant: "destructive" });
-        return;
+      return false;
     }
     try {
-      const response = await fetch(`/api/characters/${characterId}/jobs/${currentJobId}`, {
+      const response = await fetch(`/api/characters/${characterId}/jobs/${jobId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(jobForm),
+        body: JSON.stringify({
+          name: form.name.trim(),
+          description: form.description?.trim() ? form.description : null,
+          tier: form.tier,
+        }),
       });
-      if (!response.ok) throw new Error(`Failed to update job: ${response.statusText}`);
-      const updatedJob: Job = await response.json();
-      setJobs(prevJobs => prevJobs.map(j => (j.JobId === updatedJob.JobId ? updatedJob : j)));
-      cancelEditMode();
+      if (!response.ok) {
+        let msg = `Failed to update job: ${response.status} ${response.statusText}`;
+        try {
+          const errBody = await response.json();
+          msg = errBody.error || errBody.details || errBody.message || msg;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+      const row = await response.json();
+      const updatedJob = rowToJob(row as Record<string, unknown>);
+      setJobs((prevJobs) => prevJobs.map((j) => (j.JobId === updatedJob.JobId ? updatedJob : j)));
       toast({ title: "Job Updated", description: "Job saved successfully." });
-    } catch (error: any) {
+      return true;
+    } catch (error: unknown) {
       console.error("Error updating job:", error);
-      toast({ title: "Error", description: "Failed to update job.", variant: "destructive" });
+      const desc = error instanceof Error ? error.message : "Failed to update job.";
+      toast({ title: "Error", description: desc, variant: "destructive" });
+      return false;
     }
   };
 
-  return { 
-    jobs, 
-    newJobName, 
-    setNewJobName, 
-    editingJob, // still need to expose this for conditional rendering in JobsTab
-    jobForm, 
-    handleAddJob, 
-    handleStartEditJob, // expose renamed function
-    cancelEditMode,     // expose new function
-    handleJobFormChange, 
-    handleJobSubmit 
+  return {
+    jobs,
+    handleCreateJob,
+    handleJobSubmit,
   };
 }

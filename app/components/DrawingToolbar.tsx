@@ -100,6 +100,7 @@ export default function DrawingToolbar({
           currentTool === 'cursor' && "bg-gray-200"
         )}
         onClick={() => onToolChange('cursor')}
+        title="Select and move tokens and props (click empty map to box-select)"
       >
         <MousePointer className="w-5 h-5" />
       </Button>
@@ -112,6 +113,7 @@ export default function DrawingToolbar({
           currentTool === 'brush' && "bg-gray-200"
         )}
         onClick={() => onToolChange('brush')}
+        title="Draw on the map (freehand)"
       >
         <Brush className="w-5 h-5" />
       </Button>
@@ -122,6 +124,7 @@ export default function DrawingToolbar({
             variant="ghost"
             size="icon"
             className="w-10 h-10"
+            title="Drawing pen color"
           >
             <Palette className="w-5 h-5" />
           </Button>
@@ -131,6 +134,8 @@ export default function DrawingToolbar({
             {COLORS.map((color) => (
               <button
                 key={color}
+                type="button"
+                title={`Use ${color} for drawings`}
                 className={cn(
                   "w-8 h-8 rounded-full border-2",
                   currentColor === color && "border-black"
@@ -153,6 +158,7 @@ export default function DrawingToolbar({
               variant="ghost"
               size="icon"
               className="w-10 h-10"
+              title="Grid line color on the map"
             >
               <Grid className="w-5 h-5" />
             </Button>
@@ -162,6 +168,8 @@ export default function DrawingToolbar({
               {GRID_COLORS.map((color) => (
                 <button
                   key={color.value}
+                  type="button"
+                  title={`Grid: ${color.name}`}
                   className={cn(
                     "w-full h-8 rounded border-2 text-xs",
                     gridColor === color.value && "border-black"
