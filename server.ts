@@ -105,7 +105,7 @@ async function main(): Promise<void> {
     console.log(`> This machine:  http://localhost:${port}`);
     if (dev) {
       console.log(
-        '> Internet (dev): in a second terminal run  npm run tunnel:cloudflare  (install cloudflared once) or  npm run tunnel:ngrok'
+        '> Internet (dev):  npm run dev:share  (app + Cloudflare tunnel in one terminal)  |  or second terminal:  npm run tunnel:cloudflare'
       );
       console.log(
         '> Custom tunnel domain? Add it to .env.local: ALLOWED_DEV_ORIGINS=your-subdomain.example.com  (comma-separated)'

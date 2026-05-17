@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@libsql/client";
 import bcrypt from "bcryptjs";
+import { isValidRegistrationInvite } from "@/lib/registration-invite";
 
 const client = createClient({
   url: "file:./vttdatabase.db",
@@ -15,14 +16,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Username and password are required" }, { status: 400 });
     }
 
-    const registrationSecret = process.env.REGISTRATION_SECRET?.trim();
-    if (registrationSecret) {
-      if (typeof inviteCode !== "string" || inviteCode !== registrationSecret) {
-        return NextResponse.json(
-          { error: "Invalid or missing invite code" },
-          { status: 403 }
-        );
-      }
+    if (!isValidRegistrationInvite(inviteCode)) {
+      return NextResponse.json({ error: "Invalid or missing invite code" }, { status: 403 });
     }
 
     // Sanitize inputs

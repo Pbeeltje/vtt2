@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@libsql/client";
 import { requireAuth } from "@/lib/auth";
-import type { User } from "@/app/types/user"; // Import User type
+import type { User } from "@/app/types/user";
+import { crownHostAdminIfNone, ensureUserIsHostAdminColumn, rowIsHostAdmin } from "@/lib/user-schema";
 
 const client = createClient({
   url: "file:./vttdatabase.db",
@@ -10,18 +11,21 @@ const client = createClient({
 
 export async function GET(req: Request) {
   try {
-    // Only DMs can access user list
-    const user = await requireAuth('DM');
+    const user = await requireAuth("DM");
+
+    await ensureUserIsHostAdminColumn(client);
+    await crownHostAdminIfNone(client, user.id);
 
     const result = await client.execute({
-      sql: "SELECT UserId, Username, Role FROM User ORDER BY Username",
+      sql: "SELECT UserId, Username, Role, IsHostAdmin FROM User ORDER BY Username",
       args: [],
     });
 
-    const users = result.rows.map((row) => ({
+    const users: User[] = result.rows.map((row) => ({
       id: Number(row.UserId),
       username: String(row.Username ?? ""),
       role: String(row.Role ?? "player"),
+      isHostAdmin: rowIsHostAdmin(row as { IsHostAdmin?: unknown }),
     }));
 
     return NextResponse.json(users);

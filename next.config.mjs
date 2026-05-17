@@ -29,6 +29,7 @@ const nextConfig = {
     // Without this, loading the app via an HTTPS tunnel (ngrok, cloudflared, etc.) can 403 /_next/* in dev.
     allowedDevOrigins: [
       'localhost',
+      '127.0.0.1',
       '*.ngrok-free.app',
       '*.ngrok.app',
       '*.ngrok.io',

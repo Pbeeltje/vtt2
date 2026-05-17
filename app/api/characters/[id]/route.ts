@@ -189,7 +189,6 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
         const inventoryId = characterInventoryResult.rows[0].InventoryId as number;
         console.log(`Deleting inventory items for InventoryId ${inventoryId} (associated with character ${characterIdToDelete})`);
         await tx.execute({
-            // Assuming the table from inventory.csv is named 'Inventory' and links InventoryId to ItemId
             sql: "DELETE FROM Inventory WHERE InventoryId = ?",
             args: [inventoryId]
         });

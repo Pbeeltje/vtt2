@@ -53,6 +53,8 @@ interface RightSideMenuProps {
   setActiveTab?: (tabName: string) => void;
   allUsers?: User[]; // Add allUsers prop
   onRequestCompactChat?: () => void;
+  onRefetchUsers?: () => Promise<void>;
+  onRefetchCharacters?: () => Promise<void>;
 }
 
 export default function RightSideMenu({
@@ -80,8 +82,10 @@ export default function RightSideMenu({
   onMakeSceneActive,
   activeTab,
   setActiveTab,
-  allUsers, // Destructure allUsers
+  allUsers,
   onRequestCompactChat,
+  onRefetchUsers,
+  onRefetchCharacters,
 }: RightSideMenuProps) {
   const [inputMessage, setInputMessage] = useState("")
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -375,7 +379,13 @@ export default function RightSideMenu({
             <TabsContent value="players" className="w-full">
               <div className="p-4 w-full max-h-[calc(100vh-8rem)] overflow-y-auto">
                 <h2 className="text-lg text-white font-semibold mb-3">Player accounts</h2>
-                <DmPlayerAccounts allUsers={allUsers} />
+                <DmPlayerAccounts
+                  allUsers={allUsers}
+                  characters={characters}
+                  currentUser={user}
+                  onRefetchUsers={onRefetchUsers ?? (async () => {})}
+                  onRefetchCharacters={onRefetchCharacters ?? (async () => {})}
+                />
               </div>
             </TabsContent>
           )}

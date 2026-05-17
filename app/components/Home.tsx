@@ -19,6 +19,8 @@ import DrawingLayer, { DrawingObject } from './DrawingLayer';
 import CharacterPopup from "./character-popup/CharacterPopup";
 import type { DarknessPath } from "./main-content/DarknessLayer";
 import type { MapInteractionTool } from "../types/mapTool";
+import { HostTunnelShare } from "./HostTunnelShare";
+import NotesPanel from "./NotesPanel";
 
 // Define NewDrawingData here for now, ensure MainContent can import it or define its own.
 export type NewDrawingData = Omit<DrawingObject, 'id' | 'createdAt' | 'createdBy' | 'sceneId'>;
@@ -560,6 +562,8 @@ export default function Home() {
         const data = await response.json();
         if (Array.isArray(data)) {
           setAllUsers(data);
+          const session = await fetchSessionUser();
+          if (session) setUser(session);
         } else {
           setAllUsers([]);
         }
@@ -580,6 +584,18 @@ export default function Home() {
       });
     }
   };
+
+  const refetchCharactersForDm = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/characters`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setCharacters(data);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const loadUserData = async (loggedInUser: User) => {
     setUser(loggedInUser);
@@ -1393,6 +1409,8 @@ export default function Home() {
 
   return (
     <ErrorBoundary>
+      <HostTunnelShare visible={user?.role === "DM"} />
+      <NotesPanel userId={user.id} />
       <div className="flex flex-col h-screen">
         <div className="flex flex-grow overflow-hidden">
           <div className="flex-grow overflow-hidden">
@@ -1436,6 +1454,8 @@ export default function Home() {
               setActiveTab={setActiveRightMenuTab}
               allUsers={allUsers}
               onRequestCompactChat={() => setRightSidebarMode(false)}
+              onRefetchUsers={() => fetchAllUsers("DM")}
+              onRefetchCharacters={refetchCharactersForDm}
             />
           ) : (
             <MiniChat
