@@ -94,6 +94,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     for (const slot of Slots) {
       const safeItemId = slot.ItemId === undefined ? null : slot.ItemId;
       if (safeItemId) {
+        // Only items already in this character's inventory may be moved.
+        const owned = await client.execute({
+          sql: 'SELECT 1 FROM inventory WHERE CharacterId = ? AND ItemId = ?',
+          args: [charId, safeItemId],
+        });
+        if (owned.rows.length === 0) {
+          return NextResponse.json({ error: 'Item does not belong to this character' }, { status: 403 });
+        }
         // Update the item's slot number
         await client.execute({
           sql: 'UPDATE item SET Slotnumber = ? WHERE ItemId = ?',

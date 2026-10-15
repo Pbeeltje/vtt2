@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@libsql/client";
 import bcrypt from "bcryptjs";
 import { isValidRegistrationInvite } from "@/lib/registration-invite";
+import { clientIpFromHeaders, rateLimit } from "@/lib/rate-limit";
 
 const client = createClient({
   url: "file:./vttdatabase.db",
@@ -10,10 +11,18 @@ const client = createClient({
 
 export async function POST(req: Request) {
   try {
+    if (!rateLimit(`register:ip:${clientIpFromHeaders(req.headers)}`, 10, 15 * 60 * 1000)) {
+      return NextResponse.json({ error: "Too many attempts. Try again in a few minutes." }, { status: 429 });
+    }
+
     const { username, password, inviteCode } = await req.json();
 
-    if (!username || !password) {
+    if (!username || !password || typeof username !== "string" || typeof password !== "string") {
       return NextResponse.json({ error: "Username and password are required" }, { status: 400 });
+    }
+
+    if (username.trim().length > 50 || password.length > 200) {
+      return NextResponse.json({ error: "Username or password too long" }, { status: 400 });
     }
 
     if (!isValidRegistrationInvite(inviteCode)) {
@@ -62,9 +71,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("Registration error:", error);
-    return NextResponse.json({ 
-      error: "Failed to register user",
-      details: error instanceof Error ? error.message : "Unknown error"
-    }, { status: 500 });
+    return NextResponse.json({ error: "Failed to register user" }, { status: 500 });
   }
 }

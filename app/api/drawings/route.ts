@@ -81,7 +81,7 @@ export async function POST(request: Request) {
        console.error('Foreign key constraint failed or mismatch. User ID or Scene ID might not exist or types might conflict.', error);
        return NextResponse.json({ error: 'Failed to create drawing due to invalid reference (User or Scene ID may not exist or types conflict)' }, { status: 400 });
     }
-    return NextResponse.json({ error: 'Failed to create drawing', details: errorMessage }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create drawing' }, { status: 500 });
   }
 }
 
@@ -138,6 +138,6 @@ export async function DELETE(request: Request) {
        console.error('Foreign key constraint failed or mismatch during delete (should not happen if DB is consistent).', error);
        return NextResponse.json({ error: 'Database consistency error during delete' }, { status: 500 });
     }
-    return NextResponse.json({ error: 'Failed to delete drawing', details: errorMessage }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to delete drawing' }, { status: 500 })
   }
 }

@@ -54,7 +54,6 @@ export async function PUT(
     return NextResponse.json(
       {
         error: 'Failed to update job',
-        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );

@@ -102,8 +102,10 @@ export default function Home() {
   const userRef = useRef(user);
   const scenesRef = useRef(scenes);
   const selectedSceneRef = useRef(selectedScene);
+  const charactersRef = useRef(characters);
   // Effect to keep refs updated
   useEffect(() => { userRef.current = user; }, [user]);
+  useEffect(() => { charactersRef.current = characters; }, [characters]);
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
   useEffect(() => { selectedSceneRef.current = selectedScene; }, [selectedScene]);
 
@@ -420,7 +422,7 @@ export default function Home() {
       
       // Toast notification if the current user is the new owner.
       if (userRef.current && updatedCharacterFromServer.userId === userRef.current.id) {
-        const oldCharacterVersion = characters.find(c => c.CharacterId === updatedCharacterFromServer.CharacterId);
+        const oldCharacterVersion = charactersRef.current.find(c => c.CharacterId === updatedCharacterFromServer.CharacterId);
         if (oldCharacterVersion && oldCharacterVersion.userId !== updatedCharacterFromServer.userId) {
           toast({ 
             title: "New Character Assigned", 
@@ -943,6 +945,10 @@ export default function Home() {
     // Remove direct handleSaveScene call - let useEffect handle saves with proper Socket.IO flag checking
     // if (user?.role === 'DM') handleSaveScene();
   };
+  // Lets the server skip echoing our own scene changes back to us.
+  const sceneSyncHeaders = (): Record<string, string> =>
+    socketRef.current?.id ? { 'X-Socket-Id': socketRef.current.id } : {};
+
   const handleDeleteSceneData = async (image: DMImage) => {
     if (!user || user.role !== 'DM') {
       toast({ title: "Permission Denied", description: "Only DMs can clear scene data.", variant: "destructive" });
@@ -952,7 +958,7 @@ export default function Home() {
     try {
       const response = await fetch("/api/scenes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...sceneSyncHeaders() },
         credentials: 'include',
         body: JSON.stringify({
           sceneId: image.Id,
@@ -1020,7 +1026,7 @@ export default function Home() {
     try {
       const response = await fetch('/api/scenes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...sceneSyncHeaders() },
         credentials: 'include',
         body: JSON.stringify({
           sceneId: selectedScene.Id,
@@ -1224,7 +1230,7 @@ export default function Home() {
     try {
       const response = await fetch('/api/scenes/player-token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...sceneSyncHeaders() },
         credentials: 'include',
         body: JSON.stringify({ sceneId, tokenData }),
       });
@@ -1257,6 +1263,7 @@ export default function Home() {
     try {
       const response = await fetch(`/api/scenes/player-token?sceneId=${sceneId}&tokenId=${tokenId}`, {
         method: 'DELETE',
+        headers: sceneSyncHeaders(),
         credentials: 'include',
       });
 
@@ -1287,7 +1294,7 @@ export default function Home() {
     try {
       const response = await fetch('/api/scenes/player-token', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...sceneSyncHeaders() },
         credentials: 'include',
         body: JSON.stringify({ sceneId, tokenData }),
       });

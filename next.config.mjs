@@ -13,6 +13,18 @@ const extraDevOrigins = (process.env.ALLOWED_DEV_ORIGINS ?? '')
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // User uploads are images only: never let the browser sniff or run them as pages.
+  async headers() {
+    return [
+      {
+        source: '/uploads/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Content-Security-Policy', value: "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox" },
+        ],
+      },
+    ]
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },

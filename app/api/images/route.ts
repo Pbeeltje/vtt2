@@ -9,6 +9,16 @@ const client = createClient({
   authToken: "",
 });
 
+/** Identify an image by its magic bytes; returns the file extension to use, or null. */
+function detectImageExtension(buffer: Buffer): string | null {
+  if (buffer.length < 12) return null;
+  if (buffer[0] === 0x89 && buffer.toString('ascii', 1, 4) === 'PNG') return 'png';
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'jpg';
+  if (buffer.toString('ascii', 0, 6) === 'GIF87a' || buffer.toString('ascii', 0, 6) === 'GIF89a') return 'gif';
+  if (buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'webp';
+  return null;
+}
+
 export async function GET(req: Request) {
   try {
     // Only DMs can access images
@@ -68,28 +78,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Only DMs can upload this category" }, { status: 403 });
     }
 
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      return NextResponse.json({ error: "File must be an image" }, { status: 400 });
-    }
-
     // Validate file size (5MB limit)
     const maxSize = 5 * 1024 * 1024; // 5MB
     if (file.size > maxSize) {
       return NextResponse.json({ error: "File size must be less than 5MB" }, { status: 400 });
     }
 
-    // Sanitize filename
-    const originalFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '');
-    if (originalFilename.length === 0) {
-      return NextResponse.json({ error: "Invalid filename" }, { status: 400 });
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    // Validate the actual file content (not the browser-supplied type) and force a matching
+    // extension, so nothing like .html or .svg can be served from /uploads.
+    const extension = detectImageExtension(buffer);
+    if (!extension) {
+      return NextResponse.json({ error: "File must be a PNG, JPEG, GIF or WebP image" }, { status: 400 });
     }
+
+    // Sanitize filename
+    const baseName = file.name.replace(/\.[^.]*$/, '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 100) || 'image';
+    const originalFilename = `${baseName}.${extension}`;
 
     // No translation needed, just use category as is
     const dbCategory = category;
-
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
 
     const uniqueFilename = `${Date.now()}-${originalFilename}`;
     const uploadDir = path.join(process.cwd(), 'public', 'uploads', category);

@@ -1,46 +1,59 @@
-"use server"
-
-import { cookies } from "next/headers"
+// Server-only auth helpers. Deliberately NOT a "use server" module: nothing here may be
+// callable from the browser. The login server action lives in lib/auth-actions.ts.
+import { cookies, headers } from "next/headers"
 import bcrypt from "bcryptjs"
 import { createClient } from "@libsql/client"
+import {
+  SESSION_COOKIE_NAME,
+  SESSION_MAX_AGE_MS,
+  createSessionToken,
+  safeEqual,
+  verifySessionToken,
+  type SessionUser,
+} from "./session-token"
+import { clientIpFromHeaders, rateLimit } from "./rate-limit"
 
 const client = createClient({
   url: "file:./vttdatabase.db",
   authToken: "",
 })
 
-// Session timeout in milliseconds (7 days)
-const SESSION_TIMEOUT = 7 * 24 * 60 * 60 * 1000
+/** The env-configured DM (DM_USERNAME / DM_PASSWORD) always uses this user id. */
+const ENV_DM_USER_ID = 0
 
-export async function setUserCookie(user: { id: number; username: string; role: string }) {
-  try {
-    const cookieStore = await cookies()
-    const sessionTimeout = 7 * 24 * 60 * 60 * 1000 // 7 days
-    const expires = new Date(Date.now() + sessionTimeout)
-    
-    cookieStore.set("user", JSON.stringify(user), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      expires,
-    })
-  } catch (error) {
-    console.error("Error in setUserCookie:", error)
-    throw new Error("Failed to set user cookie: " + (error instanceof Error ? error.message : String(error)))
-  }
+function envDmConfigured(): boolean {
+  return Boolean(process.env.DM_USERNAME && process.env.DM_PASSWORD)
 }
 
-export async function getUserFromCookie() {
+export async function setUserCookie(user: SessionUser) {
+  const cookieStore = await cookies()
+  cookieStore.set(SESSION_COOKIE_NAME, createSessionToken(user), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    expires: new Date(Date.now() + SESSION_MAX_AGE_MS),
+  })
+}
+
+/**
+ * Returns the logged-in user, or null. The cookie must carry a valid signature, and the
+ * role is re-read from the database so demotions and deleted accounts take effect at once.
+ */
+export async function getUserFromCookie(): Promise<SessionUser | null> {
   try {
     const cookieStore = await cookies()
-    const userCookie = cookieStore.get("user")
-    if (userCookie && userCookie.value) {
-      const user = JSON.parse(userCookie.value)
-      
-      // Check if user data is valid
-      if (user && user.id !== undefined && user.username && user.role) {
-        return user
-      }
+    const session = verifySessionToken(cookieStore.get(SESSION_COOKIE_NAME)?.value)
+    if (!session) return null
+
+    const result = await client.execute({
+      sql: "SELECT Role FROM User WHERE UserId = ?",
+      args: [session.id],
+    })
+    if (result.rows.length > 0) {
+      return { ...session, role: String(result.rows[0].Role ?? "player") }
+    }
+    if (session.id === ENV_DM_USER_ID && envDmConfigured()) {
+      return { ...session, role: "DM" }
     }
     return null
   } catch (error) {
@@ -50,108 +63,87 @@ export async function getUserFromCookie() {
 }
 
 export async function clearUserCookie() {
+  const cookieStore = await cookies()
+  cookieStore.delete(SESSION_COOKIE_NAME)
+}
+
+export interface LoginResult {
+  success: boolean
+  error?: string
+  role?: string
+  username?: string
+}
+
+const LOGIN_WINDOW_MS = 15 * 60 * 1000
+
+/** Checks credentials, applies rate limits and sets the session cookie on success. */
+export async function authenticateAndSetCookie(username: unknown, password: unknown): Promise<LoginResult> {
   try {
-    const cookieStore = await cookies()
-    cookieStore.delete("user")
-  } catch (error) {
-    console.error("Error in clearUserCookie:", error)
-    throw new Error("Failed to clear user cookie: " + (error instanceof Error ? error.message : String(error)))
-  }
-}
-
-interface LoginResult {
-  success: boolean;
-  error?: string;
-  role?: string;
-}
-
-interface SuccessfulLoginResult extends LoginResult {
-  success: true;
-  role: string;
-}
-
-export async function loginUser(username: string, password: string): Promise<LoginResult | SuccessfulLoginResult> {
-  try {
-    // Input validation
-    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
+    if (!username || !password || typeof username !== "string" || typeof password !== "string") {
       return { success: false, error: "Invalid input" }
     }
 
-    const sanitizedUsername = username.trim();
-    if (sanitizedUsername.length < 3 || sanitizedUsername.length > 50) {
-      return { success: false, error: "Invalid username format" }
+    const sanitizedUsername = username.trim()
+    if (sanitizedUsername.length < 3 || sanitizedUsername.length > 50 || password.length > 200) {
+      return { success: false, error: "Invalid credentials" }
+    }
+
+    const ip = clientIpFromHeaders(await headers())
+    if (
+      !rateLimit(`login:ip:${ip}`, 30, LOGIN_WINDOW_MS) ||
+      !rateLimit(`login:user:${sanitizedUsername.toLowerCase()}`, 10, LOGIN_WINDOW_MS)
+    ) {
+      return { success: false, error: "Too many login attempts. Try again in a few minutes." }
+    }
+
+    // Env-configured DM account (DM_USERNAME / DM_PASSWORD).
+    const dmUsername = process.env.DM_USERNAME
+    const dmPassword = process.env.DM_PASSWORD
+    if (dmUsername && dmPassword && sanitizedUsername === dmUsername) {
+      if (!safeEqual(password, dmPassword)) {
+        return { success: false, error: "Invalid credentials" }
+      }
+      await setUserCookie({ id: ENV_DM_USER_ID, username: dmUsername, role: "DM" })
+      return { success: true, role: "DM", username: dmUsername }
     }
 
     const result = await client.execute({
-      sql: "SELECT * FROM user WHERE Username = ?",
+      sql: "SELECT UserId, Username, Password, Role FROM User WHERE Username = ?",
       args: [sanitizedUsername],
     })
-
     if (result.rows.length === 0) {
       return { success: false, error: "Invalid credentials" }
     }
 
     const user = result.rows[0]
     const isMatch = await bcrypt.compare(password, user.Password as string)
-
     if (!isMatch) {
       return { success: false, error: "Invalid credentials" }
     }
 
-    const userForCookie = {
-      id: user.UserId as number,
-      username: user.Username as string,
+    const sessionUser: SessionUser = {
+      id: Number(user.UserId),
+      username: String(user.Username),
       role: (user.Role as string) || "player",
     }
-
-    await setUserCookie(userForCookie)
-
-    return { success: true, role: userForCookie.role }
+    await setUserCookie(sessionUser)
+    return { success: true, role: sessionUser.role, username: sessionUser.username }
   } catch (error) {
     console.error("Login error:", error)
     return { success: false, error: "Login failed" }
   }
 }
 
-export async function loginDM() {
-  try {
-    const dmUsername = process.env.DM_USERNAME;
-    const dmPassword = process.env.DM_PASSWORD;
-    
-    // Only allow DM login if environment variables are configured
-    if (!dmUsername || !dmPassword) {
-      return { success: false, error: "DM credentials not configured" }
-    }
-
-    const userForCookie = {
-      id: 0,
-      username: dmUsername,
-      role: "DM" as const,
-    }
-    await setUserCookie(userForCookie)
-    return { success: true, role: "DM" }
-  } catch (error) {
-    console.error("DM Login error:", error)
-    return { success: false, error: "DM login failed" }
-  }
-}
-
 // Helper function to validate user permissions
-export async function requireAuth(requiredRole?: 'DM' | 'player') {
+export async function requireAuth(requiredRole?: "DM" | "player"): Promise<SessionUser> {
   const user = await getUserFromCookie()
   if (!user) {
     throw new Error("Authentication required")
   }
-  
+
   if (requiredRole && user.role !== requiredRole) {
     throw new Error("Insufficient permissions")
   }
-  
-  return user
-}
 
-// Helper function to check if session is valid
-export async function isSessionValid() {
-  const user = await getUserFromCookie()
-  return user !== null
+  return user
 }

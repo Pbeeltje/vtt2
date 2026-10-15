@@ -6,6 +6,11 @@ import type { Note } from '../../types/note'
 
 export async function GET() {
   try {
+    await requireAuth()
+  } catch {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+  try {
     // Get the last 10 notice notes for the ticker
     const stmt = db.prepare('SELECT * FROM notes WHERE Type = ? ORDER BY Id DESC LIMIT 10')
     const notes = stmt.all('notice') as Note[]

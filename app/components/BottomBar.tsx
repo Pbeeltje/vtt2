@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import EncounterButton from "./EncounterButton"
 import type { Note } from "../types/note"
+import { toPlainText } from "@/lib/chat-text"
+
+const SAFE_COLOR = /^#[0-9a-f]{3,8}$/i
 
 interface BottomBarProps {
   onDiceRoll: (sides: number, result: number, numberOfDice: number, individualRolls: number[]) => void
@@ -20,8 +23,12 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
   const tickerRef = useRef<HTMLDivElement>(null)
   const [noteColor, setNoteColor] = useState('#dc2626')
 
-  // Load notes from database on component mount
+  // Load notes from database once logged in (the endpoint requires a session)
   useEffect(() => {
+    if (!userRole) {
+      setNotes([])
+      return
+    }
     const fetchNotes = async () => {
       try {
         const response = await fetch('/api/notes')
@@ -33,25 +40,19 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
         console.error('Error fetching notes:', error)
       }
     }
-    
+
     fetchNotes()
-  }, [])
+  }, [userRole])
 
   // Listen for note updates from Socket.IO
   useEffect(() => {
-    const handleNotesUpdate = (updatedNotes: Note[]) => {
-      setNotes(updatedNotes)
-    }
+    const handleNotesUpdate = ((event: CustomEvent<Note[]>) => {
+      setNotes(event.detail)
+    }) as EventListener
 
-    // Add event listener for note updates
-    window.addEventListener('notes_updated', ((event: CustomEvent) => {
-      handleNotesUpdate(event.detail)
-    }) as EventListener)
-
+    window.addEventListener('notes_updated', handleNotesUpdate)
     return () => {
-      window.removeEventListener('notes_updated', ((event: CustomEvent) => {
-        handleNotesUpdate(event.detail)
-      }) as EventListener)
+      window.removeEventListener('notes_updated', handleNotesUpdate)
     }
   }, [])
 
@@ -130,15 +131,16 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
 
   const isDM = userRole === 'DM'
 
-  // Create ticker HTML string from notes (newest to oldest for natural reading)
-  const tickerHTML = notes.map((note, idx) => {
-    const color = note.color || '#dc2626';
-    const separator = idx < notes.length - 1 ? '<span style="color: #888; margin: 0 1rem;"> :: </span>' : '';
-    return `<span style="color: ${color};">${note.Content}</span>${separator}`;
-  }).join('');
-
-  // Create duplicated HTML for seamless looping
-  const loopedHTML = tickerHTML ? `${tickerHTML}${tickerHTML}` : '';
+  // Ticker items from notes (newest to oldest for natural reading), rendered as text, never HTML
+  const renderTickerItems = (copy: number) => notes.map((note, idx) => (
+    <span key={`${copy}-${note.Id ?? idx}`}>
+      <span style={{ color: SAFE_COLOR.test(note.color || '') ? note.color : '#dc2626' }}>
+        {toPlainText(note.Content)}
+      </span>
+      {idx < notes.length - 1 && <span style={{ color: '#888', margin: '0 1rem' }}> :: </span>}
+    </span>
+  ));
+  const hasTickerItems = notes.length > 0;
 
   // Calculate dynamic animation duration based on actual text length (not HTML)
   const baseDuration = 19
@@ -232,16 +234,19 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
               title={isDM ? "Click to add new note" : "DM Notes Ticker"}
               style={{height: '2.5rem'}}
             >
-              {tickerHTML ? (
-                <div 
+              {hasTickerItems ? (
+                <div
                   ref={tickerRef}
                   className="whitespace-nowrap font-black ticker-scroll uppercase tracking-wider"
                   style={{
                     animation: isEditingNotepad ? 'none' : `ticker-scroll-left ${dynamicDuration}s linear infinite`,
                     fontFamily: 'Arial Black, Impact, sans-serif'
                   }}
-                  dangerouslySetInnerHTML={{ __html: loopedHTML }}
-                />
+                >
+                  {/* Rendered twice for seamless looping */}
+                  {renderTickerItems(0)}
+                  {renderTickerItems(1)}
+                </div>
               ) : (
                 <span className="font-black text-gray-500 uppercase tracking-wider text-center" style={{
                   fontFamily: 'Arial Black, Impact, sans-serif',

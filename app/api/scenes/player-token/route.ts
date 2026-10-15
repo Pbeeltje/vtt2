@@ -1,249 +1,204 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@libsql/client';
 import { requireAuth } from '@/lib/auth';
-import type { LayerImage } from '@/app/types/layerImage'; // Assuming type definition path
+import type { LayerImage } from '@/app/types/layerImage';
 
 const client = createClient({
   url: "file:./vttdatabase.db",
   authToken: "", // No auth token needed for local file
 });
 
-interface PlayerTokenPayload {
-  sceneId: number;
-  tokenData: LayerImage;
+const MAX_TOKEN_JSON_LENGTH = 20_000;
+
+function authErrorResponse(error: unknown): NextResponse | null {
+  if (error instanceof Error) {
+    if (error.message === "Authentication required") {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+    if (error.message === "Insufficient permissions") {
+      return NextResponse.json({ error: "Not authorized - Player access required" }, { status: 403 });
+    }
+  }
+  return null;
+}
+
+function tokenCharacterId(token: Partial<LayerImage> | undefined): number | null {
+  const raw = token?.character?.CharacterId ?? token?.characterId;
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** Ownership comes from the database, never from the userId inside the token JSON. */
+async function characterOwnerId(characterId: number): Promise<number | null> {
+  const result = await client.execute({
+    sql: "SELECT userId FROM character WHERE CharacterId = ?",
+    args: [characterId],
+  });
+  if (result.rows.length === 0) return null;
+  return Number(result.rows[0].userId);
+}
+
+async function userOwnsToken(token: Partial<LayerImage> | undefined, userId: number): Promise<boolean> {
+  const characterId = tokenCharacterId(token);
+  if (characterId === null) return false;
+  return (await characterOwnerId(characterId)) === userId;
+}
+
+async function loadSceneData(sceneId: unknown) {
+  const sceneResult = await client.execute({
+    sql: "SELECT SceneData FROM DMImage WHERE Id = ? AND Category = 'Scene'",
+    args: [String(sceneId)],
+  });
+  if (sceneResult.rows.length === 0) return null;
+  const raw = sceneResult.rows[0].SceneData;
+  return raw ? JSON.parse(String(raw)) : { elements: { topLayer: [] } };
+}
+
+async function saveSceneData(sceneId: unknown, sceneData: unknown) {
+  await client.execute({
+    sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ? AND Category = 'Scene'",
+    args: [JSON.stringify(sceneData), String(sceneId)],
+  });
+}
+
+function withTopLayer(sceneData: any, topLayer: LayerImage[]) {
+  return { ...sceneData, elements: { ...sceneData.elements, topLayer } };
+}
+
+async function broadcastSceneUpdate(req: Request, sceneId: unknown, sceneData: unknown) {
+  try {
+    const { emitToSceneExceptSender, sceneUpdatePayload } = await import('../../../../lib/scene-sync');
+    emitToSceneExceptSender(req, String(sceneId), 'scene_updated', sceneId, sceneUpdatePayload(sceneData));
+  } catch (socketError) {
+    console.error("[API /player-token] Socket.IO emit error:", socketError);
+  }
 }
 
 export async function POST(req: Request) {
   try {
-    // Only players can place tokens
     const user = await requireAuth('player');
 
-    const payload = await req.json();
-    const { sceneId, tokenData } = payload;
-
-    if (!sceneId || !tokenData) {
+    const { sceneId, tokenData } = await req.json();
+    if (!sceneId || !tokenData || typeof tokenData !== 'object') {
       return NextResponse.json({ error: "Scene ID and token data are required" }, { status: 400 });
     }
+    if (
+      typeof tokenData.id !== 'string' || tokenData.id.length === 0 || tokenData.id.length > 100 ||
+      typeof tokenData.url !== 'string' ||
+      !Number.isFinite(tokenData.x) || !Number.isFinite(tokenData.y) ||
+      JSON.stringify(tokenData).length > MAX_TOKEN_JSON_LENGTH
+    ) {
+      return NextResponse.json({ error: "Invalid token data" }, { status: 400 });
+    }
 
-    // Validate that the token belongs to the current user
-    if (tokenData.character?.userId !== user.id) {
+    if (!(await userOwnsToken(tokenData, user.id))) {
       return NextResponse.json({ error: "You can only place your own character tokens" }, { status: 403 });
     }
 
-    // Get current scene data
-    const sceneResult = await client.execute({
-      sql: "SELECT SceneData FROM DMImage WHERE Id = ? AND Category = 'Scene'",
-      args: [String(sceneId)],
-    });
-
-    if (sceneResult.rows.length === 0) {
+    const currentSceneData = await loadSceneData(sceneId);
+    if (!currentSceneData) {
       return NextResponse.json({ error: "Scene not found" }, { status: 404 });
     }
 
-    const currentSceneData = sceneResult.rows[0].SceneData ? JSON.parse(String(sceneResult.rows[0].SceneData)) : { elements: { topLayer: [] } };
+    const topLayer: LayerImage[] = currentSceneData.elements?.topLayer || [];
+    if (topLayer.some((token) => token.id === tokenData.id)) {
+      return NextResponse.json({ error: "A token with this id already exists" }, { status: 409 });
+    }
 
-    // Add token to top layer
-    const updatedTopLayer = [...(currentSceneData.elements?.topLayer || []), tokenData];
+    // Stamp the owner from the database so clients see the real owner.
+    const placedToken: LayerImage = tokenData.character
+      ? { ...tokenData, character: { ...tokenData.character, userId: user.id } }
+      : tokenData;
 
-    // Update scene data
-    const updatedSceneData = {
-      ...currentSceneData,
-      elements: {
-        ...currentSceneData.elements,
-        topLayer: updatedTopLayer,
-      },
-    };
+    await saveSceneData(sceneId, withTopLayer(currentSceneData, [...topLayer, placedToken]));
 
-    await client.execute({
-      sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ? AND Category = 'Scene'",
-      args: [JSON.stringify(updatedSceneData), String(sceneId)],
-    });
-
-    // Emit socket event for real-time updates
     try {
-      const { getIO } = await import('../../../../lib/socket');
-      const io = getIO();
-      io.to(String(sceneId)).emit('player_token_placed', sceneId, tokenData);
+      const { emitToSceneExceptSender } = await import('../../../../lib/scene-sync');
+      emitToSceneExceptSender(req, String(sceneId), 'player_token_placed', sceneId, placedToken);
     } catch (socketError) {
       console.error("[API /player-token] Socket.IO emit error:", socketError);
     }
 
-    return NextResponse.json({ message: "Token placed successfully", tokenData });
+    return NextResponse.json({ message: "Token placed successfully", tokenData: placedToken });
   } catch (error) {
     console.error("[API /player-token] Error:", error);
-    
-    if (error instanceof Error) {
-      if (error.message === "Authentication required") {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-      }
-      if (error.message === "Insufficient permissions") {
-        return NextResponse.json({ error: "Not authorized - Player access required" }, { status: 403 })
-      }
-    }
-    
-    return NextResponse.json({ 
-      error: "Failed to place token",
-      details: error instanceof Error ? error.message : "Unknown error"
-    }, { status: 500 });
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to place token" }, { status: 500 });
   }
 }
 
 export async function DELETE(req: Request) {
   try {
-    // Only players can delete their own tokens
     const user = await requireAuth('player');
 
     const { searchParams } = new URL(req.url);
     const sceneId = searchParams.get('sceneId');
     const tokenId = searchParams.get('tokenId');
-
     if (!sceneId || !tokenId) {
       return NextResponse.json({ error: "Scene ID and token ID are required" }, { status: 400 });
     }
 
-    // Get current scene data
-    const sceneResult = await client.execute({
-      sql: "SELECT SceneData FROM DMImage WHERE Id = ? AND Category = 'Scene'",
-      args: [String(sceneId)],
-    });
-
-    if (sceneResult.rows.length === 0) {
+    const currentSceneData = await loadSceneData(sceneId);
+    if (!currentSceneData) {
       return NextResponse.json({ error: "Scene not found" }, { status: 404 });
     }
 
-    const currentSceneData = sceneResult.rows[0].SceneData ? JSON.parse(String(sceneResult.rows[0].SceneData)) : { elements: { topLayer: [] } };
-
-    // Find the token to validate ownership
-    const tokenToDelete = (currentSceneData.elements?.topLayer || []).find((token: any) => token.id === tokenId);
-
+    const topLayer: LayerImage[] = currentSceneData.elements?.topLayer || [];
+    const tokenToDelete = topLayer.find((token) => token.id === tokenId);
     if (!tokenToDelete) {
       return NextResponse.json({ error: "Token not found" }, { status: 404 });
     }
-
-    // Validate that the token belongs to the current user
-    if (tokenToDelete.character?.userId !== user.id) {
+    if (!(await userOwnsToken(tokenToDelete, user.id))) {
       return NextResponse.json({ error: "You can only delete your own character tokens" }, { status: 403 });
     }
 
-    // Remove token from top layer
-    const updatedTopLayer = (currentSceneData.elements?.topLayer || []).filter((token: any) => token.id !== tokenId);
-
-    // Update scene data
-    const updatedSceneData = {
-      ...currentSceneData,
-      elements: {
-        ...currentSceneData.elements,
-        topLayer: updatedTopLayer,
-      },
-    };
-
-    await client.execute({
-      sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ? AND Category = 'Scene'",
-      args: [JSON.stringify(updatedSceneData), String(sceneId)],
-    });
-
-    // Emit socket event for real-time updates
-    try {
-      const { getIO } = await import('../../../../lib/socket');
-      const io = getIO();
-      io.to(String(sceneId)).emit('scene_updated', sceneId, updatedSceneData);
-    } catch (socketError) {
-      console.error("[API /player-token DELETE] Socket.IO emit error:", socketError);
-    }
+    const updatedSceneData = withTopLayer(currentSceneData, topLayer.filter((token) => token.id !== tokenId));
+    await saveSceneData(sceneId, updatedSceneData);
+    await broadcastSceneUpdate(req, sceneId, updatedSceneData);
 
     return NextResponse.json({ message: "Token deleted successfully" });
   } catch (error) {
     console.error("[API /player-token DELETE] Error:", error);
-    
-    if (error instanceof Error) {
-      if (error.message === "Authentication required") {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-      }
-      if (error.message === "Insufficient permissions") {
-        return NextResponse.json({ error: "Not authorized - Player access required" }, { status: 403 })
-      }
-    }
-    
-    return NextResponse.json({ 
-      error: "Failed to delete token",
-      details: error instanceof Error ? error.message : "Unknown error"
-    }, { status: 500 });
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to delete token" }, { status: 500 });
   }
 }
 
 export async function PUT(req: Request) {
   try {
-    // Only players can update token positions
     const user = await requireAuth('player');
 
-    const payload = await req.json();
-    const { sceneId, tokenData } = payload;
-
-    if (!sceneId || !tokenData) {
+    const { sceneId, tokenData } = await req.json();
+    if (!sceneId || !tokenData || typeof tokenData.id !== 'string') {
       return NextResponse.json({ error: "Scene ID and token data are required" }, { status: 400 });
     }
-
-    // Validate that the token belongs to the current user
-    if (tokenData.character?.userId !== user.id) {
-      return NextResponse.json({ error: "You can only move your own character tokens" }, { status: 403 });
+    if (!Number.isFinite(tokenData.x) || !Number.isFinite(tokenData.y)) {
+      return NextResponse.json({ error: "Invalid token position" }, { status: 400 });
     }
 
-    // Get current scene data
-    const sceneResult = await client.execute({
-      sql: "SELECT SceneData FROM DMImage WHERE Id = ? AND Category = 'Scene'",
-      args: [String(sceneId)],
-    });
-
-    if (sceneResult.rows.length === 0) {
+    const currentSceneData = await loadSceneData(sceneId);
+    if (!currentSceneData) {
       return NextResponse.json({ error: "Scene not found" }, { status: 404 });
     }
 
-    const currentSceneData = sceneResult.rows[0].SceneData ? JSON.parse(String(sceneResult.rows[0].SceneData)) : { elements: { topLayer: [] } };
-
-    // Update token position in top layer
-    const updatedTopLayer = (currentSceneData.elements?.topLayer || []).map((token: any) => 
-      token.id === tokenData.id ? { ...token, x: tokenData.x, y: tokenData.y } : token
-    );
-
-    // Update scene data
-    const updatedSceneData = {
-      ...currentSceneData,
-      elements: {
-        ...currentSceneData.elements,
-        topLayer: updatedTopLayer,
-      },
-    };
-
-    await client.execute({
-      sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ? AND Category = 'Scene'",
-      args: [JSON.stringify(updatedSceneData), String(sceneId)],
-    });
-
-    // Emit socket event for real-time updates
-    try {
-      const { getIO } = await import('../../../../lib/socket');
-      const io = getIO();
-      io.to(String(sceneId)).emit('scene_updated', sceneId, updatedSceneData);
-    } catch (socketError) {
-      console.error("[API /player-token PUT] Socket.IO emit error:", socketError);
+    // Check ownership of the token as stored on the server, not the one sent by the client.
+    const topLayer: LayerImage[] = currentSceneData.elements?.topLayer || [];
+    const storedToken = topLayer.find((token) => token.id === tokenData.id);
+    if (!storedToken) {
+      return NextResponse.json({ error: "Token not found" }, { status: 404 });
     }
+    if (!(await userOwnsToken(storedToken, user.id))) {
+      return NextResponse.json({ error: "You can only move your own character tokens" }, { status: 403 });
+    }
+
+    const updatedSceneData = withTopLayer(
+      currentSceneData,
+      topLayer.map((token) => (token.id === tokenData.id ? { ...token, x: tokenData.x, y: tokenData.y } : token))
+    );
+    await saveSceneData(sceneId, updatedSceneData);
+    await broadcastSceneUpdate(req, sceneId, updatedSceneData);
 
     return NextResponse.json({ message: "Token position updated successfully" });
   } catch (error) {
     console.error("[API /player-token PUT] Error:", error);
-    
-    if (error instanceof Error) {
-      if (error.message === "Authentication required") {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-      }
-      if (error.message === "Insufficient permissions") {
-        return NextResponse.json({ error: "Not authorized - Player access required" }, { status: 403 })
-      }
-    }
-    
-    return NextResponse.json({ 
-      error: "Failed to update token position",
-      details: error instanceof Error ? error.message : "Unknown error"
-    }, { status: 500 });
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to update token position" }, { status: 500 });
   }
-} 
+}

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "@/components/ui/use-toast"
-import { loginUser, loginDM } from "@/lib/auth"
+import { loginUser } from "@/lib/auth-actions"
 
 interface LoginFormProps {
   onLogin: (username: string, role: string) => void
@@ -37,32 +37,6 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
       toast({
         title: "Login Failed",
         description: error instanceof Error ? error.message : "An unexpected error occurred during login",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleDMLogin = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    try {
-      const result = await loginDM()
-      if (result.success) {
-        onLogin("DM_User", "DM")
-        toast({
-          title: "DM Login",
-          description: "Logged in as DM for testing.",
-        })
-      } else {
-        throw new Error(result.error || "DM Login failed")
-      }
-    } catch (error) {
-      console.error("DM Login error:", error)
-      toast({
-        title: "DM Login Failed",
-        description: error instanceof Error ? error.message : "An error occurred during DM login",
         variant: "destructive",
       })
     } finally {
@@ -104,17 +78,6 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
           {isLoading ? "Logging in..." : "Login"}
         </Button>
       </form>
-      <div className="space-y-2">
-        <Button 
-          type="button" 
-          variant="outline" 
-          className="w-full" 
-          onClick={handleDMLogin}
-          disabled={isLoading}
-        >
-          {isLoading ? "Logging in..." : "Login as DM (Test)"}
-        </Button>
-      </div>
     </div>
   )
 }

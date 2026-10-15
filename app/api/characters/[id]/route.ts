@@ -98,7 +98,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   } catch (error) {
     console.error('Error updating character:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: 'Failed to update character', details: errorMessage }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update character' }, { status: 500 });
   }
 }
 
@@ -243,7 +243,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     if (errorMessage.includes("SQLITE_CONSTRAINT_FOREIGNKEY")) {
         return NextResponse.json({ error: "Failed to delete character due to existing references", details: "SQLITE_CONSTRAINT_FOREIGNKEY: FOREIGN KEY constraint failed. Other data in the system still refers to this character." }, { status: 409 }); // 409 Conflict
     }
-    return NextResponse.json({ error: "Failed to delete character", details: errorMessage }, { status: 500 });
+    return NextResponse.json({ error: "Failed to delete character" }, { status: 500 });
   }
 }
 

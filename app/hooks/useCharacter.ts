@@ -1,15 +1,33 @@
 // hooks/useCharacter.ts
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { toast } from "@/components/ui/use-toast";
 import { Character } from '../types/character';
 
+/**
+ * Apply a server update to the draft without discarding local edits: fields the user changed
+ * since the last server version keep their local value, everything else takes the new value.
+ */
+function mergeServerUpdate(draft: Character, previousServer: Character, nextServer: Character): Character {
+  if (previousServer.CharacterId !== nextServer.CharacterId) return nextServer;
+  const merged: Record<string, unknown> = { ...nextServer };
+  const draftFields = draft as unknown as Record<string, unknown>;
+  const previousFields = previousServer as unknown as Record<string, unknown>;
+  // Compare as strings: inputs hold "12" where the server sends 12.
+  const asText = (value: unknown) => (value === null || value === undefined ? '' : String(value));
+  for (const key of Object.keys(draftFields)) {
+    if (asText(draftFields[key]) !== asText(previousFields[key])) merged[key] = draftFields[key];
+  }
+  return merged as unknown as Character;
+}
+
 export function useCharacter(initialCharacter: Character, onUpdate: (updatedCharacter: Character) => void) {
   const [editedCharacter, setEditedCharacter] = useState<Character>(initialCharacter);
-  // console.log('[useCharacter] Hook instantiated/re-rendered. InitialCharacter Name:', initialCharacter.Name, 'EditedCharacter Name:', editedCharacter.Name);
+  const previousServerRef = useRef(initialCharacter);
 
   useEffect(() => {
-    // console.log('[useCharacter] useEffect triggered. initialCharacter details - Name:', initialCharacter.Name, 'Level:', initialCharacter.Level, 'Description:', initialCharacter.Description);
-    setEditedCharacter(initialCharacter);
+    const previousServer = previousServerRef.current;
+    previousServerRef.current = initialCharacter;
+    setEditedCharacter(draft => mergeServerUpdate(draft, previousServer, initialCharacter));
   }, [initialCharacter]);
 
   // Optional: Log when editedCharacter itself changes

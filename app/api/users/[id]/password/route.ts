@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@libsql/client"
 import bcrypt from "bcryptjs"
 import { requireAuth } from "@/lib/auth"
+import { ensureUserIsHostAdminColumn, getUserRowById, rowIsHostAdmin } from "@/lib/user-schema"
 
 const client = createClient({
   url: "file:./vttdatabase.db",
@@ -14,8 +15,9 @@ export async function PUT(
   request: Request,
   { params }: { params: { id: string } }
 ) {
+  let actor
   try {
-    await requireAuth("DM")
+    actor = await requireAuth("DM")
   } catch (e) {
     if (e instanceof Error) {
       if (e.message === "Authentication required") {
@@ -48,12 +50,18 @@ export async function PUT(
     )
   }
 
-  const existing = await client.execute({
-    sql: "SELECT UserId FROM User WHERE UserId = ?",
-    args: [userId],
-  })
-  if (existing.rows.length === 0) {
+  await ensureUserIsHostAdminColumn(client)
+  const targetRow = await getUserRowById(client, userId)
+  if (!targetRow) {
     return NextResponse.json({ error: "User not found" }, { status: 404 })
+  }
+
+  // Delegated DMs may reset player passwords only; DM and host accounts need the host.
+  if (targetRow.Role === "DM" || rowIsHostAdmin(targetRow)) {
+    const actorRow = await getUserRowById(client, actor.id)
+    if (!actorRow || !rowIsHostAdmin(actorRow)) {
+      return NextResponse.json({ error: "Only the host can reset a DM's password." }, { status: 403 })
+    }
   }
 
   const hashedPassword = await bcrypt.hash(newPassword, 10)

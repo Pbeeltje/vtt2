@@ -1,3 +1,5 @@
+import { safeEqual } from "./session-token"
+
 /** Whether the host configured a registration gate (REGISTRATION_SECRET). */
 export function registrationInviteRequired(): boolean {
   return Boolean(process.env.REGISTRATION_SECRET?.trim());
@@ -13,5 +15,5 @@ export function isValidRegistrationInvite(inviteCode: unknown): boolean {
   const secret = getTrimmedRegistrationSecret();
   if (!secret) return true;
   if (typeof inviteCode !== "string") return false;
-  return inviteCode.trim() === secret;
+  return safeEqual(inviteCode.trim(), secret);
 }

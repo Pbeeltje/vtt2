@@ -9,6 +9,7 @@ import CharacterList from "./CharacterList"
 import ImageList from "./ImageList"
 import DmPlayerAccounts from "./DmPlayerAccounts"
 import { toast } from "@/components/ui/use-toast"
+import { toPlainText } from "@/lib/chat-text"
 // import MapList from "./MapList"
 
 interface ChatMessage {
@@ -285,7 +286,7 @@ export default function RightSideMenu({
                             ) : (
                               <span style={{ color: usernameColor, fontWeight: '600' }}>{message.username || 'Unknown'}:</span> // Fallback for other types
                             )}{" "}
-                            <span dangerouslySetInnerHTML={{ __html: message.content }} />
+                            <span className="whitespace-pre-wrap">{toPlainText(message.content)}</span>
                           </div>
                         </div>
                       </div>

@@ -129,7 +129,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     if (error && typeof error === 'object' && 'code' in error && error.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
         return NextResponse.json({ error: "Failed to delete image due to existing references", details: "SQLITE_CONSTRAINT_FOREIGNKEY: FOREIGN KEY constraint failed. Other data in the system still refers to this image." }, { status: 409 }); // 409 Conflict
     }
-    return NextResponse.json({ error: "Failed to delete image", details: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to delete image" }, { status: 500 });
   }
 }
 

@@ -92,7 +92,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     console.error('Error fetching jobs:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to fetch jobs', details: errorMessage },
+      { error: 'Failed to fetch jobs' },
       { status: 500 }
     );
   }
@@ -166,7 +166,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     console.error('Error creating job:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to create job', details: errorMessage },
+      { error: 'Failed to create job' },
       { status: 500 }
     );
   }

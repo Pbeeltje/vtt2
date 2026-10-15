@@ -58,30 +58,9 @@ export async function POST(req: Request) {
 
     // Emit socket event for scene update
     try {
-      const { getIO } = await import('../../../lib/socket');
-      const io = getIO();
-      
-      if (sceneData === null) {
-        // For cleared scene data, emit an empty scene
-        const sceneUpdatePayload = {
-          middleLayer: [],
-          topLayer: [],
-          gridSize: 50,
-          gridColor: "rgba(0,0,0,0.1)",
-          scale: 1
-        };
-        io.to(String(sceneId)).emit('scene_updated', sceneId, sceneUpdatePayload);
-      } else {
-        // Send the relevant parts of sceneData for normal updates
-        const sceneUpdatePayload = {
-          middleLayer: sceneData.elements?.middleLayer || [],
-          topLayer: sceneData.elements?.topLayer || [],
-          gridSize: sceneData.gridSize || 50,
-          gridColor: sceneData.gridColor || "rgba(0,0,0,0.1)",
-          scale: sceneData.scale || 1
-        };
-        io.to(String(sceneId)).emit('scene_updated', sceneId, sceneUpdatePayload);
-      }
+      const { emitToSceneExceptSender, sceneUpdatePayload } = await import('../../../lib/scene-sync');
+      // The saving DM already has this state; echoing it back makes tokens jump mid-drag.
+      emitToSceneExceptSender(req, sceneId, 'scene_updated', sceneId, sceneUpdatePayload(sceneData));
     } catch (socketError) {
       console.error("[API /scenes POST] Socket.IO emit error:", socketError);
     }
@@ -99,9 +78,6 @@ export async function POST(req: Request) {
       }
     }
     
-    return NextResponse.json({ 
-      error: "Failed to save scene",
-      details: error instanceof Error ? error.message : "Unknown error"
-    }, { status: 500 });
+    return NextResponse.json({ error: "Failed to save scene" }, { status: 500 });
   }
 } 

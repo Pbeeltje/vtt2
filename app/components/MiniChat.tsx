@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { GripVertical, PanelLeft } from "lucide-react"
 import type { User } from "../types/user"
 import type { Character } from "../types/character"
+import { toPlainText } from "@/lib/chat-text"
 
 interface ChatMessage {
   MessageId?: number
@@ -247,10 +248,9 @@ export default function MiniChat({
                         {message.username || "Unknown"}:
                       </span>
                     )}{" "}
-                    <span
-                      className={message.type === "diceRoll" ? "italic text-stone-800" : ""}
-                      dangerouslySetInnerHTML={{ __html: message.content }}
-                    />
+                    <span className={`whitespace-pre-wrap ${message.type === "diceRoll" ? "italic text-stone-800" : ""}`}>
+                      {toPlainText(message.content)}
+                    </span>
                   </div>
                 </div>
               </div>

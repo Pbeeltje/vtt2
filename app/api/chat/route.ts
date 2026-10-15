@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   } catch (error) {
     console.error("Error fetching chat messages:", error)
     return NextResponse.json(
-      { error: "Failed to fetch chat messages", details: error instanceof Error ? error.message : "Unknown error" },
+      { error: "Failed to fetch chat messages" },
       { status: 500 }
     )
   }
@@ -44,6 +44,14 @@ export async function POST(req: Request) {
     const { type, content, speakerName, senderType } = await req.json()
     if (!type || !content || !speakerName || !senderType) {
       return NextResponse.json({ error: "Type, content, speakerName, and senderType are required" }, { status: 400 })
+    }
+    if (
+      typeof type !== "string" || type.length > 30 ||
+      typeof content !== "string" || content.length > 2000 ||
+      typeof speakerName !== "string" || speakerName.length > 100 ||
+      typeof senderType !== "string" || senderType.length > 30
+    ) {
+      return NextResponse.json({ error: "Message too long or invalid" }, { status: 400 })
     }
 
     const timestamp = new Date().toISOString()
@@ -78,7 +86,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Error saving chat message:", error)
     return NextResponse.json(
-      { error: "Failed to save chat message", details: error instanceof Error ? error.message : "Unknown error" },
+      { error: "Failed to save chat message" },
       { status: 500 }
     )
   }

@@ -1,8 +1,10 @@
 /**
- * Parse the `user` session cookie from a raw Cookie header (e.g. Socket.IO handshake).
+ * Parse the signed `user` session cookie from a raw Cookie header (e.g. Socket.IO handshake).
  * Must stay free of "use server" / next/headers so it can run in the Node socket stack.
  */
-export type SessionUser = { id: number; username: string; role: string }
+import { SESSION_COOKIE_NAME, verifySessionToken, type SessionUser } from "./session-token"
+
+export type { SessionUser }
 
 function cookieValueFromHeader(cookieHeader: string | undefined, name: string): string | null {
   if (!cookieHeader) return null
@@ -19,28 +21,13 @@ function cookieValueFromHeader(cookieHeader: string | undefined, name: string): 
 }
 
 export function parseUserFromCookieHeader(cookieHeader: string | undefined): SessionUser | null {
-  const raw = cookieValueFromHeader(cookieHeader, "user")
+  const raw = cookieValueFromHeader(cookieHeader, SESSION_COOKIE_NAME)
   if (!raw) return null
   try {
-    const decoded = decodeURIComponent(raw)
-    const user = JSON.parse(decoded) as unknown
-    if (
-      user &&
-      typeof user === "object" &&
-      "id" in user &&
-      "username" in user &&
-      "role" in user &&
-      typeof (user as SessionUser).username === "string" &&
-      typeof (user as SessionUser).role === "string"
-    ) {
-      const id = Number((user as SessionUser).id)
-      if (!Number.isFinite(id)) return null
-      return { id, username: (user as SessionUser).username, role: (user as SessionUser).role }
-    }
+    return verifySessionToken(decodeURIComponent(raw))
   } catch {
     return null
   }
-  return null
 }
 
 /** Socket.IO room for clients that presented a valid `user` cookie at connect time. */

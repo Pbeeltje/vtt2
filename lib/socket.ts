@@ -6,7 +6,9 @@ import {
   AUTHENTICATED_ROOM,
 } from './parse-user-cookie';
 
-const GLOBAL_SOCKET_IO_KEY = Symbol('socket.io.server');
+// Must be a process-wide key (not `Symbol(...)`): API routes are bundled separately from
+// server.ts, so each bundle gets its own copy of this module and must still find the server.
+const GLOBAL_SOCKET_IO_KEY = '__vttSocketIOServer';
 
 interface AppGlobal {
   [GLOBAL_SOCKET_IO_KEY]?: SocketIOServer;
