@@ -174,7 +174,7 @@ describe("POST /api/roll/test", () => {
     expect(row).toMatchObject({ Type: "diceRoll", Username: "Aria", SenderType: "character" })
     const data = JSON.parse(row.Data)
     expect(data.test).toMatchObject({ attribute: "Mind", score: 12, roll: data.total })
-    expect(row.Content).toMatch(/^Mind test vs 12, (pass|fail).*: rolled a d20: \d+$/)
+    expect(row.Content).toMatch(/^Mind test vs 12: \d+ (pass|fail)$/)
   })
 
   it("rejects other players' characters, unknown attributes and unknown characters", async () => {

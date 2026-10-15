@@ -23,7 +23,10 @@ interface RoundMenuProps {
 }
 
 const SIZE = 150
-const RADIUS = 52
+/** Radius of the dark ring around the PQAR button; the rim items sit in the band outside it. */
+const INNER = 40
+/** Labels sit halfway across the band between the inner ring and the outer rim. */
+const RADIUS = (INNER + SIZE / 2) / 2
 
 /** The Icewind Dale style wheel: character actions around the rim, the PQAR phase button in the middle. */
 function RoundMenu({ items, phase, onNextPhase }: RoundMenuProps) {
@@ -36,9 +39,26 @@ function RoundMenu({ items, phase, onNextPhase }: RoundMenuProps) {
         width: SIZE,
         height: SIZE,
         boxShadow: "0 0 0 3px #0a0d0a, 0 0 0 6px #8e9a80, 0 0 0 8px #0a0d0a, 0 8px 20px rgba(0,0,0,.7), inset 0 0 18px #000",
-        backgroundImage: `repeating-conic-gradient(from ${180 / n}deg, rgba(0,0,0,0) 0 ${360 / n - 1}deg, rgba(0,0,0,.85) ${360 / n - 1}deg ${360 / n}deg), radial-gradient(circle, #0000 0 36%, #0a0d0a 36% 38%, #0000 38%), var(--tx-marble-dark)`,
+        backgroundImage: "var(--tx-marble-dark)",
       }}
     >
+      {/* Spokes run exactly halfway between neighbouring items, from the inner ring to the rim. */}
+      <svg className="pointer-events-none absolute inset-0" width={SIZE} height={SIZE} aria-hidden>
+        {items.length > 1 &&
+          items.map((_, i) => {
+            const a = ((i + 0.5) / n) * Math.PI * 2 - Math.PI / 2
+            const [cos, sin] = [Math.cos(a), Math.sin(a)]
+            const c = SIZE / 2
+            return (
+              <g key={i}>
+                <line x1={c + cos * INNER} y1={c + sin * INNER} x2={c + cos * c} y2={c + sin * c} stroke="#0a0d0a" strokeWidth={2.5} />
+                <line x1={c + cos * INNER} y1={c + sin * INNER} x2={c + cos * c} y2={c + sin * c} stroke="rgba(142,154,128,.35)" strokeWidth={0.75} />
+              </g>
+            )
+          })}
+        <circle cx={SIZE / 2} cy={SIZE / 2} r={INNER} fill="none" stroke="#0a0d0a" strokeWidth={3} />
+        <circle cx={SIZE / 2} cy={SIZE / 2} r={INNER} fill="none" stroke="rgba(142,154,128,.35)" strokeWidth={0.75} />
+      </svg>
       {items.map((item, i) => {
         const angle = (i / n) * Math.PI * 2 - Math.PI / 2
         const Icon = item.icon
@@ -56,9 +76,9 @@ function RoundMenu({ items, phase, onNextPhase }: RoundMenuProps) {
             {Icon ? (
               <Icon className="h-[22px] w-[22px] [filter:drop-shadow(1px_1px_0_rgba(0,0,0,.95))]" strokeWidth={1.9} />
             ) : (
-              <span className="leading-none [text-shadow:1px_1px_0_rgba(0,0,0,.95)]">
+              <span className="text-center leading-none [text-shadow:0_0_2px_#000,1px_1px_0_rgba(0,0,0,.95)]">
                 <b className="jade-sc block text-[11px] font-bold">{item.text}</b>
-                {item.value !== undefined && <small className="block text-[10px] font-semibold tabular-nums">{item.value}</small>}
+                {item.value !== undefined && <small className="mt-px block text-[10px] font-semibold tabular-nums">{item.value}</small>}
               </span>
             )}
           </button>

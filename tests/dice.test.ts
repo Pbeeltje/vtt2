@@ -81,8 +81,8 @@ describe("Tests (d20 roll-under)", () => {
   })
 
   it("ends the chat text with the roll and spells Dexterity right", () => {
-    expect(describeTest(scoreTest("Dexternity", 12, 9))).toBe("Dexterity test vs 12, pass: rolled a d20: 9")
-    expect(describeTest(scoreTest("Charisma", 12, 20))).toBe("Charisma test vs 12, fail (natural 20): rolled a d20: 20")
+    expect(describeTest(scoreTest("Dexternity", 12, 9))).toBe("Dexterity test vs 12: 9 pass")
+    expect(describeTest(scoreTest("Charisma", 12, 20))).toBe("Charisma test vs 12: 20 fail")
   })
 
   it("only accepts the four attributes", () => {

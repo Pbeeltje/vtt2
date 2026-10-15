@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { Job, JobFormPayload } from "../../hooks/useJobs";
 import { cn } from "@/lib/utils";
+import { MAX_JOB_TIER } from "@/lib/jobs";
 import { X } from "lucide-react";
 
 type JobDetailModalProps = {
@@ -193,12 +194,14 @@ export function JobDetailModal({ job, open, onOpenChange, onSave, onCreate }: Jo
                   <Input
                     id="job-modal-tier"
                     type="number"
-                    min={0}
+                    min={1}
+                    max={MAX_JOB_TIER}
                     value={draft.tier}
                     onChange={(e) =>
                       setDraft((d) => ({
                         ...d,
-                        tier: parseInt(e.target.value, 10) || 0,
+                        // The server only accepts tiers 1..MAX_JOB_TIER.
+                        tier: Math.min(MAX_JOB_TIER, Math.max(1, parseInt(e.target.value, 10) || 1)),
                       }))
                     }
                     className="mt-1 w-24"

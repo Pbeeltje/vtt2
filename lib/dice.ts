@@ -128,9 +128,8 @@ export function scoreTest(attribute: TestAttribute, score: number, roll: number)
   return { attribute, score, roll, pass, margin: roll - score }
 }
 
-/** Chat text ending in the roll, e.g. "Mind test vs 12, pass: rolled a d20: 9". */
+/** Chat text ending in the roll and its outcome, e.g. "Mind test vs 12: 9 pass". */
 export function describeTest(test: TestResult): string {
   const name = test.attribute === "Dexternity" ? "Dexterity" : test.attribute
-  const natural = test.roll === 1 || test.roll === 20 ? ` (natural ${test.roll})` : ""
-  return `${name} test vs ${test.score}, ${test.pass ? "pass" : "fail"}${natural}: rolled a d20: ${test.roll}`
+  return `${name} test vs ${test.score}: ${test.roll} ${test.pass ? "pass" : "fail"}`
 }

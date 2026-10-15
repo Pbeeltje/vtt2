@@ -23,9 +23,9 @@ function speakerColor(message: ChatMessage): string {
   return "var(--jade-ink-hi)"
 }
 
-/** A dice line with its total (the number it ends with) in bold. */
+/** A dice line with its result in a box: a test's pass/fail, otherwise the total it ends with. */
 function DiceText({ text }: { text: string }) {
-  const match = /-?\d+$/.exec(text)
+  const match = /(?:pass|fail|-?\d+)$/.exec(text)
   const head = match ? text.slice(0, match.index) : text
   return (
     <span className="whitespace-pre-wrap text-[var(--jade-roll)]">

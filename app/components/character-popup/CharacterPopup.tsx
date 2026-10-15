@@ -1,7 +1,7 @@
 // components/character-popup/CharacterPopup.tsx
 'use client'
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { Backpack, ChevronDown, Settings, Swords, Upload, UserRound, X } from 'lucide-react';
 import { Character } from '../../types/character';
@@ -63,9 +63,23 @@ export default function CharacterPopup({ character, onClose, onSave, isDM, allUs
   });
   const picture = draft.PortraitUrl || draft.TokenUrl;
   const stop = { onClick: (e: React.MouseEvent) => e.stopPropagation(), onMouseDown: (e: React.MouseEvent) => e.stopPropagation(), onMouseUp: (e: React.MouseEvent) => e.stopPropagation() };
+  // Close only when the press started on the backdrop too. Tabs switch on mousedown and the sheet
+  // re-centres at its new height, so a press on a tab can be released over the backdrop, and the
+  // browser then sends the click to the backdrop.
+  const pressedBackdrop = useRef(false);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label={`${character.Name}'s character sheet`} onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${character.Name}'s character sheet`}
+      onMouseDown={(e) => { pressedBackdrop.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        if (pressedBackdrop.current && e.target === e.currentTarget) onClose();
+        pressedBackdrop.current = false;
+      }}
+    >
       <TabsPrimitive.Root
         value={tab}
         onValueChange={setTab}
