@@ -3,25 +3,29 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import type { LayerImage } from "../types/layerImage"
 
+export type TokenSettings = { scale: number; auraColor: string | null; auraRadius: number | null }
+
 interface TokenSettingsModalProps {
-  token: LayerImage | null
+  token: LayerImage
   onClose: () => void
-  onUpdateScale: (tokenId: string, scale: number) => void
-  onUpdateAura: (tokenId: string, auraColor: string | null, auraRadius: number | null) => void
+  /** Saves size and aura together, so one change can't overwrite the other. */
+  onSave: (tokenId: string, settings: TokenSettings) => void
   gridSize: number
 }
 
-export default function TokenSettingsModal({ token, onClose, onUpdateScale, onUpdateAura, gridSize }: TokenSettingsModalProps) {
-  const [scale, setScale] = useState(token ? (token.width || gridSize) / gridSize : 1)
-  const [auraColor, setAuraColor] = useState(token?.auraColor || '#87CEEB')
-  const [auraRadius, setAuraRadius] = useState(token?.auraRadius || 1)
-  const [auraEnabled, setAuraEnabled] = useState(Boolean(token?.auraColor && token?.auraRadius && token.auraRadius > 0))
-
-  if (!token) return null
+/** Size and aura of one token. Render it with key={token.id} so it starts from that token's values. */
+export default function TokenSettingsModal({ token, onClose, onSave, gridSize }: TokenSettingsModalProps) {
+  const [scale, setScale] = useState((token.width || gridSize) / gridSize)
+  const [auraColor, setAuraColor] = useState(token.auraColor || '#87CEEB')
+  const [auraRadius, setAuraRadius] = useState(token.auraRadius || 1)
+  const [auraEnabled, setAuraEnabled] = useState(Boolean(token.auraColor && token.auraRadius && token.auraRadius > 0))
 
   const handleSave = () => {
-    onUpdateScale(token.id, scale)
-    onUpdateAura(token.id, auraEnabled ? auraColor : null, auraEnabled ? auraRadius : null)
+    onSave(token.id, {
+      scale: Math.min(5, Math.max(0.1, scale)),
+      auraColor: auraEnabled ? auraColor : null,
+      auraRadius: auraEnabled ? auraRadius : null,
+    })
     onClose()
   }
 
@@ -32,7 +36,7 @@ export default function TokenSettingsModal({ token, onClose, onUpdateScale, onUp
   const currentSize = Math.round(scale * gridSize)
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-label="Token settings" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
       <div className="bg-white rounded-lg p-6 w-[500px] max-w-[90vw] max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold">Token Settings</h2>
@@ -98,7 +102,7 @@ export default function TokenSettingsModal({ token, onClose, onUpdateScale, onUp
               <input
                 type="number"
                 value={auraRadius}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAuraRadius(Math.max(0, parseInt(e.target.value) || 1))}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAuraRadius(Math.max(0, parseFloat(e.target.value) || 1))}
                 min="0"
                 max="5"
                 step="0.5"

@@ -10,47 +10,31 @@ import { Label } from "@/components/ui/label";
 
 interface StatsTabProps {
   character: Character;
-  onUpdate: (updatedCharacter: Character) => void;
+  /** Saves only the given fields. */
+  onSave: (changes: Partial<Character>) => unknown;
   jobs: Job[];
 }
 
-export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
-  const { editedCharacter, setEditedCharacter, handleInputChange, handleSubmit } = useCharacter(character, onUpdate);
+export function StatsTab({ character, onSave, jobs }: StatsTabProps) {
+  const { editedCharacter, setEditedCharacter, changesFrom, resetDraft } = useCharacter(character);
 
   const handleFieldChange = (name: string, value: string) => {
     setEditedCharacter(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleFieldBlur = () => {
-    // Save directly to database without opening modal
-    fetch(`/api/characters/${character.CharacterId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editedCharacter),
-    }).catch(console.error);
-  };
-
-  const handleEditableFieldSave = () => {
-    // Save directly to database without opening modal
-    fetch(`/api/characters/${character.CharacterId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editedCharacter),
-    }).catch(console.error);
+  /** Saves whatever differs from the server, plus `extra` (a value whose state update hasn't landed yet). */
+  const saveChanges = (extra: Partial<Character> = {}) => {
+    const changes = changesFrom({ ...editedCharacter, ...extra });
+    if (Object.keys(changes).length > 0) onSave(changes);
   };
 
   const handleFieldKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      // Save directly to database without opening modal
-      fetch(`/api/characters/${character.CharacterId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editedCharacter),
-      }).catch(console.error);
+      saveChanges();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      setEditedCharacter(character);
+      resetDraft();
     }
   };
 
@@ -64,7 +48,7 @@ export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
           type={type}
           value={editedCharacter[name as keyof Character] ?? ''}
           onChange={(e) => handleFieldChange(name, e.target.value)}
-          onBlur={handleFieldBlur}
+          onBlur={() => saveChanges()}
           onKeyDown={handleFieldKeyDown}
           className={customInputProps?.className || (type === "number" ? "w-14" : "w-full max-w-xs")}
           min={customInputProps?.min ?? (type === "number" ? 0 : undefined)}
@@ -81,7 +65,7 @@ export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
               type="number"
               value={editedCharacter[maxField as keyof Character] ?? ''}
               onChange={(e) => handleFieldChange(maxField, e.target.value)}
-              onBlur={handleFieldBlur}
+              onBlur={() => saveChanges()}
               onKeyDown={handleFieldKeyDown}
               className="w-14"
               min={0}
@@ -100,8 +84,10 @@ export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
         id="Path"
         name="Path"
         value={editedCharacter.Path || "Warrior"}
-        onChange={(e) => handleFieldChange("Path", e.target.value)}
-        onBlur={handleFieldBlur}
+        onChange={(e) => {
+          handleFieldChange("Path", e.target.value);
+          saveChanges({ Path: e.target.value });
+        }}
         onKeyDown={handleFieldKeyDown}
         className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
       >
@@ -113,7 +99,7 @@ export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
 
   return (
     <div>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={(e) => { e.preventDefault(); saveChanges(); }} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-4">
             <div>
@@ -121,7 +107,7 @@ export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
               <EditableField
                 value={editedCharacter.Name}
                 onChange={(value) => setEditedCharacter(prev => ({ ...prev, Name: value }))}
-                onSave={handleEditableFieldSave}
+                onSave={(value) => saveChanges({ Name: value })}
               />
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -134,7 +120,7 @@ export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
               <EditableField
                 value={editedCharacter.Description || ''}
                 onChange={(value) => setEditedCharacter(prev => ({ ...prev, Description: value }))}
-                onSave={handleEditableFieldSave}
+                onSave={(value) => saveChanges({ Description: value })}
                 isTextarea
                 markdownDisplay
                 className="min-h-[100px]"
@@ -144,7 +130,10 @@ export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
           <div className="flex items-start space-x-3">
             <FileUploader
               imageUrl={editedCharacter.TokenUrl ?? null}
-              onUpload={(url) => setEditedCharacter(prev => ({ ...prev, TokenUrl: url }))}
+              onUpload={(url) => {
+                setEditedCharacter(prev => ({ ...prev, TokenUrl: url }));
+                saveChanges({ TokenUrl: url });
+              }}
               label="Token"
               width={16}
               height={16}
@@ -152,7 +141,10 @@ export function StatsTab({ character, onUpdate, jobs }: StatsTabProps) {
             />
             <FileUploader
               imageUrl={editedCharacter.PortraitUrl ?? null}
-              onUpload={(url) => setEditedCharacter(prev => ({ ...prev, PortraitUrl: url }))}
+              onUpload={(url) => {
+                setEditedCharacter(prev => ({ ...prev, PortraitUrl: url }));
+                saveChanges({ PortraitUrl: url });
+              }}
               label="Portrait"
               width={64}
               height={64}

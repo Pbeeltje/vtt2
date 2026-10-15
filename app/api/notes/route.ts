@@ -1,8 +1,17 @@
 import { NextResponse } from 'next/server'
-import { db } from '../../lib/db'
-import { requireAuth } from '../../../lib/auth'
-import { getIO, AUTHENTICATED_ROOM } from '../../../lib/socket'
+import { db } from '@/lib/db'
+import { requireAuth } from '@/lib/auth'
+import { getIO, AUTHENTICATED_ROOM } from '@/lib/socket'
 import type { Note } from '../../types/note'
+
+/** The last 10 notices, newest first, for the ticker. */
+async function latestNotices(): Promise<Note[]> {
+  const result = await db.execute({
+    sql: 'SELECT Id, Content, Type, color FROM notes WHERE Type = ? ORDER BY Id DESC LIMIT 10',
+    args: ['notice'],
+  })
+  return result.rows.map((row) => ({ ...row }) as unknown as Note)
+}
 
 export async function GET() {
   try {
@@ -12,10 +21,7 @@ export async function GET() {
   }
   try {
     // Get the last 10 notice notes for the ticker
-    const stmt = db.prepare('SELECT * FROM notes WHERE Type = ? ORDER BY Id DESC LIMIT 10')
-    const notes = stmt.all('notice') as Note[]
-    
-    return NextResponse.json(notes)
+    return NextResponse.json(await latestNotices())
   } catch (error) {
     console.error('Error fetching notes:', error)
     return NextResponse.json({ error: 'Failed to fetch notes' }, { status: 500 })
@@ -25,7 +31,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     // Require DM role for note creation
-    const currentUser = await requireAuth('DM')
+    await requireAuth('DM')
 
     const data = await request.json()
     
@@ -50,16 +56,11 @@ export async function PUT(request: Request) {
       : '#dc2626';
 
     // Create new note
-    const insertStmt = db.prepare('INSERT INTO notes (Content, Type, color) VALUES (?, ?, ?)')
-    const result = insertStmt.run(sanitizedContent, 'notice', color)
-
-    if (result.changes === 0) {
-      return NextResponse.json({ error: 'Failed to save note' }, { status: 500 })
-    }
-
-    // Get all notes for the ticker (last 10)
-    const getAllStmt = db.prepare('SELECT * FROM notes WHERE Type = ? ORDER BY Id DESC LIMIT 10')
-    const allNotes = getAllStmt.all('notice') as Note[]
+    await db.execute({
+      sql: 'INSERT INTO notes (Content, Type, color) VALUES (?, ?, ?)',
+      args: [sanitizedContent, 'notice', color],
+    })
+    const allNotes = await latestNotices()
 
     // Emit event to all connected clients with all notes
     try {
@@ -90,8 +91,7 @@ export async function DELETE() {
     await requireAuth('DM')
 
     // Delete all notes of type 'notice'
-    const deleteStmt = db.prepare('DELETE FROM notes WHERE Type = ?')
-    const result = deleteStmt.run('notice')
+    await db.execute({ sql: 'DELETE FROM notes WHERE Type = ?', args: ['notice'] })
 
     // Emit event to all connected clients with empty notes array
     try {

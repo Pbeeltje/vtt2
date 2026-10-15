@@ -1,20 +1,13 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@libsql/client";
+import { db as client } from "@/lib/db"
 import { requireAuth } from "@/lib/auth";
 import type { User } from "@/app/types/user";
-import { crownHostAdminIfNone, ensureUserIsHostAdminColumn, rowIsHostAdmin } from "@/lib/user-schema";
+import { rowIsHostAdmin } from "@/lib/user-schema";
 
-const client = createClient({
-  url: "file:./vttdatabase.db",
-  authToken: "", // No auth token needed for local file
-});
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const user = await requireAuth("DM");
-
-    await ensureUserIsHostAdminColumn(client);
-    await crownHostAdminIfNone(client, user.id);
+    await requireAuth("DM");
 
     const result = await client.execute({
       sql: "SELECT UserId, Username, Role, IsHostAdmin FROM User ORDER BY Username",

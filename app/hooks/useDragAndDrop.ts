@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react'
 import { clientToGridLogical } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
 import type { LayerImage } from "../types/layerImage"
+import { createCharacterToken } from "../lib/tokens"
 
 interface UseDragAndDropProps {
   gridRef: React.RefObject<HTMLDivElement>
@@ -19,13 +20,10 @@ interface UseDragAndDropProps {
   dragOffset: { x: number; y: number } | null
   setDragOffset: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>
   generateUniqueId: (baseId: string) => string
-  updateItemPosition: (id: string, dx: number, dy: number) => { middleLayer: LayerImage[], topLayer: LayerImage[] }
+  updateItemPosition: (ids: string[], dx: number, dy: number) => { middleLayer: LayerImage[], topLayer: LayerImage[] }
   onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void
-  onPlayerPlaceToken?: (token: LayerImage, sceneId: number) => void
-  onPlayerUpdateTokenPosition?: (token: LayerImage, sceneId: number) => void
+  onPlayerUpdateTokenPosition?: (token: LayerImage) => void
   onDrop: (imageData: LayerImage) => void
-  onPlayerRequestTokenDelete: (tokenId: string) => void
-  user: { id: number; role: string } | null
 }
 
 export const useDragAndDrop = ({
@@ -46,11 +44,8 @@ export const useDragAndDrop = ({
   generateUniqueId,
   updateItemPosition,
   onUpdateImages,
-  onPlayerPlaceToken,
   onPlayerUpdateTokenPosition,
   onDrop,
-  onPlayerRequestTokenDelete,
-  user,
 }: UseDragAndDropProps) => {
   const draggedItem = useRef<LayerImage | null>(null)
   const isDragging = useRef(false)
@@ -92,32 +87,7 @@ export const useDragAndDrop = ({
         // Tokens snap to grid
         const x = Math.floor(adjustedX / gridSize) * gridSize
         const y = Math.floor(adjustedY / gridSize) * gridSize
-
-        const droppedToken: LayerImage = {
-          id: `${characterId}-${Date.now()}`,
-          url: character.TokenUrl || character.PortraitUrl || "/placeholder.svg",
-          x,
-          y,
-          width: gridSize, // Tokens are sized to grid
-          height: gridSize, // Tokens are sized to grid
-          characterId: character.CharacterId, // Add the characterId property
-          character: {
-            CharacterId: character.CharacterId,
-            Name: character.Name,
-            Path: character.Path,
-            Guard: character.Guard ?? 0,
-            MaxGuard: character.MaxGuard ?? 0,
-            Strength: character.Strength ?? 0,
-            MaxStrength: character.MaxStrength ?? 0,
-            Mp: character.Mp ?? 0,
-            MaxMp: character.MaxMp ?? 0,
-            userId: character.userId,
-            TokenUrl: character.TokenUrl,
-            PortraitUrl: character.PortraitUrl
-          },
-        }
-
-        onDrop(droppedToken)
+        onDrop(createCharacterToken(character, x, y, gridSize))
       } catch {
         /* invalid character payload */
       }
@@ -125,30 +95,8 @@ export const useDragAndDrop = ({
       try {
         const imageData = JSON.parse(dataTransferData)
         
-        // Check if this is an existing item being dragged around
-        const isExistingItem = draggedItem.current !== null && draggedItem.current.id === imageData.imageId
-        const isToken = isExistingItem ? draggedItem.current?.character !== undefined : imageData.category === "Token"
-
-        if (isToken && user?.role === 'player') {
-          // Player dropping their own token
-          if (draggedItem.current && draggedItem.current.character?.userId === user.id) {
-            const rect = e.currentTarget.getBoundingClientRect()
-            const { x, y } = clientToGridLogical(
-              e.clientX,
-              e.clientY,
-              rect,
-              zoomLevel
-            )
-
-            const updatedToken = {
-              ...draggedItem.current,
-              x,
-              y,
-            }
-
-            onPlayerPlaceToken?.(updatedToken, currentSceneId)
-          }
-        } else {
+        // Only DMs drop library images onto the map; players place character tokens (above).
+        if (currentUserRole === 'DM') {
           // DM dropping from sidebar JSON (ImageList) or similar — category is already authoritative for Image/Prop.
           let realCategory: string = imageData.category ?? "Image"
           const fromSidebarList = realCategory === "Image" || realCategory === "Prop"
@@ -215,7 +163,7 @@ export const useDragAndDrop = ({
         /* invalid JSON */
       }
     }
-  }, [currentSceneId, user, onDrop, onPlayerPlaceToken, gridSize, zoomLevel, setDragOffset])
+  }, [currentSceneId, currentUserRole, onDrop, gridSize, zoomLevel, setDragOffset, gridRef])
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -325,53 +273,23 @@ export const useDragAndDrop = ({
       dy = newY - referenceItem.y
     }
 
-    const { middleLayer, topLayer } = updateItemPosition(referenceItem.id, dx, dy)
+    const { middleLayer, topLayer } = updateItemPosition(draggingIds, dx, dy)
     onUpdateImages?.(middleLayer, topLayer)
-  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages, zoomLevel])
+  }, [draggingIds, dragOffset, gridSize, middleLayerImages, topLayerImages, updateItemPosition, onUpdateImages, zoomLevel, gridRef])
 
+  // The DM's moves are saved by the scene autosave; a player's token move is sent to the server.
   const handleItemDragEnd = useCallback(() => {
-    const draggedItem = draggingIds && (middleLayerImages.find(img => img.id === draggingIds[0]) || 
-                                       topLayerImages.find(img => img.id === draggingIds[0]))
-
-    if (currentUserRole === 'player' && 
-        draggedItem && 
-        topLayerImages.some(token => token.id === draggedItem.id) && 
-        draggedItem.character?.userId === currentUserId && 
-        currentSceneId) {
-      onPlayerUpdateTokenPosition?.(draggedItem, currentSceneId)
-    } else if (currentUserRole === 'DM') {
-      onUpdateImages?.(middleLayerImages, topLayerImages)
+    const movedId = draggingIds?.[0]
+    const movedToken = movedId ? topLayerImages.find((token) => token.id === movedId) : undefined
+    if (currentUserRole === 'player' && movedToken && movedToken.character?.userId === currentUserId) {
+      onPlayerUpdateTokenPosition?.(movedToken)
     }
 
     setDraggingIds(null)
     setDragOffset(null)
     draggedItem.current = null
     isDragging.current = false
-  }, [draggingIds, middleLayerImages, topLayerImages, onUpdateImages, currentUserRole, currentUserId, currentSceneId, onPlayerUpdateTokenPosition])
-
-  const handleTokenMove = useCallback((tokenId: string, newX: number, newY: number) => {
-    if (!draggedItem.current || !currentSceneId) return
-
-    const isToken = draggedItem.current.character !== undefined
-    
-    if (isToken && currentUserRole === 'player') {
-      // Player moving their own token
-      if (draggedItem.current.character?.userId === currentUserId) {
-        const updatedToken = {
-          ...draggedItem.current,
-          x: newX,
-          y: newY,
-        }
-        onPlayerUpdateTokenPosition?.(updatedToken, currentSceneId)
-      }
-    }
-  }, [currentSceneId, currentUserRole, currentUserId, onPlayerUpdateTokenPosition])
-
-  const handleTokenDelete = useCallback((tokenId: string) => {
-    if (currentUserRole === 'player') {
-      onPlayerRequestTokenDelete(tokenId)
-    }
-  }, [currentUserRole, onPlayerRequestTokenDelete])
+  }, [draggingIds, topLayerImages, currentUserRole, currentUserId, onPlayerUpdateTokenPosition, setDraggingIds, setDragOffset])
 
   return {
     handleDrop,
@@ -379,8 +297,5 @@ export const useDragAndDrop = ({
     handleItemDragStart,
     handleItemDrag,
     handleItemDragEnd,
-    handleTokenMove,
-    handleTokenDelete,
-    isDragging: isDragging.current,
   }
-} 
+}

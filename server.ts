@@ -9,7 +9,10 @@ import { parse } from 'url';
 import path from 'path';
 import os from 'os';
 import { formatUrl } from 'next/dist/shared/lib/router/utils/format-url';
+import { loadEnvConfig } from '@next/env';
 import { initSocketIO } from './lib/socket';
+import { getDb } from './lib/db';
+import { ensureEnvDmUser, runMigrations } from './lib/migrate';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getRequestHandlers } = require('next/dist/server/lib/start-server') as {
@@ -74,6 +77,13 @@ function createOnDevServerCleanup(): ((cb: () => Promise<void>) => void) | undef
 }
 
 async function main(): Promise<void> {
+  // Load .env.local now (Next would only do it inside getRequestHandlers) so the DB setup sees it.
+  loadEnvConfig(projectRoot, dev);
+  process.env.DATABASE_PATH ||= path.join(projectRoot, 'vttdatabase.db');
+  const db = getDb();
+  await runMigrations(db, path.join(projectRoot, 'migrations'));
+  await ensureEnvDmUser(db);
+
   const httpServer = createServer();
 
   const initResult = await getRequestHandlers({

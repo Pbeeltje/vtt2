@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { memo, useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import EncounterButton from "./EncounterButton"
 import type { Note } from "../types/note"
@@ -8,14 +8,18 @@ import { toPlainText } from "@/lib/chat-text"
 
 const SAFE_COLOR = /^#[0-9a-f]{3,8}$/i
 
+const DICE = [4, 6, 8, 10, 12, 20, 30, 100]
+
 interface BottomBarProps {
-  onDiceRoll: (sides: number, result: number, numberOfDice: number, individualRolls: number[]) => void
+  /** Rolls a dice expression (e.g. "2d6", "2d8kh1") on the server; the result appears in chat. */
+  onRoll: (expression: string) => void
   onPhaseChange: (phase: string, color: string) => void
   userRole?: string
 }
 
-export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: BottomBarProps) {
+function BottomBar({ onRoll, onPhaseChange, userRole }: BottomBarProps) {
   const [numberOfDice, setNumberOfDice] = useState(1)
+  const [expression, setExpression] = useState("")
   const [notes, setNotes] = useState<Note[]>([])
   const [isEditingNotepad, setIsEditingNotepad] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -57,15 +61,14 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
   }, [])
 
   const rollDice = (sides: number) => {
-    let total = 0
-    const individualRolls: number[] = []
-    for (let i = 0; i < numberOfDice; i++) {
-      const roll = Math.floor(Math.random() * sides) + 1
-      individualRolls.push(roll)
-      total += roll
-    }
-    onDiceRoll(sides, total, numberOfDice, individualRolls)
+    onRoll(`${numberOfDice}d${sides}`)
     setNumberOfDice(1) // Reset to 1 after rolling
+  }
+
+  const rollExpression = () => {
+    if (!expression.trim()) return
+    onRoll(expression.trim())
+    setExpression("")
   }
 
   const handleNotepadSave = async () => {
@@ -104,7 +107,7 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
   }
 
   const handleNotepadClear = async () => {
-    if (!isDM) return
+    if (!isDM || !window.confirm("Remove every note from the ticker?")) return
     
     setIsLoading(true)
     try {
@@ -165,30 +168,21 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
           onChange={(e) => setNumberOfDice(Math.max(1, parseInt(e.target.value) || 1))}
           className="w-12 h-8 text-center border rounded bg-gray-400"
         />
-        <Button onClick={() => rollDice(4)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
-          d4
-        </Button>
-        <Button onClick={() => rollDice(6)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
-          d6
-        </Button>
-        <Button onClick={() => rollDice(8)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
-          d8
-        </Button>
-        <Button onClick={() => rollDice(10)} variant="default"  size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
-          d10
-        </Button>
-        <Button onClick={() => rollDice(12)} variant="default"  size="icon"className="bg-neutral-600 border-b-4 border-neutral-800">
-          d12
-        </Button>
-        <Button onClick={() => rollDice(20)} variant="default"  size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
-          d20
-        </Button>
-        <Button onClick={() => rollDice(30)} variant="default"  size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
-          d30
-        </Button>
-        <Button onClick={() => rollDice(100)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
-          d100
-        </Button>
+        {DICE.map((sides) => (
+          <Button key={sides} onClick={() => rollDice(sides)} variant="default" size="icon" className="bg-neutral-600 border-b-4 border-neutral-800">
+            d{sides}
+          </Button>
+        ))}
+        <input
+          type="text"
+          value={expression}
+          onChange={(e) => setExpression(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && rollExpression()}
+          placeholder="2d8kh1+1"
+          title="Roll any expression: 3d6, d20+2, 2d8kh1 (keep highest), 4d6kl3 (keep lowest). Enter to roll."
+          maxLength={100}
+          className="w-24 h-8 px-2 text-sm border rounded bg-gray-400 placeholder:text-gray-600"
+        />
         <EncounterButton onPhaseChange={onPhaseChange} />
       </div>
 
@@ -213,11 +207,9 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
                     handleNotepadCancel()
                   } else if (e.key === 'Enter') {
                     handleNotepadSave()
-                  } else if (e.key === 'Delete') {
-                    handleNotepadClear()
                   }
                 }}
-                placeholder="ADD NEW NOTE... (ENTER TO SAVE, ESC TO CANCEL, DEL TO CLEAR ALL)"
+                placeholder="ADD NEW NOTE... (ENTER TO SAVE, ESC TO CANCEL)"
                 className="w-full h-8 px-2 py-1 text-sm border-none outline-none bg-transparent text-center font-black uppercase tracking-wider"
                 style={{
                   fontFamily: 'Arial Black, Impact, sans-serif',
@@ -226,6 +218,17 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
                 autoFocus
                 disabled={isLoading}
               />
+              <button
+                type="button"
+                // Keep focus in the input so onBlur doesn't save first.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleNotepadClear}
+                disabled={isLoading || notes.length === 0}
+                className="flex-shrink-0 mx-2 text-xs font-semibold text-red-700 hover:underline disabled:opacity-40"
+                title="Remove all notes from the ticker"
+              >
+                Clear all
+              </button>
             </div>
           ) : (
             <div 
@@ -279,3 +282,5 @@ export default function BottomBar({ onDiceRoll, onPhaseChange, userRole }: Botto
     </div>
   )
 }
+
+export default memo(BottomBar)

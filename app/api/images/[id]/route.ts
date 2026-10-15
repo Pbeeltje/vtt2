@@ -1,159 +1,82 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@libsql/client";
-import { getUserFromCookie } from "@/lib/auth";
-import fs from 'fs';
-import path from 'path';
+import { NextResponse } from "next/server"
+import fs from "fs"
+import path from "path"
+import { db } from "@/lib/db"
+import { requireAuth } from "@/lib/auth"
+import { authErrorResponse, parseId } from "@/lib/api-errors"
 
-const client = createClient({
-  url: "file:./vttdatabase.db",
-  authToken: "",
-});
+type Params = { params: Promise<{ id: string }> }
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
-  const user = await getUserFromCookie();
-  if (!user || user.role !== "DM") {
-    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
-  }
+// The image library is shared by all DMs, so none of these filter by uploader.
 
+export async function GET(_req: Request, { params }: Params) {
   try {
-    const { name } = await req.json();
-    const result = await client.execute({
-      sql: "UPDATE DMImage SET Name = ? WHERE Id = ? AND UserId = ?",
-      args: [name, params.id, user.id],
-    });
-    
-    if (result.rows.length === 0) {
-      return NextResponse.json({ error: "Image not found" }, { status: 404 });
-    }
-
-    return NextResponse.json({ message: "Image renamed" });
+    await requireAuth("DM")
+    const id = parseId((await params).id)
+    if (!id) return NextResponse.json({ error: "Invalid image ID format" }, { status: 400 })
+    const result = await db.execute({ sql: "SELECT * FROM DMImage WHERE Id = ?", args: [id] })
+    if (result.rows.length === 0) return NextResponse.json({ error: "Image not found" }, { status: 404 })
+    return NextResponse.json(result.rows[0])
   } catch (error) {
-    console.error("Error renaming image:", error);
-    return NextResponse.json({ error: "Failed to rename image" }, { status: 500 });
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to fetch image" }, { status: 500 })
   }
 }
 
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const user = await getUserFromCookie();
-  if (!user || user.role !== "DM") {
-    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
-  }
-
-  const imageId = params.id;
-  const imageIdNumber = parseInt(imageId, 10); // For use in queries expecting a number
-
-  if (isNaN(imageIdNumber)) {
-    return NextResponse.json({ error: "Invalid image ID format" }, { status: 400 });
-  }
-
+export async function PUT(req: Request, { params }: Params) {
   try {
-    await client.execute("BEGIN TRANSACTION;");
-
-    // 1. Fetch the image record to get its Link and Category
-    const imageRecordResult = await client.execute({
-      sql: "SELECT Link, Category FROM DMImage WHERE Id = ? AND UserId = ?",
-      args: [imageIdNumber, user.id],
-    });
-
-    if (imageRecordResult.rows.length === 0) {
-      await client.execute("ROLLBACK;");
-      return NextResponse.json({ error: "Image not found or not authorized" }, { status: 404 });
+    await requireAuth("DM")
+    const id = parseId((await params).id)
+    if (!id) return NextResponse.json({ error: "Invalid image ID format" }, { status: 400 })
+    const { name } = await req.json()
+    if (typeof name !== "string" || !name.trim() || name.length > 200) {
+      return NextResponse.json({ error: "Name is required (at most 200 characters)" }, { status: 400 })
     }
+    const result = await db.execute({ sql: "UPDATE DMImage SET Name = ? WHERE Id = ?", args: [name.trim(), id] })
+    if (result.rowsAffected === 0) return NextResponse.json({ error: "Image not found" }, { status: 404 })
+    return NextResponse.json({ message: "Image renamed", Id: id, Name: name.trim() })
+  } catch (error) {
+    console.error("Error renaming image:", error)
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to rename image" }, { status: 500 })
+  }
+}
 
-    const link = imageRecordResult.rows[0].Link as string | undefined;
-    const category = imageRecordResult.rows[0].Category as string | undefined;
+/** Deletes the image, its scene drawings and character links; the file goes after the DB commit. */
+export async function DELETE(_req: Request, { params }: Params) {
+  try {
+    await requireAuth("DM")
+    const id = parseId((await params).id)
+    if (!id) return NextResponse.json({ error: "Invalid image ID format" }, { status: 400 })
 
-    // 2. If it's a "Scene", delete associated drawings
-    if (category === "Scene") {
-      console.log(`Image ID ${imageIdNumber} is a Scene. Deleting associated drawings.`);
-      await client.execute({
-        sql: "DELETE FROM Drawing WHERE sceneId = ?",
-        args: [imageIdNumber],
-      });
-      // Add any other scene-specific cleanup here, e.g., from a SceneElements table if you had one.
-    }
+    const found = await db.execute({ sql: "SELECT Link FROM DMImage WHERE Id = ?", args: [id] })
+    if (found.rows.length === 0) return NextResponse.json({ error: "Image not found" }, { status: 404 })
+    const link = found.rows[0].Link ? String(found.rows[0].Link) : null
 
-    // 3. Nullify Character PortraitUrl and TokenUrl that match the image's Link
-    if (link) {
-      console.log(`Nullifying character PortraitUrl matching Link: ${link}`);
-      await client.execute({
-        sql: "UPDATE Character SET PortraitUrl = NULL WHERE PortraitUrl = ?",
-        args: [link],
-      });
-      console.log(`Nullifying character TokenUrl matching Link: ${link}`);
-      await client.execute({
-        sql: "UPDATE Character SET TokenUrl = NULL WHERE TokenUrl = ?",
-        args: [link],
-      });
-    }
+    await db.batch(
+      [
+        { sql: "DELETE FROM drawing WHERE sceneId = ?", args: [id] },
+        ...(link
+          ? [
+              { sql: "UPDATE character SET PortraitUrl = NULL WHERE PortraitUrl = ?", args: [link] },
+              { sql: "UPDATE character SET TokenUrl = NULL WHERE TokenUrl = ?", args: [link] },
+            ]
+          : []),
+        { sql: "DELETE FROM DMImage WHERE Id = ?", args: [id] },
+      ],
+      "write"
+    )
 
-    // 4. Delete the physical file
-    if (link) {
-      const filePath = path.join(process.cwd(), 'public', link);
-      try {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          console.log(`Successfully deleted file: ${filePath}`);
-        } else {
-          console.warn(`File not found for deletion, but proceeding with DB record deletion: ${filePath}`);
-        }
-      } catch (fileError) {
-        console.error(`Error deleting file ${filePath}:`, fileError);
-        // Log and continue
+    // Only files we uploaded live under public/uploads; never follow a link outside it.
+    if (link && link.startsWith("/uploads/")) {
+      const uploadsDir = path.join(process.cwd(), "public", "uploads")
+      const filePath = path.resolve(process.cwd(), "public", "." + link)
+      const stillUsed = await db.execute({ sql: "SELECT 1 FROM DMImage WHERE Link = ? LIMIT 1", args: [link] })
+      if (filePath.startsWith(uploadsDir + path.sep) && stillUsed.rows.length === 0) {
+        fs.promises.unlink(filePath).catch((error) => console.warn(`Could not delete ${filePath}:`, error.message))
       }
-    } else {
-      console.warn(`Image record with ID ${imageIdNumber} has no Link. Skipping file deletion.`);
     }
-
-    // 5. Delete the DMImage database record
-    const deleteDbResult = await client.execute({
-      sql: "DELETE FROM DMImage WHERE Id = ? AND UserId = ?",
-      args: [imageIdNumber, user.id],
-    });
-
-    if (deleteDbResult.rowsAffected === 0) {
-      // This might indicate a concurrent deletion or an issue.
-      // The transaction will be rolled back.
-      await client.execute("ROLLBACK;");
-      console.warn(`DB record for image ID ${imageIdNumber} not found for deletion or not authorized during final delete step.`);
-      return NextResponse.json({ error: "Image record not found during final delete operation" }, { status: 404 });
-    }
-
-    await client.execute("COMMIT;");
-    return NextResponse.json({ message: "Image and associated data deleted successfully" });
-
+    return NextResponse.json({ message: "Image and associated data deleted successfully" })
   } catch (error) {
-    await client.execute("ROLLBACK;"); // Ensure rollback on any error
-    console.error(`Error deleting image ID ${imageId}:`, error);
-    // Check if it's a LibsqlError and has a more specific code for foreign key violation
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
-        return NextResponse.json({ error: "Failed to delete image due to existing references", details: "SQLITE_CONSTRAINT_FOREIGNKEY: FOREIGN KEY constraint failed. Other data in the system still refers to this image." }, { status: 409 }); // 409 Conflict
-    }
-    return NextResponse.json({ error: "Failed to delete image" }, { status: 500 });
-  }
-}
-
-export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const sessionUser = await getUserFromCookie();
-  if (!sessionUser) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  }
-
-  const imageId = params.id;
-  const imageIdNumber = parseInt(imageId, 10);
-  if (isNaN(imageIdNumber)) {
-    return NextResponse.json({ error: "Invalid image ID format" }, { status: 400 });
-  }
-  try {
-    const result = await client.execute({
-      sql: "SELECT * FROM DMImage WHERE Id = ?",
-      args: [imageIdNumber],
-    });
-    if (result.rows.length === 0) {
-      return NextResponse.json({ error: "Image not found" }, { status: 404 });
-    }
-    return NextResponse.json(result.rows[0]);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch image" }, { status: 500 });
+    console.error("Error deleting image:", error)
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to delete image" }, { status: 500 })
   }
 }

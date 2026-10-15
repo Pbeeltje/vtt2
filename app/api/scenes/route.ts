@@ -1,83 +1,73 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@libsql/client";
-import { requireAuth } from "@/lib/auth";
+import { NextResponse } from "next/server"
+import { requireAuth } from "@/lib/auth"
+import { authErrorResponse, parseId } from "@/lib/api-errors"
+import { getActiveSceneId } from "@/lib/app-settings"
+import { db } from "@/lib/db"
+import { normalizeSceneState, parseSceneData } from "@/lib/scene-model"
+import { getSceneRow, listSceneRows, writeSceneIfVersion } from "@/lib/scene-store"
+import { broadcastSceneState } from "@/lib/scene-sync"
 
-const client = createClient({
-  url: "file:./vttdatabase.db",
-  authToken: "", // No auth token needed for local file
-});
-
-export async function GET(req: Request) {
+/** DMs get every scene; players only get the active one (the others may hold unrevealed maps). */
+export async function GET() {
   try {
-    // Any logged-in user can list/load scenes; only DM can save (POST).
-    await requireAuth();
-
-    const result = await client.execute({
-      sql: "SELECT * FROM DMImage WHERE Category = 'Scene' AND SceneData IS NOT NULL",
-      args: [],
-    });
-    return NextResponse.json(result.rows);
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === "Authentication required") {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-      }
+    const user = await requireAuth()
+    if (user.role === "DM") {
+      return NextResponse.json(await listSceneRows())
     }
-    return NextResponse.json({ error: "Failed to fetch scenes" }, { status: 500 });
+    const activeId = await getActiveSceneId()
+    const active = activeId ? await getSceneRow(activeId) : null
+    return NextResponse.json(active ? [active] : [])
+  } catch (error) {
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to fetch scenes" }, { status: 500 })
   }
 }
 
+/**
+ * DM saves the whole map state. `baseVersion` is the version the edit started from; if someone
+ * else saved in between (a player moved a token), the answer is 409 with the current state so the
+ * client can merge and retry.
+ */
 export async function POST(req: Request) {
   try {
-    // Only DMs can save scenes
-    const user = await requireAuth('DM');
-
-    const { sceneId, sceneData } = await req.json();
-
-    // Input validation
-    if (!sceneId || typeof sceneId !== 'number') {
-      return NextResponse.json({ error: "Scene ID is required and must be a number" }, { status: 400 });
+    await requireAuth("DM")
+    const { sceneId: rawId, sceneData, baseVersion } = await req.json()
+    const sceneId = parseId(rawId)
+    if (!sceneId) {
+      return NextResponse.json({ error: "Scene ID is required and must be a number" }, { status: 400 })
     }
 
-    // Validate sceneData structure if provided
-    if (sceneData !== null && typeof sceneData !== 'object') {
-      return NextResponse.json({ error: "Scene data must be an object or null" }, { status: 400 });
+    // null clears the scene back to "no saved data".
+    if (sceneData === null) {
+      const result = await db.execute({
+        sql: "UPDATE DMImage SET SceneData = NULL WHERE Id = ? AND Category = 'Scene'",
+        args: [sceneId],
+      })
+      if (result.rowsAffected === 0) return NextResponse.json({ error: "Scene not found" }, { status: 404 })
+      broadcastSceneState(req, sceneId, null)
+      return NextResponse.json({ sceneId, state: null })
     }
 
-    // Allow sceneData to be null for clearing scene data
-    const sceneDataToStore = sceneData === null ? null : JSON.stringify(sceneData);
-
-    const result = await client.execute({
-      sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ? AND Category = 'Scene' RETURNING *",
-      args: [sceneDataToStore, sceneId],
-    });
-
-    if (result.rows.length === 0) {
-      return NextResponse.json({ error: "Scene not found" }, { status: 404 });
+    if (typeof sceneData !== "object" || !Number.isInteger(baseVersion) || baseVersion < 0) {
+      return NextResponse.json({ error: "sceneData must be an object and baseVersion an integer" }, { status: 400 })
+    }
+    if (JSON.stringify(sceneData).length > 5_000_000) {
+      return NextResponse.json({ error: "Scene data is too large" }, { status: 413 })
     }
 
-    // Emit socket event for scene update
-    try {
-      const { emitToSceneExceptSender, sceneUpdatePayload } = await import('../../../lib/scene-sync');
-      // The saving DM already has this state; echoing it back makes tokens jump mid-drag.
-      emitToSceneExceptSender(req, sceneId, 'scene_updated', sceneId, sceneUpdatePayload(sceneData));
-    } catch (socketError) {
-      console.error("[API /scenes POST] Socket.IO emit error:", socketError);
+    const saved = await writeSceneIfVersion(sceneId, normalizeSceneState(sceneData), baseVersion)
+    if (!saved) {
+      const row = await getSceneRow(sceneId)
+      if (!row) return NextResponse.json({ error: "Scene not found" }, { status: 404 })
+      return NextResponse.json(
+        { error: "Scene changed since this edit started", state: parseSceneData(row.SceneData) },
+        { status: 409 }
+      )
     }
 
-    return NextResponse.json(result.rows[0]);
+    broadcastSceneState(req, sceneId, saved)
+    return NextResponse.json({ sceneId, state: saved })
   } catch (error) {
-    console.error("[API /scenes POST] Error occurred:", error);
-    
-    if (error instanceof Error) {
-      if (error.message === "Authentication required") {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-      }
-      if (error.message === "Insufficient permissions") {
-        return NextResponse.json({ error: "Not authorized - DM access required" }, { status: 403 })
-      }
-    }
-    
-    return NextResponse.json({ error: "Failed to save scene" }, { status: 500 });
+    console.error("[API /scenes POST] Error:", error)
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to save scene" }, { status: 500 })
   }
-} 
+}

@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@libsql/client"
+import { db as client } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { requireAuth } from "@/lib/auth"
-import { ensureUserIsHostAdminColumn, getUserRowById, rowIsHostAdmin } from "@/lib/user-schema"
+import { getUserRowById, rowIsHostAdmin } from "@/lib/user-schema"
 
-const client = createClient({
-  url: "file:./vttdatabase.db",
-  authToken: "",
-})
 
 const MIN_PASSWORD_LENGTH = 8
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   let actor
   try {
@@ -30,7 +26,7 @@ export async function PUT(
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
   }
 
-  const userId = parseInt(params.id, 10)
+  const userId = parseInt((await params).id, 10)
   if (!Number.isFinite(userId) || userId <= 0) {
     return NextResponse.json({ error: "Invalid user id" }, { status: 400 })
   }
@@ -50,7 +46,6 @@ export async function PUT(
     )
   }
 
-  await ensureUserIsHostAdminColumn(client)
   const targetRow = await getUserRowById(client, userId)
   if (!targetRow) {
     return NextResponse.json({ error: "User not found" }, { status: 404 })

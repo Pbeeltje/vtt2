@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
-import { db } from "@/app/lib/db"
+import { db } from "@/lib/db"
 import { requireAuth } from "@/lib/auth"
-import type { JournalNote } from "@/app/types/journal-note"
+import { toJournalNote } from "@/app/types/journal-note"
 
 const MAX_CONTENT = 200_000
 const MAX_TITLE = 500
@@ -18,7 +18,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid id" }, { status: 400 })
     }
 
-    const existing = db.prepare(`SELECT * FROM journal_note WHERE Id = ?`).get(id) as JournalNote | undefined
+    const found = await db.execute({ sql: `SELECT * FROM journal_note WHERE Id = ?`, args: [id] })
+    const existing = found.rows[0] ? toJournalNote(found.rows[0]) : undefined
     if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
@@ -44,12 +45,11 @@ export async function PATCH(
     }
 
     const now = new Date().toISOString()
-    db.prepare(
-      `UPDATE journal_note SET Title = ?, Content = ?, UpdatedAt = ? WHERE Id = ? AND UserId = ?`
-    ).run(title, content, now, id, user.id)
-
-    const row = db.prepare(`SELECT * FROM journal_note WHERE Id = ?`).get(id) as JournalNote
-    return NextResponse.json(row)
+    const updated = await db.execute({
+      sql: `UPDATE journal_note SET Title = ?, Content = ?, UpdatedAt = ? WHERE Id = ? AND UserId = ? RETURNING *`,
+      args: [title, content, now, id, user.id],
+    })
+    return NextResponse.json(toJournalNote(updated.rows[0]))
   } catch (error) {
     if (error instanceof Error && error.message === "Authentication required") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -71,8 +71,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Invalid id" }, { status: 400 })
     }
 
-    const result = db.prepare(`DELETE FROM journal_note WHERE Id = ? AND UserId = ?`).run(id, user.id)
-    if (result.changes === 0) {
+    const result = await db.execute({ sql: `DELETE FROM journal_note WHERE Id = ? AND UserId = ?`, args: [id, user.id] })
+    if (result.rowsAffected === 0) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
     return NextResponse.json({ ok: true })

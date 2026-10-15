@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@libsql/client";
+import { db as client } from "@/lib/db"
 import bcrypt from "bcryptjs";
 import { isValidRegistrationInvite } from "@/lib/registration-invite";
 import { clientIpFromHeaders, rateLimit } from "@/lib/rate-limit";
 
-const client = createClient({
-  url: "file:./vttdatabase.db",
-  authToken: "", // No auth token needed for local file
-});
 
 export async function POST(req: Request) {
   try {
@@ -29,9 +25,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid or missing invite code" }, { status: 403 });
     }
 
-    // Sanitize inputs
+    // Usernames are stored lowercase; passwords exactly as typed (login doesn't trim them either).
     const sanitizedUsername = username.trim().toLowerCase();
-    const sanitizedPassword = password.trim();
+    const sanitizedPassword = password;
 
     if (sanitizedUsername.length < 3) {
       return NextResponse.json({ error: "Username must be at least 3 characters long" }, { status: 400 });
@@ -41,13 +37,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 8 characters long" }, { status: 400 });
     }
 
-    // Check if username already exists
+    // Login is case-insensitive, so names may not differ only in case (or match the env DM).
     const existingUser = await client.execute({
-      sql: "SELECT UserId FROM User WHERE Username = ?",
+      sql: "SELECT UserId FROM User WHERE Username = ? COLLATE NOCASE",
       args: [sanitizedUsername],
     });
+    const takenByEnvDm = process.env.DM_USERNAME?.trim().toLowerCase() === sanitizedUsername;
 
-    if (existingUser.rows.length > 0) {
+    if (existingUser.rows.length > 0 || takenByEnvDm) {
       return NextResponse.json({ error: "Username already exists" }, { status: 409 });
     }
 
@@ -57,17 +54,13 @@ export async function POST(req: Request) {
 
     // Insert new user
     const result = await client.execute({
-      sql: "INSERT INTO User (Username, Password, Role) VALUES (?, ?, ?) RETURNING *",
+      sql: "INSERT INTO User (Username, Password, Role) VALUES (?, ?, ?) RETURNING UserId",
       args: [sanitizedUsername, hashedPassword, "player"],
     });
 
-    if (!result.lastInsertRowid) {
-      throw new Error("Failed to create user");
-    }
-
-    return NextResponse.json({ 
+    return NextResponse.json({
       message: "User registered successfully",
-      userId: result.lastInsertRowid 
+      userId: Number(result.rows[0].UserId),
     });
   } catch (error) {
     console.error("Registration error:", error);

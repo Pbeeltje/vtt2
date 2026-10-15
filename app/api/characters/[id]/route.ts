@@ -1,249 +1,168 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@libsql/client'
-import { getIO, AUTHENTICATED_ROOM } from '../../../../lib/socket';
-import { getUserFromCookie } from '@/lib/auth';
+import { NextResponse } from "next/server"
+import { db } from "@/lib/db"
+import { getUserFromCookie } from "@/lib/auth"
+import { parseId } from "@/lib/api-errors"
+import { emitCharacterDeleted, emitCharacterUpdated } from "@/lib/character-sync"
+import { tokenCharacterId } from "@/lib/scene-model"
+import { listSceneRows, updateScene } from "@/lib/scene-store"
+import { broadcastSceneState } from "@/lib/scene-sync"
+import { refreshCharacterTokens } from "@/lib/token-refresh"
 
-const client = createClient({
-  url: "file:./vttdatabase.db",
-  authToken: "",
-})
+type Params = { params: Promise<{ id: string }> }
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
-  const id = params.id
-  const updatedCharacter = await request.json()
+const SELECT_CHARACTER = "SELECT c.*, u.Username AS ownerUsername FROM character c LEFT JOIN user u ON c.userId = u.UserId WHERE c.CharacterId = ?"
 
-  if (!id) {
-    return NextResponse.json({ error: 'Character ID is required' }, { status: 400 })
+const NUMBER_FIELDS = [
+  "Age", "Level", "Guard", "Armor", "MaxGuard", "Strength", "MaxStrength", "Dexternity", "MaxDexternity",
+  "Mind", "MaxMind", "Charisma", "MaxCharisma", "Skill", "MaxSkill", "Mp", "MaxMp",
+]
+const TEXT_FIELDS: Record<string, number> = { Name: 100, Description: 20_000 }
+const URL_FIELDS = ["PortraitUrl", "TokenUrl"]
+const PATHS = ["Warrior", "Magic User"]
+
+/**
+ * Turns a partial character from the client into validated column values. Unknown fields are
+ * ignored; empty numeric inputs are skipped (the column keeps its value).
+ */
+function columnsFromBody(body: Record<string, unknown>, isDM: boolean): Record<string, unknown> | string {
+  const columns: Record<string, unknown> = {}
+  for (const field of NUMBER_FIELDS) {
+    const value = body[field]
+    if (value === undefined || value === null || value === "") continue
+    const n = typeof value === "number" ? value : Number(value)
+    if (!Number.isInteger(n) || Math.abs(n) > 100_000) return `${field} must be a whole number`
+    columns[field] = n
   }
+  for (const [field, max] of Object.entries(TEXT_FIELDS)) {
+    const value = body[field]
+    if (value === undefined) continue
+    if (typeof value !== "string" || value.length > max) return `${field} must be text of at most ${max} characters`
+    columns[field] = field === "Name" ? value.trim() || "Unknown" : value
+  }
+  for (const field of URL_FIELDS) {
+    const value = body[field]
+    if (value === undefined) continue
+    if (value !== null && (typeof value !== "string" || value.length > 2000)) return `${field} must be a URL`
+    columns[field] = value || null
+  }
+  if (body.Path !== undefined) {
+    if (typeof body.Path !== "string" || !PATHS.includes(body.Path)) return "Path must be Warrior or Magic User"
+    columns.Path = body.Path
+  }
+  if (body.JobId !== undefined) {
+    if (body.JobId !== null && !Number.isInteger(body.JobId)) return "JobId must be a number or null"
+    columns.JobId = body.JobId
+  }
+  if (isDM && body.userId !== undefined) {
+    const userId = Number(body.userId)
+    if (!Number.isInteger(userId) || userId < 0) return "userId must be a user id"
+    columns.userId = userId
+  }
+  return columns
+}
+
+export async function PUT(request: Request, { params }: Params) {
+  const id = parseId((await params).id)
+  if (!id) return NextResponse.json({ error: "Invalid character ID" }, { status: 400 })
 
   const user = await getUserFromCookie()
-  if (!user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
-
-  const ownerResult = await client.execute({
-    sql: 'SELECT UserId FROM Character WHERE CharacterId = ?',
-    args: [id],
-  })
-  if (ownerResult.rows.length === 0) {
-    return NextResponse.json({ error: 'Character not found' }, { status: 404 })
-  }
-  const ownerId = ownerResult.rows[0].UserId as number
-  const isDM = user.role === 'DM'
-  if (!isDM && ownerId !== user.id) {
-    return NextResponse.json({ error: 'Not authorized to edit this character' }, { status: 403 })
-  }
-
-  const allowedFields = [
-    'Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'Armor', 
-    'MaxGuard', 'Strength', 'MaxStrength', 'Dexternity', 'MaxDexternity', 
-    'Mind', 'MaxMind', 'Charisma', 'MaxCharisma', 'Skill', 'MaxSkill', 
-    'Mp', 'MaxMp', 'PortraitUrl', 'TokenUrl', 'userId'
-  ];
-  const potentiallyNullableAllowedFields = ['InventoryId', 'JobId'];
-
-  let updateFields = Object.keys(updatedCharacter).filter(key => 
-    allowedFields.includes(key) || 
-    (potentiallyNullableAllowedFields.includes(key) && updatedCharacter[key] !== undefined)
-  );
-  if (!isDM) {
-    updateFields = updateFields.filter((key) => key !== 'userId')
-  }
-  
-  potentiallyNullableAllowedFields.forEach(key => {
-    if (updatedCharacter.hasOwnProperty(key) && updatedCharacter[key] === null && !updateFields.includes(key)) {
-      updateFields.push(key);
-    }
-  });
-
-  if (updateFields.length === 0) {
-    const currentData = await client.execute({ sql: 'SELECT * FROM Character WHERE CharacterId = ?', args: [id] });
-    if (currentData.rows.length === 0) return NextResponse.json({ error: 'Character not found' }, { status: 404 });
-    return NextResponse.json(currentData.rows[0]);
-  }
+  if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
 
   try {
-    const setClause = updateFields
-      .map(key => `${key} = ?`)
-      .join(', ')
-    const values = updateFields.map(key => updatedCharacter[key]);
-    
-    await client.execute({
-      sql: `UPDATE Character SET ${setClause} WHERE CharacterId = ?`,
-      args: [...values, id],
-    });
-
-    const updatedDataResult = await client.execute({
-      sql: 'SELECT * FROM Character WHERE CharacterId = ?',
-      args: [id],
-    });
-
-    if (updatedDataResult.rows.length === 0) {
-      throw new Error('Character not found after update attempt.');
+    const ownerResult = await db.execute({ sql: "SELECT userId FROM character WHERE CharacterId = ?", args: [id] })
+    if (ownerResult.rows.length === 0) {
+      return NextResponse.json({ error: "Character not found" }, { status: 404 })
+    }
+    const previousOwnerId = Number(ownerResult.rows[0].userId)
+    const isDM = user.role === "DM"
+    if (!isDM && previousOwnerId !== user.id) {
+      return NextResponse.json({ error: "Not authorized to edit this character" }, { status: 403 })
     }
 
-    const finalUpdatedCharacter = updatedDataResult.rows[0];
-
-    // Emit WebSocket event
+    let body: unknown
     try {
-      const io = getIO();
-      io.to(AUTHENTICATED_ROOM).emit('character_updated', finalUpdatedCharacter);
-      console.log(`[API /characters/${id}] Emitted 'character_updated' for CharacterId: ${id}`, finalUpdatedCharacter);
-    } catch (socketError) {
-      console.error(`[API /characters/${id}] Socket.IO emit error:`, socketError);
-      // Decide if this should affect the HTTP response. For now, it won't.
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+    }
+    if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid character data" }, { status: 400 })
+    const columns = columnsFromBody(body as Record<string, unknown>, isDM)
+    if (typeof columns === "string") return NextResponse.json({ error: columns }, { status: 400 })
+
+    if (columns.userId !== undefined && columns.userId !== previousOwnerId) {
+      const target = await db.execute({ sql: "SELECT 1 FROM user WHERE UserId = ?", args: [columns.userId as number] })
+      if (target.rows.length === 0) return NextResponse.json({ error: "User not found" }, { status: 400 })
     }
 
-    return NextResponse.json(finalUpdatedCharacter);
+    const fields = Object.keys(columns)
+    if (fields.length > 0) {
+      await db.execute({
+        sql: `UPDATE character SET ${fields.map((f) => `${f} = ?`).join(", ")} WHERE CharacterId = ?`,
+        args: [...fields.map((f) => columns[f] as string | number | null), id],
+      })
+    }
+
+    const updated = (await db.execute({ sql: SELECT_CHARACTER, args: [id] })).rows[0]
+    if (fields.length > 0) {
+      emitCharacterUpdated(updated, previousOwnerId)
+      await refreshCharacterTokens(updated)
+    }
+    return NextResponse.json(updated)
   } catch (error) {
-    console.error('Error updating character:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: 'Failed to update character' }, { status: 500 });
+    console.error("Error updating character:", error)
+    return NextResponse.json({ error: "Failed to update character" }, { status: 500 })
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  const characterIdToDeleteString = params.id;
-  const characterIdToDelete = parseInt(characterIdToDeleteString, 10);
+/** DM deletes a character with its jobs, inventory and tokens on every scene. */
+export async function DELETE(request: Request, { params }: Params) {
+  const id = parseId((await params).id)
+  if (!id) return NextResponse.json({ error: "Invalid Character ID format" }, { status: 400 })
 
-  if (isNaN(characterIdToDelete)) {
-    return NextResponse.json({ error: "Invalid Character ID format" }, { status: 400 });
-  }
-
-  const user = await getUserFromCookie();
+  const user = await getUserFromCookie()
   if (!user || user.role !== "DM") {
-    console.log(`[API /characters/${characterIdToDeleteString}] Unauthorized delete attempt by user:`, user);
-    return NextResponse.json({ error: "Not authorized to delete characters." }, { status: 403 });
+    return NextResponse.json({ error: "Not authorized to delete characters." }, { status: 403 })
   }
-  console.log(`[API /characters/${characterIdToDeleteString}] Authorized delete attempt by DM user:`, user.username);
 
-  let tx;
   try {
-    tx = await client.transaction(); // Start a transaction
+    const owner = await db.execute({ sql: "SELECT userId FROM character WHERE CharacterId = ?", args: [id] })
+    if (owner.rows.length === 0) {
+      return NextResponse.json({ error: "Character not found or already deleted" }, { status: 404 })
+    }
+    const ownerId = Number(owner.rows[0].userId)
 
-    // 1. Handle Character Tokens in DMImage.SceneData
-    const scenesToUpdate = [];
-    const allScenesResult = await tx.execute({
-      sql: "SELECT Id, SceneData FROM DMImage WHERE Category = \'Scene\' AND SceneData IS NOT NULL AND SceneData != \'\'",
-      args: [],
-    });
+    const items = await db.execute({
+      sql: "SELECT ItemId FROM inventory WHERE CharacterId = ? AND ItemId IS NOT NULL",
+      args: [id],
+    })
+    // Inventory rows reference items, so they go first.
+    await db.batch(
+      [
+        { sql: "DELETE FROM job WHERE CharacterId = ?", args: [id] },
+        { sql: "DELETE FROM inventory WHERE CharacterId = ?", args: [id] },
+        ...items.rows.map((row) => ({ sql: "DELETE FROM item WHERE ItemId = ?", args: [Number(row.ItemId)] })),
+        { sql: "DELETE FROM character WHERE CharacterId = ?", args: [id] },
+      ],
+      "write"
+    )
 
-    for (const sceneRow of allScenesResult.rows) {
-      const sceneId = sceneRow.Id as number;
-      const sceneDataString = sceneRow.SceneData as string;
-      let sceneData;
-      try {
-        sceneData = JSON.parse(sceneDataString);
-      } catch (e) {
-        console.warn(`Skipping scene ${sceneId} due to invalid JSON SceneData: ${(e as Error).message}`);
-        continue;
-      }
-
-      let modified = false;
-      if (sceneData.elements && sceneData.elements.topLayer) {
-        const initialTopLayerLength = sceneData.elements.topLayer.length;
-        sceneData.elements.topLayer = sceneData.elements.topLayer.filter(
-          (token: any) => token.characterId !== characterIdToDelete
-        );
-        if (sceneData.elements.topLayer.length !== initialTopLayerLength) {
-          modified = true;
-        }
-      }
-      // Potentially check middleLayer too if characters can be there
-      // if (sceneData.elements && sceneData.elements.middleLayer) {
-      //   const initialMiddleLayerLength = sceneData.elements.middleLayer.length;
-      //   sceneData.elements.middleLayer = sceneData.elements.middleLayer.filter(
-      //     (element: any) => element.characterId !== characterIdToDelete // Assuming similar structure
-      //   );
-      //   if (sceneData.elements.middleLayer.length !== initialMiddleLayerLength) {
-      //     modified = true;
-      //   }
-      // }
-
-      if (modified) {
-        sceneData.savedAt = new Date().toISOString(); // Update savedAt timestamp
-        await tx.execute({
-          sql: "UPDATE DMImage SET SceneData = ? WHERE Id = ?",
-          args: [JSON.stringify(sceneData), sceneId],
-        });
-        scenesToUpdate.push({ sceneId, sceneData }); // Collect for socket emission
-        console.log(`Updated SceneData for scene ${sceneId} to remove character ${characterIdToDelete}`);
-      }
+    // Remove its tokens from every scene (versioned, so concurrent edits aren't lost).
+    for (const scene of await listSceneRows()) {
+      if (!scene.SceneData) continue
+      const hasToken = (state: { elements: { topLayer: Parameters<typeof tokenCharacterId>[0][] } }) =>
+        state.elements.topLayer.some((token) => tokenCharacterId(token) === id)
+      const result = await updateScene(scene.Id, (state) =>
+        hasToken(state)
+          ? { ...state, elements: { ...state.elements, topLayer: state.elements.topLayer.filter((t) => tokenCharacterId(t) !== id) } }
+          : { error: "unchanged", status: 200 }
+      )
+      if ("state" in result) broadcastSceneState(null, scene.Id, result.state)
     }
 
-    // 2. Delete Associated Jobs
-    console.log(`Deleting jobs for character ${characterIdToDelete}`);
-    await tx.execute({
-      sql: "DELETE FROM Job WHERE CharacterId = ?",
-      args: [characterIdToDelete],
-    });
-
-    // 3. Delete Associated Inventory Items
-    // First, get the InventoryId from the Character table
-    const characterInventoryResult = await tx.execute({
-        sql: "SELECT InventoryId FROM Character WHERE CharacterId = ?",
-        args: [characterIdToDelete]
-    });
-
-    if (characterInventoryResult.rows.length > 0 && characterInventoryResult.rows[0].InventoryId != null) {
-        const inventoryId = characterInventoryResult.rows[0].InventoryId as number;
-        console.log(`Deleting inventory items for InventoryId ${inventoryId} (associated with character ${characterIdToDelete})`);
-        await tx.execute({
-            sql: "DELETE FROM Inventory WHERE InventoryId = ?",
-            args: [inventoryId]
-        });
-        // If there was a separate 'Inventories' master table, you might delete from there too,
-        // or set Character.InventoryId to NULL before deleting character if DB schema requires it.
-        // For now, we assume Character.InventoryId might not have ON DELETE CASCADE/SET NULL, so we handle linked items.
-    }
-
-
-    // 4. Delete the Character record
-    console.log(`Deleting character ${characterIdToDelete}`);
-    const deleteCharacterResult = await tx.execute({
-      sql: "DELETE FROM Character WHERE CharacterId = ?",
-      args: [characterIdToDelete],
-    });
-
-    if (deleteCharacterResult.rowsAffected === 0) {
-      await tx.rollback();
-      return NextResponse.json({ error: "Character not found or already deleted" }, { status: 404 });
-    }
-
-    await tx.commit(); // Commit transaction
-
-    // Emit socket events after successful commit
-    try {
-      const io = getIO();
-      io.to(AUTHENTICATED_ROOM).emit('character_deleted', characterIdToDelete);
-      console.log(`[API /characters/${characterIdToDeleteString}] Emitted \'character_deleted\'`);
-
-      for (const { sceneId, sceneData } of scenesToUpdate) {
-        io.to(String(sceneId)).emit('scene_updated', sceneId, {
-          middleLayer: sceneData.elements?.middleLayer || [],
-          topLayer: sceneData.elements?.topLayer || [],
-          // Include other scene attributes if they could have changed, though unlikely here
-        });
-        console.log(`[API /characters/${characterIdToDeleteString}] Emitted \'scene_updated\' for scene ${sceneId}`);
-      }
-    } catch (socketError) {
-      console.error(`[API /characters/${characterIdToDeleteString}] Socket.IO emit error after deletion:`, socketError);
-      // Non-critical for the response, but log it.
-    }
-
-    return NextResponse.json({ message: "Character and associated data deleted successfully" });
-
+    emitCharacterDeleted(id, ownerId)
+    return NextResponse.json({ message: "Character and associated data deleted successfully" })
   } catch (error) {
-    if (tx) {
-      await tx.rollback(); // Ensure rollback on any error during transaction
-    }
-    console.error(`Error deleting character ${characterIdToDeleteString}:`, error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown server error";
-    // Check for specific foreign key error from LibSQL/SQLite
-    if (errorMessage.includes("SQLITE_CONSTRAINT_FOREIGNKEY")) {
-        return NextResponse.json({ error: "Failed to delete character due to existing references", details: "SQLITE_CONSTRAINT_FOREIGNKEY: FOREIGN KEY constraint failed. Other data in the system still refers to this character." }, { status: 409 }); // 409 Conflict
-    }
-    return NextResponse.json({ error: "Failed to delete character" }, { status: 500 });
+    console.error(`Error deleting character ${id}:`, error)
+    return NextResponse.json({ error: "Failed to delete character" }, { status: 500 })
   }
 }
-

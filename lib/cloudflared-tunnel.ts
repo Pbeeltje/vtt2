@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { spawn, type ChildProcessByStdio } from "child_process";
+import type { Readable } from "stream";
 import { tunnelRuntime } from "./tunnel-state";
 import { resolveCloudflaredExecutable } from "./resolve-cloudflared";
 
@@ -86,7 +87,7 @@ export function startCloudflaredTunnel(localPort: number, timeoutMs = 60_000): P
       return;
     }
 
-    let child: ChildProcessWithoutNullStreams;
+    let child: ChildProcessByStdio<null, Readable, Readable>;
     try {
       child = spawn(cloudflaredExe, ["tunnel", "--url", `http://127.0.0.1:${localPort}`], {
         stdio: ["ignore", "pipe", "pipe"],

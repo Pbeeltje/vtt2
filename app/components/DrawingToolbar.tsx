@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { cn } from "@/lib/utils";
 import { Brush, MousePointer, Palette, Grid, Trash2, Eye, EyeOff, Eraser, PaintBucket, RotateCcw, Plus, Minus, Grid2x2, Square } from 'lucide-react';
-import { Button } from './ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { isFogStrokeTool, type MapInteractionTool } from '../types/mapTool';
 
 /** Brief highlight when diameter changes (20ms is imperceptible; ~0.7s reads as a quick flash). */

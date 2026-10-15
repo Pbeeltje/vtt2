@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server'
-import { db } from '../../lib/db' // better-sqlite3 instance
-import { getUserFromCookie } from '../../../lib/auth' // To get current user
-import { getIO } from '../../../lib/socket' // Import Socket.IO instance getter
+import { db } from '@/lib/db'
+import { getUserFromCookie } from '@/lib/auth'
+import { getIO } from '@/lib/socket'
+import { getActiveSceneId } from '@/lib/app-settings'
+
+/** Players only see and draw on the active scene; DMs on any scene. */
+async function maySeeScene(user: { role: string }, sceneId: unknown): Promise<boolean> {
+  return user.role === 'DM' || (await getActiveSceneId()) === Number(sceneId)
+}
 
 export async function GET(request: Request) {
   try {
@@ -16,12 +22,15 @@ export async function GET(request: Request) {
     if (!sceneId) {
       return NextResponse.json({ error: 'Scene ID is required' }, { status: 400 })
     }
+    if (!(await maySeeScene(u, sceneId))) {
+      return NextResponse.json([])
+    }
 
-    // Use synchronous methods with better-sqlite3
-    const stmt = db.prepare('SELECT * FROM drawing WHERE sceneId = ? ORDER BY createdAt ASC');
-    const drawings = stmt.all(sceneId); // Pass args directly to all()
-    
-    return NextResponse.json(drawings);
+    const result = await db.execute({
+      sql: 'SELECT id, path, color, createdBy, sceneId, createdAt FROM drawing WHERE sceneId = ? ORDER BY createdAt ASC',
+      args: [sceneId],
+    })
+    return NextResponse.json(result.rows.map((row) => ({ ...row })));
   } catch (error) {
     console.error('Error fetching drawings:', error)
     return NextResponse.json({ error: 'Failed to fetch drawings' }, { status: 500 })
@@ -40,19 +49,27 @@ export async function POST(request: Request) {
     if (!data.id || !data.path || !data.color || !data.sceneId) {
        return NextResponse.json({ error: 'Missing required drawing data fields' }, { status: 400 });
     }
+    if (
+      typeof data.id !== 'string' || data.id.length > 64 ||
+      typeof data.path !== 'string' || data.path.length > 200_000 ||
+      typeof data.color !== 'string' || data.color.length > 50
+    ) {
+      return NextResponse.json({ error: 'Invalid drawing data' }, { status: 400 });
+    }
+    if (!(await maySeeScene(u, data.sceneId))) {
+      return NextResponse.json({ error: 'You can only draw on the active scene' }, { status: 403 });
+    }
 
     const createdBy = u.id
     const createdAt = data.createdAt || new Date().toISOString()
     const payload = { ...data, createdBy, createdAt }
 
-    // Use synchronous methods with better-sqlite3
-    const stmt = db.prepare(
-      'INSERT INTO drawing (id, path, color, createdBy, sceneId, createdAt) VALUES (?, ?, ?, ?, ?, ?)'
-    );
-    const info = stmt.run(data.id, data.path, data.color, createdBy, data.sceneId, createdAt);
+    const info = await db.execute({
+      sql: 'INSERT INTO drawing (id, path, color, createdBy, sceneId, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [data.id, data.path, data.color, createdBy, data.sceneId, createdAt],
+    });
 
-    // Check if insert was successful
-    if (info.changes === 0) {
+    if (info.rowsAffected === 0) {
        console.error('Failed to insert drawing, no changes made.');
        return NextResponse.json({ error: 'Failed to create drawing in DB' }, { status: 500 });
     }
@@ -99,8 +116,10 @@ export async function DELETE(request: Request) {
     }
 
     // Fetch the drawing to check its creator and get sceneId for socket emit
-    const drawingStmt = db.prepare('SELECT createdBy, sceneId FROM drawing WHERE id = ?');
-    const drawingData = drawingStmt.get(drawingIdToDelete) as { createdBy: number, sceneId: number } | undefined;
+    const found = await db.execute({ sql: 'SELECT createdBy, sceneId FROM drawing WHERE id = ?', args: [drawingIdToDelete] });
+    const drawingData = found.rows[0]
+      ? { createdBy: Number(found.rows[0].createdBy), sceneId: Number(found.rows[0].sceneId) }
+      : undefined;
 
     if (!drawingData) {
       return NextResponse.json({ error: 'Drawing not found' }, { status: 404 });
@@ -112,10 +131,9 @@ export async function DELETE(request: Request) {
     }
 
     // Proceed with deletion
-    const deleteStmt = db.prepare('DELETE FROM drawing WHERE id = ?');
-    const info = deleteStmt.run(drawingIdToDelete);
+    const info = await db.execute({ sql: 'DELETE FROM drawing WHERE id = ?', args: [drawingIdToDelete] });
 
-    if (info.changes === 0) {
+    if (info.rowsAffected === 0) {
       return NextResponse.json({ error: 'Drawing not found or already deleted (race condition)' }, { status: 404 });
     }
 

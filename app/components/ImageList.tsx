@@ -1,372 +1,251 @@
 "use client"
 
-import { useState } from "react"
+import { memo, useState } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Trash2, Pencil, Play } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
-import type { DMImage } from "../types/image"
-import type { Character } from "../types/character"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DEFAULT_BORDER_SIZE, parseSceneData } from "@/lib/scene-model"
+import type { DMImage } from "../types/image"
+
+const CATEGORIES = ["Scene", "Image", "Prop"] as const
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 interface ImageListProps {
   images: DMImage[]
-  categories: string[]
-  onAddImage: (category: string, file: File) => Promise<void>
+  /** Scenes with their latest saved data (the image list's copy can be stale). */
+  scenes: DMImage[]
+  onUploadImage: (category: string, file: File) => Promise<unknown>
   onDeleteImage: (image: DMImage) => Promise<void>
-  onDragStart?: (e: React.DragEvent<HTMLLIElement>, image: DMImage) => void
-  onSceneClick?: (scene: DMImage) => void
-  onDeleteSceneData?: (image: DMImage) => Promise<void>
-  onRenameImage?: (image: DMImage, newName: string) => Promise<void>
-  onUpdateSceneScale?: (image: DMImage, scale: number) => Promise<void>
-  onUpdateSceneBorderSize?: (image: DMImage, borderSize: number) => Promise<void>
-  characters?: Character[]
-  currentUserRole?: string
-  onMakeSceneActive?: (sceneId: number) => void
+  onRenameImage: (image: DMImage, newName: string) => Promise<void>
+  onSceneClick: (scene: DMImage) => void
+  onClearSceneData: (image: DMImage) => Promise<void>
+  onUpdateSceneSettings: (image: DMImage, settings: { scale: number; borderSize: number }) => Promise<boolean>
+  onMakeSceneActive: (sceneId: number) => void
+  activeSceneId: number | null
 }
 
-export default function ImageList({
+function ImageList({
   images,
-  onAddImage,
+  scenes,
+  onUploadImage,
   onDeleteImage,
-  onDragStart,
-  onSceneClick,
-  onDeleteSceneData,
   onRenameImage,
-  onUpdateSceneScale,
-  onUpdateSceneBorderSize,
-  characters = [],
-  currentUserRole,
+  onSceneClick,
+  onClearSceneData,
+  onUpdateSceneSettings,
   onMakeSceneActive,
+  activeSceneId,
 }: ImageListProps) {
   const [activeCategory, setActiveCategory] = useState<string>("Scene")
   const [uploading, setUploading] = useState(false)
-  const [selectedImage, setSelectedImage] = useState<DMImage | null>(null)
-  const categories = ["Scene", "Image", "Prop"]
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [editingImage, setEditingImage] = useState<DMImage | null>(null)
+  const [editingScene, setEditingScene] = useState<DMImage | null>(null)
   const [newName, setNewName] = useState("")
   const [sceneScale, setSceneScale] = useState(1)
-  const [sceneBorderSize, setSceneBorderSize] = useState(0.2) // Default 20% border
+  const [sceneBorderSize, setSceneBorderSize] = useState(DEFAULT_BORDER_SIZE)
 
-  const handleDeleteImage = (image: DMImage) => {
-    if (window.confirm(`Are you sure you want to delete ${image.Name}?`)) {
-      onDeleteImage(image)
-    }
-  }
+  const sceneData = (image: DMImage) => scenes.find((s) => s.Id === image.Id)?.SceneData ?? image.SceneData
 
-  const handleImageClick = (image: DMImage) => {
-    if (image.Category === "Scene") {
-      onSceneClick?.(image)
-    } else {
-      const newSelectedImage = selectedImage?.Id === image.Id ? null : image
-      setSelectedImage(newSelectedImage)
-    }
-  }
-
-  const handleUpload = async (category: string) => {
+  const handleUpload = (category: string) => {
     const input = document.createElement("input")
     input.type = "file"
-    input.accept = "image/*"
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      if (file) {
-        if (file.size > 5 * 1024 * 1024) {
-          toast({
-            title: "Error",
-            description: "Image size exceeds 5MB limit.",
-            variant: "destructive",
-          })
-          return
+    input.accept = "image/png,image/jpeg,image/gif,image/webp"
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      if (file.size > MAX_UPLOAD_BYTES) {
+        toast({ title: "Image too large", description: "Images can be at most 5 MB.", variant: "destructive" })
+        return
+      }
+      setUploading(true)
+      try {
+        if (await onUploadImage(category, file)) {
+          toast({ title: "Image uploaded", description: `${file.name} added to ${category}.` })
         }
-        setUploading(true)
-        try {
-          await onAddImage(category, file)
-          toast({
-            title: "Image Uploaded",
-            description: `${file.name} added to ${category}.`,
-          })
-        } catch (error) {
-          toast({
-            title: "Error",
-            description: error instanceof Error ? error.message : "Failed to upload image.",
-            variant: "destructive",
-          })
-        } finally {
-          setUploading(false)
-        }
+      } finally {
+        setUploading(false)
       }
     }
     input.click()
   }
 
-  const handleRenameImage = async (image: DMImage) => {
+  const handleRename = async (image: DMImage) => {
     if (image.Category === "Scene") {
-      // For scenes, open the edit dialog with both name and scale options
-      setEditingImage(image)
+      const state = parseSceneData(sceneData(image))
+      setEditingScene(image)
       setNewName(image.Name)
-      
-      // Get scale and border size from scene data if it exists
-      if (image.SceneData) {
-        try {
-          const sceneData = JSON.parse(image.SceneData)
-          setSceneScale(sceneData.scale || 1)
-          setSceneBorderSize(sceneData.borderSize || 0.2)
-        } catch (error) {
-          setSceneScale(1)
-          setSceneBorderSize(0.2)
-        }
-      } else {
-        setSceneScale(1)
-        setSceneBorderSize(0.2)
-      }
-      
-      setEditDialogOpen(true)
-    } else {
-      // For other image types, just prompt for name
-      const newName = window.prompt("Enter new name:", image.Name)
-      if (newName && newName !== image.Name && onRenameImage) {
-        try {
-          await onRenameImage(image, newName)
-          toast({
-            title: "Success",
-            description: "Image renamed successfully.",
-          })
-        } catch (error) {
-          toast({
-            title: "Error",
-            description: "Failed to rename image.",
-            variant: "destructive",
-          })
-        }
-      }
+      setSceneScale(state.scale)
+      setSceneBorderSize(state.borderSize)
+      return
+    }
+    const name = window.prompt("Enter new name:", image.Name)
+    if (name && name.trim() && name !== image.Name) {
+      await onRenameImage(image, name).catch(() => {})
     }
   }
 
   const handleSaveSceneEdit = async () => {
-    if (!editingImage || !newName) return
-    
-    try {
-      // First rename the image
-      if (newName !== editingImage.Name && onRenameImage) {
-        await onRenameImage(editingImage, newName)
-      }
-      
-      // Then update the scale if the function is provided
-      if (onUpdateSceneScale) {
-        await onUpdateSceneScale(editingImage, sceneScale)
-      }
-      
-      // Then update the border size if the function is provided
-      if (onUpdateSceneBorderSize) {
-        await onUpdateSceneBorderSize(editingImage, sceneBorderSize)
-      }
-      
-      toast({
-        title: "Success",
-        description: "Scene updated successfully.",
-      })
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update scene.",
-        variant: "destructive",
-      })
-    } finally {
-      setEditDialogOpen(false)
-      setEditingImage(null)
+    const scene = editingScene
+    if (!scene || !newName.trim()) return
+    if (!(sceneScale > 0)) {
+      toast({ title: "Invalid scale", description: "Scale must be greater than 0.", variant: "destructive" })
+      return
     }
-  }
-
-  const getNameClass = (name: string) => {
-    // Default Tailwind text size is text-base (16px), reduce to text-sm (14px) if long
-    return name.length > 10 ? "text-sm break-words" : "text-base"
-  }
-
-  const getCategoryStyle = (category: string) => {
-    // Implement the logic to determine the style based on the category
-    // This is a placeholder and should be replaced with the actual implementation
-    return ""
+    try {
+      if (newName.trim() !== scene.Name) await onRenameImage(scene, newName)
+      const current = parseSceneData(sceneData(scene))
+      if (sceneScale !== current.scale || sceneBorderSize !== current.borderSize) {
+        if (!(await onUpdateSceneSettings(scene, { scale: sceneScale, borderSize: sceneBorderSize }))) return
+      }
+      toast({ title: "Scene updated" })
+      setEditingScene(null)
+    } catch {
+      // The failed step already showed its own message.
+    }
   }
 
   return (
     <>
       <Tabs value={activeCategory} onValueChange={setActiveCategory}>
         <TabsList className="grid w-full grid-cols-3">
-          {categories.map((category) => (
+          {CATEGORIES.map((category) => (
             <TabsTrigger key={category} value={category}>
               {category}
             </TabsTrigger>
           ))}
         </TabsList>
 
-        {categories.map((category) => (
+        {CATEGORIES.map((category) => (
           <TabsContent key={category} value={category}>
             <ScrollArea className="h-[calc(100vh-250px)]">
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-4"
-                onClick={() => handleUpload(category)}
-                disabled={uploading}
-              >
-                {uploading ? (
-                  "Uploading..."
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4 mr-2" /> Add {category}
-                  </>
-                )}
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => handleUpload(category)} disabled={uploading}>
+                {uploading ? "Uploading..." : (<><Plus className="w-4 h-4 mr-2" /> Add {category}</>)}
               </Button>
               <ul className="space-y-2 mt-4">
                 {images
                   .filter((img) => img.Category === category)
-                  .map((image) => (
-                    <li
-                      key={image.Id}
-                      className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
-                      draggable={image.Category !== "Scene"}
-                      onDragStart={image.Category !== "Scene" ? (e) => {
-                        const imageData = {
-                          imageId: image.Id.toString(),
-                          url: image.Link,
-                          category: image.Category,
+                  .map((image) => {
+                    const isScene = image.Category === "Scene"
+                    const isActive = isScene && image.Id === activeSceneId
+                    return (
+                      <li
+                        key={image.Id}
+                        className={`flex items-center justify-between p-2 bg-white rounded-lg shadow ${isActive ? "ring-2 ring-green-500" : ""}`}
+                        draggable={!isScene}
+                        onDragStart={
+                          isScene
+                            ? undefined
+                            : (e) => {
+                                e.dataTransfer.setData("application/json", JSON.stringify({ imageId: image.Id.toString(), url: image.Link, category: image.Category }))
+                                e.dataTransfer.effectAllowed = "copy"
+                              }
                         }
-                        e.dataTransfer.setData("application/json", JSON.stringify(imageData))
-                        e.dataTransfer.effectAllowed = "copy"
-                      } : undefined}
-                      onClick={() => handleImageClick(image)}
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-gray-200 rounded overflow-hidden">
-                          <Image
-                            src={image.Link || "/placeholder.svg"}
-                            alt={image.Name}
-                            width={40}
-                            height={40}
-                            className="object-cover"
-                            draggable={false}
-                          />
+                        onClick={() => isScene && onSceneClick(image)}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-gray-200 rounded overflow-hidden">
+                            <Image src={image.Link || "/placeholder.svg"} alt={image.Name} width={40} height={40} className="object-cover" draggable={false} />
+                          </div>
+                          <span className={`text-left ${isScene ? "hover:underline cursor-pointer" : ""} ${image.Name.length > 10 ? "text-sm break-words" : "text-base"}`}>
+                            {image.Name}
+                            {isActive && <span className="ml-2 text-xs text-green-700">(active)</span>}
+                          </span>
                         </div>
-                        <button className="text-left hover:underline" onClick={(e) => {
-                          e.stopPropagation();
-                          handleImageClick(image);
-                        }}>
-                          {image.Name}
-                        </button>
-                      </div>
-                      <div className="flex gap-1">
-                        {image.Category === "Scene" && onMakeSceneActive && currentUserRole === 'DM' && (
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onMakeSceneActive(image.Id);
-                            }}
-                            className="text-green-500 hover:text-green-700 h-7 w-7"
-                            title="Make Active Scene for Players"
-                          >
-                            <Play className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {image.Category === "Scene" && image.SceneData && (
+                        <div className="flex gap-1">
+                          {isScene && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onMakeSceneActive(image.Id)
+                              }}
+                              className="text-green-500 hover:text-green-700 h-7 w-7"
+                              title="Make active scene for players"
+                            >
+                              <Play className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {isScene && sceneData(image) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (window.confirm("Clear this scene's tokens, images, fog and grid settings?")) void onClearSceneData(image)
+                              }}
+                              className="text-blue-500 hover:text-blue-700 h-7 w-7"
+                              title="Clear scene data"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={(e) => {
                               e.stopPropagation()
-                              if (window.confirm("Are you sure you want to clear this scene's data?")) {
-                                onDeleteSceneData?.(image)
-                              }
+                              void handleRename(image)
                             }}
-                            className="text-blue-500 hover:text-blue-700 h-7 w-7"
-                            title="Clear Scene Data"
+                            title={isScene ? "Edit scene" : "Rename"}
+                            className="h-7 w-7"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Pencil className="h-3 w-3" />
                           </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleRenameImage(image)
-                          }}
-                          title="Rename"
-                          className="h-7 w-7"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteImage(image)
-                          }}
-                          title="Delete Image"
-                          className="h-7 w-7"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (window.confirm(`Are you sure you want to delete ${image.Name}?`)) void onDeleteImage(image)
+                            }}
+                            title="Delete image"
+                            className="h-7 w-7"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </li>
+                    )
+                  })}
               </ul>
             </ScrollArea>
           </TabsContent>
         ))}
       </Tabs>
 
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      <Dialog open={editingScene !== null} onOpenChange={(open) => !open && setEditingScene(null)}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Edit Scene</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
-                Name
-              </Label>
-              <Input
-                id="name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                className="col-span-3"
-              />
+              <Label htmlFor="name" className="text-right">Name</Label>
+              <Input id="name" value={newName} onChange={(e) => setNewName(e.target.value)} className="col-span-3" />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="scale" className="text-right">
-                Scale
-              </Label>
+              <Label htmlFor="scale" className="text-right">Scale</Label>
               <Input
                 id="scale"
                 type="number"
                 step="0.1"
+                min="0.1"
                 value={sceneScale}
                 onChange={(e) => {
-                  const value = e.target.value
-                  const parsedValue = parseFloat(value)
-                  setSceneScale(isNaN(parsedValue) ? 0 : parsedValue)
+                  const value = parseFloat(e.target.value)
+                  setSceneScale(isNaN(value) ? 0 : value)
                 }}
                 className="col-span-3"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="borderSize" className="text-right">
-                Border Size
-              </Label>
+              <Label htmlFor="borderSize" className="text-right">Border Size</Label>
               <Input
                 id="borderSize"
                 type="number"
@@ -375,17 +254,15 @@ export default function ImageList({
                 step="0.05"
                 value={sceneBorderSize}
                 onChange={(e) => {
-                  const value = e.target.value
-                  const parsedValue = parseFloat(value)
-                  setSceneBorderSize(isNaN(parsedValue) ? 0 : Math.max(0, Math.min(1, parsedValue)))
+                  const value = parseFloat(e.target.value)
+                  setSceneBorderSize(isNaN(value) ? 0 : Math.max(0, Math.min(1, value)))
                 }}
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <div className="col-span-4 text-sm text-gray-500 text-center">
-                Border size is a percentage of the image size (0.2 = 20%) that allows dragging images outside the main grid area.
-              </div>
+            <div className="col-span-4 text-sm text-gray-500 text-center">
+              Changing the scale moves tokens, images, fog and drawings with the map. Border size is a fraction of the
+              image size (0.2 = 20%) that lets you place things outside the map.
             </div>
           </div>
           <DialogFooter>
@@ -397,3 +274,4 @@ export default function ImageList({
   )
 }
 
+export default memo(ImageList)

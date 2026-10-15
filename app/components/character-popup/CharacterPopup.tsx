@@ -16,12 +16,13 @@ import { useJobs } from '../../hooks/useJobs';
 interface CharacterPopupProps {
   character: Character;
   onClose: () => void;
-  onUpdate: (updatedCharacter: Character) => void;
+  /** Saves only the given fields; resolves to the saved character, or null if it failed. */
+  onSave: (changes: Partial<Character>) => Promise<Character | null>;
   isDM: boolean;
   allUsers?: User[];
 }
 
-export default function CharacterPopup({ character, onClose, onUpdate, isDM, allUsers }: CharacterPopupProps) {
+export default function CharacterPopup({ character, onClose, onSave, isDM, allUsers }: CharacterPopupProps) {
   const [selectedUserIdToAssign, setSelectedUserIdToAssign] = useState<number | ''>( '');
   const { jobs, handleCreateJob, handleJobSubmit } = useJobs(character.CharacterId);
 
@@ -36,22 +37,14 @@ export default function CharacterPopup({ character, onClose, onUpdate, isDM, all
       return;
     }
 
-    const updatedCharacter = {
-      ...character,
-      userId: selectedUserIdToAssign as number, 
-    };
-
-    try {
-      await onUpdate(updatedCharacter);
-      setSelectedUserIdToAssign(''); 
-    } catch (error) {
-      console.error("Error assigning character:", error);
-      toast({ title: "Error", description: "Failed to assign character.", variant: "destructive" });
+    if (await onSave({ userId: selectedUserIdToAssign as number })) {
+      setSelectedUserIdToAssign('');
+      toast({ title: "Character assigned" });
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[100]" role="dialog" aria-modal="true">
       <div className="bg-white p-6 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto relative z-[101]" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()}>
         <Button variant="ghost" size="icon" className="absolute top-2 right-2" onClick={onClose}><X className="h-4 w-4" /></Button>
         <Tabs defaultValue="stats" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()}>
@@ -62,7 +55,7 @@ export default function CharacterPopup({ character, onClose, onUpdate, isDM, all
             {isDM && <TabsTrigger value="options">Options</TabsTrigger>}
           </TabsList>
           <TabsContent value="stats">
-            <StatsTab character={character} onUpdate={onUpdate} jobs={jobs} />
+            <StatsTab character={character} onSave={onSave} jobs={jobs} />
           </TabsContent>
           {/* forceMount: prefetch jobs; Radix keeps present=true so we hide inactive via data-state */}
           <TabsContent value="jobs" forceMount className="data-[state=inactive]:hidden">

@@ -1,8 +1,5 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react"
-import { toast } from "@/components/ui/use-toast"
 import type { LayerImage } from "../types/layerImage"
-import type { DrawingObject } from '../components/DrawingLayer'
-import type { NewDrawingData } from '../components/Home'
 
 interface UseMainContentProps {
   backgroundImage: string | null
@@ -12,10 +9,6 @@ interface UseMainContentProps {
   sceneScale: number
   zoomLevel: number
   setZoomLevel: React.Dispatch<React.SetStateAction<number>>
-  currentSceneId?: number | null
-  currentUserId?: number | null
-  currentUserRole?: string | null
-  onUpdateImages?: (middleLayer: LayerImage[], topLayer: LayerImage[]) => void
   sceneBorderSize?: number
 }
 
@@ -27,10 +20,6 @@ export const useMainContent = ({
   sceneScale,
   zoomLevel,
   setZoomLevel,
-  currentSceneId,
-  currentUserId,
-  currentUserRole,
-  onUpdateImages,
   sceneBorderSize,
 }: UseMainContentProps) => {
   // Refs
@@ -83,14 +72,20 @@ export const useMainContent = ({
   }, [backgroundImage, sceneScale])
 
   useEffect(() => {
-    const savedZoom = localStorage.getItem('dmScreenZoomLevel')
-    if (savedZoom) {
-      setZoomLevel(parseFloat(savedZoom))
+    try {
+      const savedZoom = parseFloat(localStorage.getItem('dmScreenZoomLevel') ?? '')
+      if (savedZoom >= 0.5 && savedZoom <= 3) setZoomLevel(savedZoom)
+    } catch {
+      /* storage unavailable */
     }
   }, [setZoomLevel])
 
   useEffect(() => {
-    localStorage.setItem('dmScreenZoomLevel', zoomLevel.toString())
+    try {
+      localStorage.setItem('dmScreenZoomLevel', zoomLevel.toString())
+    } catch {
+      /* storage unavailable */
+    }
   }, [zoomLevel])
 
   const borderFraction = sceneBorderSize ?? 0.2
@@ -144,9 +139,10 @@ export const useMainContent = ({
     }))
   }, [gridSize])
 
-  const updateItemPosition = useCallback((id: string, dx: number, dy: number) => {
+  /** Moves the given items by (dx, dy): tokens snap to the grid, map images move freely. */
+  const updateItemPosition = useCallback((ids: string[], dx: number, dy: number) => {
     const updateLayer = (layer: LayerImage[], isTopLayer: boolean) => layer.map((item) => {
-      if (!draggingIds?.includes(item.id)) return item;
+      if (!ids.includes(item.id)) return item;
       
       if (isTopLayer) {
         // Tokens (top layer): snap to grid
@@ -168,17 +164,7 @@ export const useMainContent = ({
     const newMiddleLayer = updateLayer(middleLayerImages, false);
     const newTopLayer = updateLayer(topLayerImages, true);
     return { middleLayer: newMiddleLayer, topLayer: newTopLayer };
-  }, [draggingIds, gridSize, middleLayerImages, topLayerImages])
-
-  const updateItemSize = useCallback((id: string, width: number, height: number) => {
-    const updateLayer = (layer: LayerImage[]) => layer.map((item) =>
-      (item.id === id ? { ...item, width, height } : item)
-    );
-    
-    const newMiddleLayer = updateLayer(middleLayerImages);
-    const newTopLayer = updateLayer(topLayerImages);
-    return { middleLayer: newMiddleLayer, topLayer: newTopLayer };
-  }, [middleLayerImages, topLayerImages])
+  }, [gridSize, middleLayerImages, topLayerImages])
 
   return {
     // Refs
@@ -219,7 +205,6 @@ export const useMainContent = ({
     adjustImageSize,
     snapToGrid,
     updateItemPosition,
-    updateItemSize,
     
     // Constants
     IMAGE_MAX_SIZE,

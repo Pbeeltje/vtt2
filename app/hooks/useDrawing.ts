@@ -1,7 +1,7 @@
 import { useCallback, useRef } from "react"
 import { clientToGridLogical } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
-import type { NewDrawingData } from '../components/Home'
+import type { NewDrawingData } from './useDrawings'
 import type { DarknessPath } from '../components/main-content/DarknessLayer'
 import type { MapInteractionTool } from "../types/mapTool"
 import { isFogCellTool, isFogStrokeTool, isCanvasStrokeTool } from "../types/mapTool"
@@ -62,7 +62,6 @@ interface UseDrawingProps {
   setCurrentPath: React.Dispatch<React.SetStateAction<string>>
   selectedDrawingIds: string[]
   setSelectedDrawingIds: React.Dispatch<React.SetStateAction<string[]>>
-  setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>
   onDrawingAdd: (data: NewDrawingData) => void | Promise<void>
   // Darkness functionality
   darknessPaths?: DarknessPath[]
@@ -85,7 +84,6 @@ export const useDrawing = ({
   setCurrentPath,
   selectedDrawingIds,
   setSelectedDrawingIds,
-  setSelectedIds,
   onDrawingAdd,
   darknessPaths,
   onDarknessChange,
@@ -285,34 +283,11 @@ export const useDrawing = ({
     }
   }, [currentTool, currentUserRole, currentUserId, setSelectedDrawingIds]);
 
-  const handleDrawingDelete = useCallback(async (drawingIds: string[]) => {
-    if (drawingIds.length === 0) return;
-    
-    try {
-      const response = await fetch('/api/drawings', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ drawingIds }),
-      });
-      
-      if (response.ok) {
-        setSelectedDrawingIds([]);
-        setSelectedIds([]);
-      } else {
-        throw new Error('Failed to delete drawings');
-      }
-    } catch (error) {
-      console.error('Error deleting drawings:', error);
-      toast({ title: "Error", description: "Failed to delete drawings.", variant: "destructive" });
-    }
-  }, [setSelectedDrawingIds, setSelectedIds]);
-
   return {
     startDrawing,
     draw,
     endDrawing,
     handleMouseLeave,
     handleDrawingClick,
-    handleDrawingDelete,
   };
 }; 

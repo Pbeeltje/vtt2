@@ -1,4 +1,5 @@
 import Image from "next/image"
+import { tokenCharacterId } from "@/lib/scene-model"
 import { Settings } from "lucide-react"
 import type { LayerImage } from "../../types/layerImage"
 
@@ -32,6 +33,7 @@ export default function TokenRenderer({
       {tokens.map((img) => (
         <div
           key={img.id}
+          data-token-id={img.id}
           className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
           style={{ left: img.x, top: img.y, zIndex: 40 }}
           draggable={true}
@@ -103,7 +105,7 @@ export default function TokenRenderer({
               <div className="status-circle guard-circle relative bg-white rounded-full p-1">
                 <div 
                   className="w-8 h-8 rounded-full border-2 border-green-500 flex items-center justify-center text-sm cursor-pointer hover:bg-green-50"
-                  onClick={() => onStatusClick('guard', img.character, img.characterId!)}
+                  onClick={() => onStatusClick('guard', img.character, tokenCharacterId(img)!)}
                 >
                   {img.character.Guard}/{img.character.MaxGuard}
                 </div>
@@ -116,7 +118,7 @@ export default function TokenRenderer({
               <div className="status-circle strength-circle relative bg-white rounded-full p-1">
                 <div 
                   className="w-8 h-8 rounded-full border-2 border-red-500 flex items-center justify-center text-sm cursor-pointer hover:bg-red-50"
-                  onClick={() => onStatusClick('strength', img.character, img.characterId!)}
+                  onClick={() => onStatusClick('strength', img.character, tokenCharacterId(img)!)}
                 >
                   {img.character.Strength}/{img.character.MaxStrength}
                 </div>
@@ -130,7 +132,7 @@ export default function TokenRenderer({
                 <div className="status-circle mp-circle relative bg-white rounded-full p-1">
                   <div 
                     className="w-8 h-8 rounded-full border-2 border-blue-500 flex items-center justify-center text-sm cursor-pointer hover:bg-blue-50"
-                    onClick={() => onStatusClick('mp', img.character, img.characterId!)}
+                    onClick={() => onStatusClick('mp', img.character, tokenCharacterId(img)!)}
                   >
                     {img.character.Mp}/{img.character.MaxMp}
                   </div>

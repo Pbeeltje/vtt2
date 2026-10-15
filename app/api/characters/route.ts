@@ -1,121 +1,53 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@libsql/client"
+import { db } from "@/lib/db"
 import { requireAuth } from "@/lib/auth"
+import { authErrorResponse } from "@/lib/api-errors"
+import { emitCharacterUpdated } from "@/lib/character-sync"
 
-const client = createClient({
-  url: "file:./vttdatabase.db", // Changed to local DB
-  authToken: "", // No auth token needed for local file
-})
+const SELECT_CHARACTER = "SELECT c.*, u.Username AS ownerUsername FROM character c LEFT JOIN user u ON c.userId = u.UserId"
 
-export async function GET(req: Request) {
+/** DMs see every character; players see the ones they own. */
+export async function GET() {
   try {
-    // Require authentication for all users
     const user = await requireAuth()
-
-    let sqlQuery: string;
-    let queryArgs: any[] = [];
-
-    if (user.role === 'DM') {
-      // DMs can see all characters
-      sqlQuery = "SELECT c.*, u.Username as ownerUsername FROM character c LEFT JOIN User u ON c.UserId = u.UserId";
-    } else {
-      // Players can only see their own characters
-      sqlQuery = "SELECT c.*, u.Username as ownerUsername FROM character c LEFT JOIN User u ON c.UserId = u.UserId WHERE c.UserId = ?";
-      queryArgs = [user.id];
-    }
-
-    const result = await client.execute({
-      sql: sqlQuery,
-      args: queryArgs,
-    });
-
-    // For each character, ensure they have an inventory
-    for (const char of result.rows) {
-      // Check for inventory
-      const invResult = await client.execute({
-        sql: 'SELECT * FROM inventory WHERE CharacterId = ?',
-        args: [char.CharacterId],
-      });
-      if (invResult.rows.length === 0) {
-        // Create inventory
-        await client.execute({
-          sql: 'INSERT INTO inventory (CharacterId) VALUES (?)',
-          args: [char.CharacterId],
-        });
-      }
-    }
-
-    return NextResponse.json(result.rows);
+    const result = user.role === "DM"
+      ? await db.execute(SELECT_CHARACTER)
+      : await db.execute({ sql: `${SELECT_CHARACTER} WHERE c.userId = ?`, args: [user.id] })
+    return NextResponse.json(result.rows)
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === "Authentication required") {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-      }
-    }
     console.error("Error fetching characters:", error)
-    return NextResponse.json({ error: "Failed to fetch characters" }, { status: 500 })
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to fetch characters" }, { status: 500 })
   }
 }
 
+const VALID_CATEGORIES = ["Party", "NPC", "Monster"]
+
+/** Creates a character. Only DMs may create NPCs and Monsters; a player's new character is theirs. */
 export async function POST(req: Request) {
   try {
-    // Require authentication for all users
     const user = await requireAuth()
-
     const { category } = await req.json()
 
-    // Input validation
-    if (!category || typeof category !== 'string') {
-      return NextResponse.json({ error: "Category is required and must be a string" }, { status: 400 })
-    }
-
-    // Validate category
-    const validCategories = ['Party', 'NPC', 'Monster'];
-    if (!validCategories.includes(category)) {
+    if (typeof category !== "string" || !VALID_CATEGORIES.includes(category)) {
       return NextResponse.json({ error: "Invalid category. Must be one of: Party, NPC, Monster" }, { status: 400 })
     }
-
-    // Only DMs can create NPCs and Monsters
-    if ((category === 'NPC' || category === 'Monster') && user.role !== 'DM') {
+    if (category !== "Party" && user.role !== "DM") {
       return NextResponse.json({ error: "Only DMs can create NPCs and Monsters" }, { status: 403 })
     }
 
-    // Create new inventory for the character
-    const inventoryResult = await client.execute({
-      sql: "INSERT INTO inventory DEFAULT VALUES",
-      args: [],
-    });
-
-    if (!inventoryResult.lastInsertRowid) {
-      return NextResponse.json({ error: "Failed to create inventory" }, { status: 500 })
-    }
-
-    const newInventoryId = inventoryResult.lastInsertRowid;
-
-    // Create the character
-    const characterResult = await client.execute({
-      sql: "INSERT INTO character (Name, Description, Path, Category, UserId, InventoryId) VALUES (?, ?, ?, ?, ?, ?)",
-      args: [`New ${category}`, "Description placeholder", "Warrior", category, user.id, newInventoryId],
+    const inserted = await db.execute({
+      sql: "INSERT INTO character (Name, Description, Path, category, userId) VALUES (?, ?, 'Warrior', ?, ?) RETURNING CharacterId",
+      args: [`New ${category}`, "", category, user.id],
     })
-
-    if (!characterResult.lastInsertRowid) {
-      return NextResponse.json({ error: "Failed to create character" }, { status: 500 })
-    }
-
-    // Fetch the newly created character
-    const newCharacter = await client.execute({
-      sql: "SELECT * FROM character WHERE CharacterId = ?",
-      args: [characterResult.lastInsertRowid],
+    const created = await db.execute({
+      sql: `${SELECT_CHARACTER} WHERE c.CharacterId = ?`,
+      args: [inserted.rows[0].CharacterId],
     })
-
-    return NextResponse.json(newCharacter.rows[0])
+    const character = created.rows[0]
+    emitCharacterUpdated(character)
+    return NextResponse.json(character, { status: 201 })
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === "Authentication required") {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-      }
-    }
     console.error("Error adding character:", error)
-    return NextResponse.json({ error: "Failed to add character" }, { status: 500 })
+    return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to add character" }, { status: 500 })
   }
 }

@@ -9,9 +9,9 @@ Work happens in phases. Each phase should leave the app working and playable.
 
 | Phase | Goal | Status |
 |---|---|---|
-| 0 | Lock down security and stop data loss | **Done** (uncommitted when written) |
-| 1 | Foundation: DB, sync, dice, bugs, repo hygiene | Next |
-| 2 | Job System data model | After 1 |
+| 0 | Lock down security and stop data loss | **Done** |
+| 1 | Foundation: DB, sync, dice, bugs, repo hygiene | **Done** (see notes below) |
+| 2 | Job System data model | Next |
 | 3 | Rules helpers (roll + DM confirm) | After 2 |
 | 4 | Extras | Later |
 
@@ -86,96 +86,103 @@ Open questions:
 
 ## Phase 1: foundation
 
+**Status (2026-10-15): done**, on branch `phase1`. Every box below is done except where noted:
+- Not done: optional CI (1.7), and moving off Tailwind 3 (its build tooling still has two npm audit findings, dev/build only).
+- Changed approach: lost updates are solved with a scene `version` + 409 + three-way merge (`lib/scene-model.ts`), not a token table. Token stat snapshots are refreshed **on the server** when a character is saved.
+- "Clear scene elements" had no button; it was removed (use "Clear scene data").
+- Found and fixed along the way: toasts never showed (two copies of the toast store); no logout button existed; production cookies were Secure even on plain-http LAN (login impossible with `npm start`); sheet Name/Description edits saved the previous value; older tokens had no `characterId` (sheet/status/delete didn't work on them).
+- Verified: 62 vitest tests (unit + API/socket integration), 28 HTTP/socket smoke checks against a copy of the real DB on a production build, and a headless-browser run that passed login-only screen, toasts, active scene for DM and player, and the player's tab restrictions. The browser drag step and later steps (nudge, chat Delete, dice, sheet, zoom, logout) could not run in the harness and still need a manual check.
+
 Do these roughly in order. File references are from the audit and may drift.
 
 ### 1.1 Database: one module and real migrations
-- [ ] **Create one DB module** (e.g. `lib/db.ts`) exporting a single libsql client.
+- [x] **Create one DB module** (e.g. `lib/db.ts`) exporting a single libsql client.
   - Its path comes from `DATABASE_PATH`, defaulting to `<project root>/vttdatabase.db`. Today about 20 files each call `createClient("file:./vttdatabase.db")`, which depends on the working directory.
   - Move the 6 better-sqlite3 users (`app/lib/db.ts`: notes, journal-notes, drawings and others) onto it, then delete `app/lib/db.ts`.
   - Enable WAL and foreign keys in one place.
-- [ ] **Add a migrations runner**: `migrations/NNN_name.sql`, tracked with `PRAGMA user_version`, run from `server.ts` before `listen`.
+- [x] **Add a migrations runner**: `migrations/NNN_name.sql`, tracked with `PRAGMA user_version`, run from `server.ts` before `listen`.
   - Migration 001 = the current live schema. That is `vttdatabase.db.sql` plus `User.IsHostAdmin` and `journal_note`; the .sql file has drifted.
   - Fold in and then delete the ad-hoc schema code: the `ALTER` in `lib/user-schema.ts`, the `CREATE TABLE` in `app/lib/db.ts`, `add-color-column.js`, `migrate-dmimage.js`, `update-token-to-prop.js`.
-- [ ] **Make a fresh clone start with a working empty DB** and a way to create the first DM. Document it in the README.
-- [ ] **Leave `hex`/`hexmap` alone** (1,281 rows, unused). They may become the overland map in Phase 4.
-- [ ] **Remove the "first DM to load /api/users becomes host" race** (`crownHostAdminIfNone`). The host should be set explicitly, by migration or by env DM id 0.
+- [x] **Make a fresh clone start with a working empty DB** and a way to create the first DM. Document it in the README.
+- [x] **Leave `hex`/`hexmap` alone** (1,281 rows, unused). They may become the overland map in Phase 4.
+- [x] **Remove the "first DM to load /api/users becomes host" race** (`crownHostAdminIfNone`). The host should be set explicitly, by migration or by env DM id 0.
 
 ### 1.2 Real-time sync and scene state
-- [ ] **Debounce the scene autosave** (`Home.tsx` save effect, around line 1055) to roughly 300–500 ms, and save on drag end rather than on every `onDrag`, resize or fog-cell tick.
-- [ ] **Fix the stale-state saves:**
+- [x] **Debounce the scene autosave** (`Home.tsx` save effect, around line 1055) to roughly 300–500 ms, and save on drag end rather than on every `onDrag`, resize or fog-cell tick.
+- [x] **Fix the stale-state saves:**
   - `handleGridColorChangeAndSave` and `handleClearSceneElements` save the old values. Save from the new state.
   - Add `gridSize` to the save effect's dependencies.
-- [ ] **Replace the single `isSocketUpdateRef` flag** and its `setTimeout(0)` dance with something robust: compare against the last-saved version, or apply remote updates without triggering a save.
-- [ ] **Fix lost updates:** the DM's full-scene autosave can overwrite a player's token move. Add a `version` to SceneData with optimistic concurrency, or move tokens to their own table.
-- [ ] **Persist the active scene** (`/api/scenes/set-active` only broadcasts). On reload, players should load the active scene, not the most recently saved one, which may be a scene the DM is still preparing.
-- [ ] **Send fog live:** include `darknessPaths`, `isDarknessLayerVisible` and `borderSize` in `sceneUpdatePayload` (`lib/scene-sync.ts`) and apply them in the `scene_updated` handler.
-- [ ] **Stop over-sharing with players:**
+- [x] **Replace the single `isSocketUpdateRef` flag** and its `setTimeout(0)` dance with something robust: compare against the last-saved version, or apply remote updates without triggering a save.
+- [x] **Fix lost updates:** the DM's full-scene autosave can overwrite a player's token move. Add a `version` to SceneData with optimistic concurrency, or move tokens to their own table.
+- [x] **Persist the active scene** (`/api/scenes/set-active` only broadcasts). On reload, players should load the active scene, not the most recently saved one, which may be a scene the DM is still preparing.
+- [x] **Send fog live:** include `darknessPaths`, `isDarknessLayerVisible` and `borderSize` in `sceneUpdatePayload` (`lib/scene-sync.ts`) and apply them in the `scene_updated` handler.
+- [x] **Stop over-sharing with players:**
   - `GET /api/scenes` sends every scene, fog included, to players. Send players only the active scene.
   - `character_updated` sends every character (NPCs and monsters too) to every client. Send to DMs and the owner only, using per-user rooms such as `user:<id>`.
-- [ ] **Scene scale/border dialog edits the loaded scene,** not the one picked (`Home.tsx` ~1059–1096, `ImageList.tsx` ~168). Rescaled drawings are never saved.
-- [ ] **Handle `character_deleted` on clients** (it is emitted, but nothing listens).
-- [ ] **Stale token stats:** tokens store a stats snapshot that is never refreshed. Short term, refresh on `character_updated`. Phase 2 removes the snapshot.
+- [x] **Scene scale/border dialog edits the loaded scene,** not the one picked (`Home.tsx` ~1059–1096, `ImageList.tsx` ~168). Rescaled drawings are never saved.
+- [x] **Handle `character_deleted` on clients** (it is emitted, but nothing listens).
+- [x] **Stale token stats:** tokens store a stats snapshot that is never refreshed. Short term, refresh on `character_updated`. Phase 2 removes the snapshot.
 
 ### 1.3 Server-side dice and chat trust
-- [ ] **Add `POST /api/roll`** with a dice expression (`3d6`, `d20`, `2d8kh1`). The server rolls and posts a `diceRoll` chat message with structured results (store JSON, render text). Replace the browser roller in `BottomBar.tsx`. Phase 3 builds on this.
-- [ ] **Validate the chat speaker** on the server: it must be the user's own name or one of their characters' names (the DM may use any). Today `speakerName` and `senderType` are trusted from the client.
-- [ ] **Paginate chat history.** `GET /api/chat` returns every message ever.
+- [x] **Add `POST /api/roll`** with a dice expression (`3d6`, `d20`, `2d8kh1`). The server rolls and posts a `diceRoll` chat message with structured results (store JSON, render text). Replace the browser roller in `BottomBar.tsx`. Phase 3 builds on this.
+- [x] **Validate the chat speaker** on the server: it must be the user's own name or one of their characters' names (the DM may use any). Today `speakerName` and `senderType` are trusted from the client.
+- [x] **Paginate chat history.** `GET /api/chat` returns every message ever.
 
 ### 1.4 Known bugs
-- [ ] **Deleting a character always fails**: `SELECT InventoryId FROM Character`, a column that doesn't exist (`characters/[id]/route.ts` ~184).
-- [ ] **Creating a character:** the UI handler `handleAddCharacter` is empty (`Home.tsx`). `POST /api/characters` always fails: `INSERT INTO inventory DEFAULT VALUES` violates NOT NULL.
-- [ ] **Bulk inventory PUT always fails**: `ON CONFLICT(CharacterId, ItemId)` has no unique index. Fix it, or drop it in favour of the Phase 2 inventory model.
-- [ ] **`GET /api/characters` writes placeholder inventory rows** on every read.
-- [ ] **Image rename always returns 404** (checks `rows.length` on an UPDATE without RETURNING).
-- [ ] **Image delete:** runs manual `BEGIN/COMMIT` on a shared client and deletes the file before committing. Also, images PUT/DELETE still filter by `UserId`.
-- [ ] **Login is case-sensitive but registration lowercases.** Make login `COLLATE NOCASE`.
-- [ ] **Jobs:** add a DELETE endpoint and button; validate PUT input (an undefined tier gives a 500).
-- [ ] **Keyboard shortcuts fire while typing**: Delete in chat deletes tokens, and Delete in the ticker input clears all notes. Ignore key events from inputs (`MainContent.tsx` ~695–798, `BottomBar.tsx`).
-- [ ] **Arrow-key nudge does nothing**: `updateItemPosition` ignores its `id` (`useMainContent.ts` ~149).
-- [ ] **`useDragAndDrop.ts:333/348`**: a local `draggedItem` shadows the ref. It writes `.current` onto a token, or throws when it is null.
-- [ ] **`TokenSettingsModal`** initializes state once from `token=null`, so saving resets scale and aura. Scale then aura updates also overwrite each other (`MainContent.tsx` ~478–505).
-- [ ] **`handleStatusUpdate` replaces `token.character`** with a partial object without `userId` or `CharacterId`, so the player loses control of their token (`MainContent.tsx` ~410).
-- [ ] **Token/portrait upload in `StatsTab`** only updates local state until another field blurs.
-- [ ] **Ctrl+wheel zoom also zooms the browser** (React `onWheel` is passive). Zoom isn't anchored on the cursor.
-- [ ] **Text balloons over tokens** only show for the sender.
-- [ ] **Logged-out users see the map and toolbar** behind the login box.
+- [x] **Deleting a character always fails**: `SELECT InventoryId FROM Character`, a column that doesn't exist (`characters/[id]/route.ts` ~184).
+- [x] **Creating a character:** the UI handler `handleAddCharacter` is empty (`Home.tsx`). `POST /api/characters` always fails: `INSERT INTO inventory DEFAULT VALUES` violates NOT NULL.
+- [x] **Bulk inventory PUT always fails**: `ON CONFLICT(CharacterId, ItemId)` has no unique index. Fix it, or drop it in favour of the Phase 2 inventory model.
+- [x] **`GET /api/characters` writes placeholder inventory rows** on every read.
+- [x] **Image rename always returns 404** (checks `rows.length` on an UPDATE without RETURNING).
+- [x] **Image delete:** runs manual `BEGIN/COMMIT` on a shared client and deletes the file before committing. Also, images PUT/DELETE still filter by `UserId`.
+- [x] **Login is case-sensitive but registration lowercases.** Make login `COLLATE NOCASE`.
+- [x] **Jobs:** add a DELETE endpoint and button; validate PUT input (an undefined tier gives a 500).
+- [x] **Keyboard shortcuts fire while typing**: Delete in chat deletes tokens, and Delete in the ticker input clears all notes. Ignore key events from inputs (`MainContent.tsx` ~695–798, `BottomBar.tsx`).
+- [x] **Arrow-key nudge does nothing**: `updateItemPosition` ignores its `id` (`useMainContent.ts` ~149).
+- [x] **`useDragAndDrop.ts:333/348`**: a local `draggedItem` shadows the ref. It writes `.current` onto a token, or throws when it is null.
+- [x] **`TokenSettingsModal`** initializes state once from `token=null`, so saving resets scale and aura. Scale then aura updates also overwrite each other (`MainContent.tsx` ~478–505).
+- [x] **`handleStatusUpdate` replaces `token.character`** with a partial object without `userId` or `CharacterId`, so the player loses control of their token (`MainContent.tsx` ~410).
+- [x] **Token/portrait upload in `StatsTab`** only updates local state until another field blurs.
+- [x] **Ctrl+wheel zoom also zooms the browser** (React `onWheel` is passive). Zoom isn't anchored on the cursor.
+- [x] **Text balloons over tokens** only show for the sender.
+- [x] **Logged-out users see the map and toolbar** behind the login box.
 
 ### 1.5 Code structure
-- [ ] **Split `Home.tsx` (~1,500 lines)** into `useSocket`, `useSceneState` (owns the debounced save), `useChat`, `useCharacters`, plus an API client module.
-- [ ] **Split `MainContent.tsx` (~1,100 lines)** in the same way.
-- [ ] **Deduplicate:**
+- [x] **Split `Home.tsx` (~1,500 lines)** into `useSocket`, `useSceneState` (owns the debounced save), `useChat`, `useCharacters`, plus an API client module.
+- [x] **Split `MainContent.tsx` (~1,100 lines)** in the same way.
+- [x] **Deduplicate:**
   - `ChatMessage` type (3×) and its mapping block (5×)
   - the chat UI (RightSideMenu vs MiniChat)
   - the token snapshot builder (CharacterList and useDragAndDrop)
   - the character PUT (5 places)
   - the duplicate logout call
-- [ ] **Add `React.memo`** where every drag tick re-renders the whole tree, including the chat history.
+- [x] **Add `React.memo`** where every drag tick re-renders the whole tree, including the chat history.
 
 ### 1.6 Repo hygiene
 - [x] **Stop tracking uploaded images** (done in Phase 0).
-- [ ] **Delete:**
+- [x] **Delete:**
   - `v0-user-next.config.js` (and the merge code in `next.config.mjs`), the empty `.cursor/rules/dbrule.mdc`
   - `lib/session.ts` and `iron-session`
   - the root `check-*.js`, `add-*.js`, `migrate-*.js` and `update-*.js` scripts (after 1.1)
   - (`repomix-output.txt` and the `test-*.js` scripts were already deleted in Phase 0.)
-- [ ] **Delete or rewrite `TASKS.md` and `SECURITY_FIXES.md`** so they point here.
-- [ ] **`package.json`:**
+- [x] **Delete or rewrite `TASKS.md` and `SECURITY_FIXES.md`** so they point here.
+- [x] **`package.json`:**
   - Rename it from `my-v0-project`.
   - Move `socket.io` and `cross-env` into `dependencies`; they're needed at runtime.
   - Pin the `latest` versions and remove the duplicate `@types/react*`.
   - Remove unused deps: `zod`, `@hookform/resolvers`, `ts-node`, `@swc/core`, `recharts`, `embla-carousel-react`, `react-day-picker`, `cmdk`, `vaul`, `input-otp`, `react-resizable-panels`, `react-hook-form`, `next-themes`, `sonner`, and most `@radix-ui/*`.
   - Delete the ~33 unused `components/ui/*` files, the duplicate `hooks/`, `app/components/ui/button.tsx`/`popover.tsx`, and `styles/globals.css`.
-- [ ] **Type errors:**
+- [x] **Type errors:**
   - Update the 8 dynamic route handlers to Next 15's async `params`.
   - Fix the other 4 errors: `Home.tsx` `onRegister`, `MainContent.tsx` `onUpdateColor`, `cloudflared-tunnel.ts`, and the unused `calendar.tsx`.
   - Then remove `typescript.ignoreBuildErrors` and add eslint (or remove the broken `lint` script).
-- [ ] **Dev tooling:**
+- [x] **Dev tooling:**
   - nodemon doesn't recompile `server.ts`/`lib/socket.ts` on change.
   - `.vscode/launch.json` uses https, but the server is http.
-- [ ] **Write a README** covering setup, env, first DM, LAN, tunnel and scripts.
+- [x] **Write a README** covering setup, env, first DM, LAN, tunnel and scripts.
 
 ### 1.7 Tests
-- [ ] **Add a test runner** (e.g. vitest) with a temp-DB setup, plus integration tests for auth, scene sync and token ownership. The Phase 0 checks are a good starting set: sign a cookie with the test secret, connect socket.io clients, assert on events.
+- [x] **Add a test runner** (e.g. vitest) with a temp-DB setup, plus integration tests for auth, scene sync and token ownership. The Phase 0 checks are a good starting set: sign a cookie with the test secret, connect socket.io clients, assert on events.
 - [ ] **Optional: CI** running typecheck and tests.
 
 ---

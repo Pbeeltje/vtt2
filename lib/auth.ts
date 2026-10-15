@@ -2,7 +2,7 @@
 // callable from the browser. The login server action lives in lib/auth-actions.ts.
 import { cookies, headers } from "next/headers"
 import bcrypt from "bcryptjs"
-import { createClient } from "@libsql/client"
+import { db as client } from "./db"
 import {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_MS,
@@ -12,24 +12,23 @@ import {
   type SessionUser,
 } from "./session-token"
 import { clientIpFromHeaders, rateLimit } from "./rate-limit"
+import { ENV_DM_USER_ID, envDmConfigured } from "./env-dm"
 
-const client = createClient({
-  url: "file:./vttdatabase.db",
-  authToken: "",
-})
-
-/** The env-configured DM (DM_USERNAME / DM_PASSWORD) always uses this user id. */
-const ENV_DM_USER_ID = 0
-
-function envDmConfigured(): boolean {
-  return Boolean(process.env.DM_USERNAME && process.env.DM_PASSWORD)
+/**
+ * Secure cookies are only kept on https. Players often join over plain http on the LAN, so mark
+ * the cookie Secure only when this request came over https (directly or through a tunnel).
+ */
+async function requestIsHttps(): Promise<boolean> {
+  if (process.env.COOKIE_SECURE === "true") return true
+  const h = await headers()
+  return h.get("x-forwarded-proto")?.split(",")[0].trim() === "https"
 }
 
 export async function setUserCookie(user: SessionUser) {
   const cookieStore = await cookies()
   cookieStore.set(SESSION_COOKIE_NAME, createSessionToken(user), {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: await requestIsHttps(),
     sameSite: "lax",
     expires: new Date(Date.now() + SESSION_MAX_AGE_MS),
   })
@@ -108,8 +107,8 @@ export async function authenticateAndSetCookie(username: unknown, password: unkn
     }
 
     const result = await client.execute({
-      sql: "SELECT UserId, Username, Password, Role FROM User WHERE Username = ?",
-      args: [sanitizedUsername],
+      sql: "SELECT UserId, Username, Password, Role FROM User WHERE Username = ? COLLATE NOCASE AND UserId <> ?",
+      args: [sanitizedUsername, ENV_DM_USER_ID],
     })
     if (result.rows.length === 0) {
       return { success: false, error: "Invalid credentials" }

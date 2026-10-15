@@ -1,7 +1,9 @@
 // hooks/useCharacter.ts
-import { useState, useEffect, useRef } from 'react';
-import { toast } from "@/components/ui/use-toast";
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Character } from '../types/character';
+
+// Compare as strings: inputs hold "12" where the server sends 12.
+const asText = (value: unknown) => (value === null || value === undefined ? '' : String(value));
 
 /**
  * Apply a server update to the draft without discarding local edits: fields the user changed
@@ -12,43 +14,42 @@ function mergeServerUpdate(draft: Character, previousServer: Character, nextServ
   const merged: Record<string, unknown> = { ...nextServer };
   const draftFields = draft as unknown as Record<string, unknown>;
   const previousFields = previousServer as unknown as Record<string, unknown>;
-  // Compare as strings: inputs hold "12" where the server sends 12.
-  const asText = (value: unknown) => (value === null || value === undefined ? '' : String(value));
   for (const key of Object.keys(draftFields)) {
     if (asText(draftFields[key]) !== asText(previousFields[key])) merged[key] = draftFields[key];
   }
   return merged as unknown as Character;
 }
 
-export function useCharacter(initialCharacter: Character, onUpdate: (updatedCharacter: Character) => void) {
-  const [editedCharacter, setEditedCharacter] = useState<Character>(initialCharacter);
-  const previousServerRef = useRef(initialCharacter);
+/** Fields the sheet edits; ownership and ids are changed elsewhere (or never). */
+const EDITABLE_FIELDS = [
+  'Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'MaxGuard', 'Armor', 'Strength', 'MaxStrength',
+  'Dexternity', 'MaxDexternity', 'Mind', 'MaxMind', 'Charisma', 'MaxCharisma', 'Skill', 'MaxSkill',
+  'Mp', 'MaxMp', 'PortraitUrl', 'TokenUrl',
+] as const;
+
+/** A draft of one character for the sheet, kept in step with live server updates. */
+export function useCharacter(serverCharacter: Character) {
+  const [editedCharacter, setEditedCharacter] = useState<Character>(serverCharacter);
+  const previousServerRef = useRef(serverCharacter);
 
   useEffect(() => {
     const previousServer = previousServerRef.current;
-    previousServerRef.current = initialCharacter;
-    setEditedCharacter(draft => mergeServerUpdate(draft, previousServer, initialCharacter));
-  }, [initialCharacter]);
+    previousServerRef.current = serverCharacter;
+    setEditedCharacter(draft => mergeServerUpdate(draft, previousServer, serverCharacter));
+  }, [serverCharacter]);
 
-  // Optional: Log when editedCharacter itself changes
-  // useEffect(() => {
-  //   console.log('[useCharacter] editedCharacter state updated. New Name:', editedCharacter.Name);
-  // }, [editedCharacter]);
+  /** The edited fields that differ from the server's character. */
+  const changesFrom = useCallback((draft: Character): Partial<Character> => {
+    const changes: Record<string, unknown> = {};
+    const server = previousServerRef.current as unknown as Record<string, unknown>;
+    const edited = draft as unknown as Record<string, unknown>;
+    for (const field of EDITABLE_FIELDS) {
+      if (field in edited && asText(edited[field]) !== asText(server[field])) changes[field] = edited[field];
+    }
+    return changes as Partial<Character>;
+  }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    // console.log(`[useCharacter] handleInputChange: ${name} = ${value}`); // Can be noisy
-    setEditedCharacter(prev => ({ ...prev, [name]: value }));
-  };
+  const resetDraft = useCallback(() => setEditedCharacter(previousServerRef.current), []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    // The API call will be handled by the onUpdate callback (Home.tsx's handleUpdateCharacter)
-    onUpdate(editedCharacter);
-    // Optionally, you might want to move the success toast to Home.tsx after its API call succeeds.
-    // For now, let's assume onUpdate will handle feedback or the existing toast in Home.tsx is sufficient.
-    // toast({ title: "Character Updated", description: "Your changes have been submitted." }); 
-  };
-
-  return { editedCharacter, setEditedCharacter, handleInputChange, handleSubmit };
+  return { editedCharacter, setEditedCharacter, changesFrom, resetDraft };
 }

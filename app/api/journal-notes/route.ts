@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
-import { db } from "@/app/lib/db"
+import { db } from "@/lib/db"
 import { requireAuth } from "@/lib/auth"
-import type { JournalNote } from "@/app/types/journal-note"
+import { toJournalNote } from "@/app/types/journal-note"
 
 const MAX_CONTENT = 200_000
 const MAX_TITLE = 500
@@ -9,11 +9,11 @@ const MAX_TITLE = 500
 export async function GET() {
   try {
     const user = await requireAuth()
-    const stmt = db.prepare(
-      `SELECT * FROM journal_note WHERE UserId = ? ORDER BY datetime(UpdatedAt) DESC`
-    )
-    const rows = stmt.all(user.id) as JournalNote[]
-    return NextResponse.json(rows)
+    const result = await db.execute({
+      sql: `SELECT * FROM journal_note WHERE UserId = ? ORDER BY datetime(UpdatedAt) DESC`,
+      args: [user.id],
+    })
+    return NextResponse.json(result.rows.map(toJournalNote))
   } catch (error) {
     if (error instanceof Error && error.message === "Authentication required") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -47,13 +47,11 @@ export async function POST(request: Request) {
     }
 
     const now = new Date().toISOString()
-    const insert = db.prepare(
-      `INSERT INTO journal_note (UserId, Title, Content, UpdatedAt, CreatedAt) VALUES (?, ?, ?, ?, ?)`
-    )
-    const result = insert.run(user.id, title, content, now, now)
-    const id = Number(result.lastInsertRowid)
-    const row = db.prepare(`SELECT * FROM journal_note WHERE Id = ?`).get(id) as JournalNote
-    return NextResponse.json(row, { status: 201 })
+    const result = await db.execute({
+      sql: `INSERT INTO journal_note (UserId, Title, Content, UpdatedAt, CreatedAt) VALUES (?, ?, ?, ?, ?) RETURNING *`,
+      args: [user.id, title, content, now, now],
+    })
+    return NextResponse.json(toJournalNote(result.rows[0]), { status: 201 })
   } catch (error) {
     if (error instanceof Error && error.message === "Authentication required") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

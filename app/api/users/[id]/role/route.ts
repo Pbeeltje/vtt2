@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@libsql/client";
+import { db as client } from "@/lib/db"
 import { requireAuth } from "@/lib/auth";
-import { ensureUserIsHostAdminColumn, getUserRowById, rowIsHostAdmin } from "@/lib/user-schema";
+import { getUserRowById, rowIsHostAdmin } from "@/lib/user-schema";
 
-const client = createClient({
-  url: "file:./vttdatabase.db",
-  authToken: "",
-});
 
 type RoleBody = { role?: string };
 
@@ -41,8 +37,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!nextRole) {
     return NextResponse.json({ error: "role must be \"DM\" or \"player\"" }, { status: 400 });
   }
-
-  await ensureUserIsHostAdminColumn(client);
 
   const actorRow = await getUserRowById(client, actor.id);
   const targetRow = await getUserRowById(client, targetId);

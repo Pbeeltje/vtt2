@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@libsql/client";
+import { db as client } from "@/lib/db"
 import { requireAuth, getUserFromCookie } from "@/lib/auth";
 import fs from 'fs';
 import path from 'path';
 
-const client = createClient({
-  url: "file:./vttdatabase.db",
-  authToken: "",
-});
 
 /** Identify an image by its magic bytes; returns the file extension to use, or null. */
 function detectImageExtension(buffer: Buffer): string | null {

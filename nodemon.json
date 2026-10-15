@@ -1,0 +1,17 @@
+{
+  "watch": [
+    "server.ts",
+    "tsconfig.server.json",
+    "migrations",
+    "lib/socket.ts",
+    "lib/db.ts",
+    "lib/migrate.ts",
+    "lib/env-dm.ts",
+    "lib/app-settings.ts",
+    "lib/parse-user-cookie.ts",
+    "lib/session-token.ts"
+  ],
+  "ext": "ts,sql,json",
+  "exec": "tsc --project tsconfig.server.json && node .next/server_custom_build/server.js",
+  "delay": 500
+}
