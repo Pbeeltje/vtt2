@@ -4,18 +4,21 @@ import { authErrorResponse, parseId } from "@/lib/api-errors"
 import { getActiveSceneId } from "@/lib/app-settings"
 import { db } from "@/lib/db"
 import { normalizeSceneState, parseSceneData } from "@/lib/scene-model"
-import { getSceneRow, listSceneRows, writeSceneIfVersion } from "@/lib/scene-store"
+import { getSceneRow, getSceneSummary, listSceneSummaries, writeSceneIfVersion } from "@/lib/scene-store"
 import { broadcastSceneState } from "@/lib/scene-sync"
 
-/** DMs get every scene; players only get the active one (the others may hold unrevealed maps). */
+/**
+ * DMs get every scene; players only get the active one (the others may hold unrevealed maps).
+ * Rows carry a SceneSummary instead of SceneData; GET /api/scenes/[id] has the full map state.
+ */
 export async function GET() {
   try {
     const user = await requireAuth()
     if (user.role === "DM") {
-      return NextResponse.json(await listSceneRows())
+      return NextResponse.json(await listSceneSummaries())
     }
     const activeId = await getActiveSceneId()
-    const active = activeId ? await getSceneRow(activeId) : null
+    const active = activeId ? await getSceneSummary(activeId) : null
     return NextResponse.json(active ? [active] : [])
   } catch (error) {
     return authErrorResponse(error) ?? NextResponse.json({ error: "Failed to fetch scenes" }, { status: 500 })

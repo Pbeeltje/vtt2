@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { confirm } from "@/components/ui/confirm-dialog"
-import { DEFAULT_BORDER_SIZE, parseSceneData } from "@/lib/scene-model"
+import { DEFAULT_BORDER_SIZE } from "@/lib/scene-model"
 import type { DMImage } from "../types/image"
 
 const CATEGORIES = ["Scene", "Image", "Prop"] as const
@@ -19,7 +19,7 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 interface ImageListProps {
   images: DMImage[]
-  /** Scenes with their latest saved data (the image list's copy can be stale). */
+  /** Scenes with their latest saved summary (the image list's copy can be stale). */
   scenes: DMImage[]
   onUploadImage: (category: string, file: File) => Promise<unknown>
   onDeleteImage: (image: DMImage) => Promise<void>
@@ -50,7 +50,15 @@ function ImageList({
   const [sceneScale, setSceneScale] = useState(1)
   const [sceneBorderSize, setSceneBorderSize] = useState(DEFAULT_BORDER_SIZE)
 
-  const sceneData = (image: DMImage) => scenes.find((s) => s.Id === image.Id)?.SceneData ?? image.SceneData
+  /** The freshest summary of a scene's map state: the scene list's, else the image list's. */
+  const sceneInfo = (image: DMImage) => {
+    const info = scenes.find((s) => s.Id === image.Id) ?? image
+    return {
+      hasData: Boolean(info.HasSceneData),
+      scale: info.Scale ?? 1,
+      borderSize: info.BorderSize ?? DEFAULT_BORDER_SIZE,
+    }
+  }
 
   const handleUpload = (category: string) => {
     const input = document.createElement("input")
@@ -77,7 +85,7 @@ function ImageList({
 
   const handleRename = async (image: DMImage) => {
     if (image.Category === "Scene") {
-      const state = parseSceneData(sceneData(image))
+      const state = sceneInfo(image)
       setEditingScene(image)
       setNewName(image.Name)
       setSceneScale(state.scale)
@@ -99,7 +107,7 @@ function ImageList({
     }
     try {
       if (newName.trim() !== scene.Name) await onRenameImage(scene, newName)
-      const current = parseSceneData(sceneData(scene))
+      const current = sceneInfo(scene)
       if (sceneScale !== current.scale || sceneBorderSize !== current.borderSize) {
         if (!(await onUpdateSceneSettings(scene, { scale: sceneScale, borderSize: sceneBorderSize }))) return
       }
@@ -172,7 +180,7 @@ function ImageList({
                               <Play className="h-4 w-4" />
                             </Button>
                           )}
-                          {isScene && sceneData(image) && (
+                          {isScene && sceneInfo(image).hasData && (
                             <Button
                               variant="ghost"
                               size="icon"

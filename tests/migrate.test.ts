@@ -32,6 +32,10 @@ describe("migrations", () => {
     expect(await tables(client)).toEqual(
       expect.arrayContaining(["user", "character", "DMImage", "chatmessage", "drawing", "inventory", "item", "job", "notes", "journal_note", "app_setting"])
     )
+    const indexes = await client.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+    expect(indexes.rows.map((r) => String(r.name))).toEqual(
+      expect.arrayContaining(["idx_drawing_scene", "idx_character_user", "idx_job_character"])
+    )
     const version = (await client.execute("PRAGMA user_version")).rows[0].user_version
     expect(version).toBe(applied[applied.length - 1])
     // Running again does nothing.

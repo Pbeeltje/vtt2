@@ -50,10 +50,56 @@ export function normalizeSceneState(data: unknown): SceneState {
     },
     scale: finite(d.scale, 1),
     borderSize: typeof d.borderSize === "number" && d.borderSize >= 0 ? d.borderSize : DEFAULT_BORDER_SIZE,
-    darknessPaths: Array.isArray(d.darknessPaths) ? d.darknessPaths : [],
+    darknessPaths: Array.isArray(d.darknessPaths) ? compactDarknessPaths(d.darknessPaths) : [],
     isDarknessLayerVisible: Boolean(d.isDarknessLayerVisible),
     version: typeof d.version === "number" && Number.isInteger(d.version) ? d.version : 0,
     ...(typeof d.savedAt === "string" ? { savedAt: d.savedAt } : {}),
+  }
+}
+
+/** The order DarknessLayer draws fog ops in: oldest first, ties broken by id. */
+function darknessRenderOrder(a: DarknessPath, b: DarknessPath): number {
+  const t = (a.createdAt || "").localeCompare(b.createdAt || "")
+  if (t !== 0) return t
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""))
+}
+
+const rectKey = (r: NonNullable<DarknessPath["cellRect"]>) => `${r.x},${r.y},${r.width},${r.height}`
+
+/**
+ * Drops fog ops that can't change what the mask looks like, so painting the same cells over and
+ * over doesn't grow the scene forever. Both rules keep the rendered mask the same:
+ * - a cell op is fully redrawn by any later cell op with the same rect, so only the last one stays;
+ * - paint before the first erase is fog on fog (the mask starts as all fog), so it goes.
+ * The second rule runs on what the first leaves, so compacting again changes nothing.
+ * Survivors keep their array order. Returns `paths` itself when nothing is dropped.
+ */
+export function compactDarknessPaths(paths: DarknessPath[]): DarknessPath[] {
+  const ordered = paths.filter((p) => p && typeof p === "object").sort(darknessRenderOrder)
+  const lastForRect = new Map<string, DarknessPath>()
+  for (const p of ordered) if (p.cellRect) lastForRect.set(rectKey(p.cellRect), p)
+  const dropped = new Set<DarknessPath>()
+  let erased = false
+  for (const p of ordered) {
+    if (p.cellRect && lastForRect.get(rectKey(p.cellRect)) !== p) dropped.add(p)
+    else if (p.type === "erase") erased = true
+    else if (p.type === "paint" && !erased) dropped.add(p)
+  }
+  return dropped.size === 0 ? paths : paths.filter((p) => !dropped.has(p))
+}
+
+/**
+ * What the scene lists (GET /api/scenes, GET /api/images) carry instead of the whole SceneData:
+ * enough for the scene settings dialog, "clear scene data", and the DM's start scene.
+ */
+export type SceneSummary = { HasSceneData: boolean; Scale: number; BorderSize: number; SavedAt: string | null }
+
+export function sceneSummary(state: SceneState | null): SceneSummary {
+  return {
+    HasSceneData: state !== null,
+    Scale: state?.scale ?? 1,
+    BorderSize: state?.borderSize ?? DEFAULT_BORDER_SIZE,
+    SavedAt: state?.savedAt ?? null,
   }
 }
 

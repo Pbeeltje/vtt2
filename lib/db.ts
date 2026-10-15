@@ -22,8 +22,12 @@ export function getDb(): Client {
   const g = globalThis as DbGlobal
   if (!g[GLOBAL_DB_KEY]) {
     const client = createClient({ url: pathToFileURL(databasePath()).href })
-    // WAL is stored in the file; foreign_keys is per connection (libsql turns it on by default).
+    // WAL is stored in the file; the others are per connection (libsql turns foreign_keys on by default).
+    // synchronous = NORMAL is safe under WAL (a power cut can lose the last commits, never corrupt);
+    // busy_timeout makes a write wait for another process's lock instead of failing with SQLITE_BUSY.
     void client.execute("PRAGMA journal_mode = WAL").catch(() => {})
+    void client.execute("PRAGMA synchronous = NORMAL").catch(() => {})
+    void client.execute("PRAGMA busy_timeout = 5000").catch(() => {})
     void client.execute("PRAGMA foreign_keys = ON").catch(() => {})
     g[GLOBAL_DB_KEY] = client
   }
