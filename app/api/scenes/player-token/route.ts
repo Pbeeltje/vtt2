@@ -7,11 +7,15 @@ import { tokenCharacterId, type SceneState } from "@/lib/scene-model"
 import { updateScene } from "@/lib/scene-store"
 import { broadcastSceneState } from "@/lib/scene-sync"
 import type { LayerImage } from "@/app/types/layerImage"
+import type { Character } from "@/app/types/character"
+import { createCharacterToken } from "@/app/lib/tokens"
 
 // Players place, move and remove their own character tokens on the active scene through here;
 // the DM edits the whole scene via POST /api/scenes.
 
-const MAX_TOKEN_JSON_LENGTH = 20_000
+/** Map coordinates in pixels; far beyond any real map, but keeps junk like 1e300 out. */
+const isCoordinate = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 1_000_000
 
 /** Ownership comes from the database, never from the userId inside the token JSON. */
 async function ownedCharacterIds(userId: number): Promise<Set<number>> {
@@ -44,29 +48,27 @@ export async function POST(req: Request) {
 
     if (
       !tokenData || typeof tokenData !== "object" ||
-      typeof tokenData.id !== "string" || tokenData.id.length === 0 || tokenData.id.length > 100 ||
-      typeof tokenData.url !== "string" ||
-      !Number.isFinite(tokenData.x) || !Number.isFinite(tokenData.y) ||
-      JSON.stringify(tokenData).length > MAX_TOKEN_JSON_LENGTH
+      typeof tokenData.id !== "string" || !/^[\w-]{1,100}$/.test(tokenData.id) ||
+      !isCoordinate(tokenData.x) || !isCoordinate(tokenData.y)
     ) {
       return NextResponse.json({ error: "Invalid token data" }, { status: 400 })
     }
     const characterId = tokenCharacterId(tokenData)
-    if (characterId === null || !(await ownedCharacterIds(user.id)).has(characterId)) {
+    const row = characterId === null
+      ? undefined
+      : (await db.execute({ sql: "SELECT * FROM character WHERE CharacterId = ? AND userId = ?", args: [characterId, user.id] })).rows[0]
+    if (!row) {
       return NextResponse.json({ error: "You can only place your own character tokens" }, { status: 403 })
     }
+    const character = { ...row, CharacterId: Number(row.CharacterId), userId: Number(row.userId) } as unknown as Character
 
-    // Stamp the ids from the database so every client sees the real owner.
-    const placedToken: LayerImage = {
-      ...tokenData,
-      characterId,
-      ...(tokenData.character ? { character: { ...tokenData.character, CharacterId: characterId, userId: user.id } } : {}),
-    }
-
+    // Built from the database, like the client builds it; only the id and position are the client's.
+    let placedToken: LayerImage | null = null
     const result = await updateScene(sceneId, (state) => {
-      if (state.elements.topLayer.some((token) => token.id === placedToken.id)) {
+      if (state.elements.topLayer.some((token) => token.id === tokenData.id)) {
         return { error: "A token with this id already exists", status: 409 }
       }
+      placedToken = { ...createCharacterToken(character, tokenData.x, tokenData.y, state.gridSize), id: tokenData.id }
       return { ...state, elements: { ...state.elements, topLayer: [...state.elements.topLayer, placedToken] } }
     })
     return respond(req, sceneId, result, { tokenData: placedToken })
@@ -111,7 +113,7 @@ export async function PUT(req: Request) {
     if (!tokenData || typeof tokenData.id !== "string") {
       return NextResponse.json({ error: "Token data is required" }, { status: 400 })
     }
-    if (!Number.isFinite(tokenData.x) || !Number.isFinite(tokenData.y)) {
+    if (!isCoordinate(tokenData.x) || !isCoordinate(tokenData.y)) {
       return NextResponse.json({ error: "Invalid token position" }, { status: 400 })
     }
 

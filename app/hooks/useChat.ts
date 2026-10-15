@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react"
 import type { Socket } from "socket.io-client"
 import { toast } from "@/components/ui/use-toast"
 import { toChatMessage, type ChatMessage } from "@/lib/chat-message"
+import type { TestAttribute } from "@/lib/dice"
 import { toPlainText } from "@/lib/chat-text"
 import { api, errorMessage } from "../lib/api"
 import type { LayerImage } from "../types/layerImage"
@@ -40,26 +41,35 @@ export function useChat(socket: Socket | null, findToken: (characterName: string
   // Messages arrive both in our own POST response and over the socket; keep the first.
   const seenIds = useRef(new Set<number>())
 
-  const showBalloon = useCallback((message: ChatMessage) => {
-    if (message.senderType !== "character" || message.type !== "user") return
-    const token = findTokenRef.current(message.username)
+  // One balloon per character: a new line replaces the old one. Our own lines show the balloon
+  // as soon as they're sent; the server's copy of the same line then leaves it alone.
+  const showBalloon = useCallback((characterName: string, content: string) => {
+    const token = findTokenRef.current(characterName)
     if (!token) return
-    const id = `balloon-${message.MessageId ?? Date.now()}`
-    setTextBalloons((prev) => [
-      ...prev.filter((b) => b.id !== id),
-      {
-        id,
-        message: toPlainText(message.content),
-        characterName: message.username,
-        x: token.x,
-        y: token.y,
-        tokenWidth: token.width || gridSizeRef.current,
-        tokenHeight: token.height || gridSizeRef.current,
-        timestamp: Date.now(),
-      },
-    ])
-    setTimeout(() => setTextBalloons((prev) => prev.filter((b) => b.id !== id)), BALLOON_MS)
+    const id = `balloon-${characterName}`
+    const message = toPlainText(content)
+    const timestamp = Date.now()
+    setTextBalloons((prev) => {
+      const existing = prev.find((b) => b.id === id)
+      if (existing?.message === message && timestamp - existing.timestamp < BALLOON_MS) return prev
+      return [
+        ...prev.filter((b) => b.id !== id),
+        {
+          id,
+          message,
+          characterName,
+          x: token.x,
+          y: token.y,
+          tokenWidth: token.width || gridSizeRef.current,
+          tokenHeight: token.height || gridSizeRef.current,
+          timestamp,
+        },
+      ]
+    })
+    setTimeout(() => setTextBalloons((prev) => prev.filter((b) => b.id !== id || b.timestamp !== timestamp)), BALLOON_MS)
   }, [])
+
+  const closeBalloon = useCallback((id: string) => setTextBalloons((prev) => prev.filter((b) => b.id !== id)), [])
 
   /** Adds a message unless we already have it. */
   const receive = useCallback(
@@ -69,7 +79,7 @@ export function useChat(socket: Socket | null, findToken: (characterName: string
         seenIds.current.add(message.MessageId)
       }
       setMessages((prev) => [...prev, message])
-      showBalloon(message)
+      if (message.senderType === "character" && message.type === "user") showBalloon(message.username, message.content)
     },
     [showBalloon]
   )
@@ -107,6 +117,7 @@ export function useChat(socket: Socket | null, findToken: (characterName: string
 
   const sendMessage = useCallback(
     async (content: string, speaker: Speaker) => {
+      if (speaker.type === "character") showBalloon(speaker.name, content)
       try {
         const row = await api<Record<string, unknown>>("/api/chat", {
           method: "POST",
@@ -114,10 +125,11 @@ export function useChat(socket: Socket | null, findToken: (characterName: string
         })
         receive(toChatMessage(row))
       } catch (error) {
+        if (speaker.type === "character") closeBalloon(`balloon-${speaker.name}`)
         toast({ title: "Message not sent", description: errorMessage(error), variant: "destructive" })
       }
     },
-    [receive]
+    [receive, showBalloon, closeBalloon]
   )
 
   /** Rolls on the server; the result arrives in chat for everyone. */
@@ -141,6 +153,19 @@ export function useChat(socket: Socket | null, findToken: (characterName: string
     [receive]
   )
 
+  /** A d20 Test against the character's attribute score, checked on the server. */
+  const rollTest = useCallback(
+    async (characterId: number, attribute: TestAttribute) => {
+      try {
+        const row = await api<Record<string, unknown>>("/api/roll/test", { method: "POST", body: { characterId, attribute } })
+        receive(toChatMessage(row))
+      } catch (error) {
+        toast({ title: "Roll failed", description: errorMessage(error), variant: "destructive" })
+      }
+    },
+    [receive]
+  )
+
   const reset = useCallback(() => {
     seenIds.current.clear()
     setMessages([])
@@ -148,7 +173,5 @@ export function useChat(socket: Socket | null, findToken: (characterName: string
     setTextBalloons([])
   }, [])
 
-  const closeBalloon = useCallback((id: string) => setTextBalloons((prev) => prev.filter((b) => b.id !== id)), [])
-
-  return { messages, hasMore, loadLatest, loadOlder, sendMessage, roll, reset, textBalloons, closeBalloon }
+  return { messages, hasMore, loadLatest, loadOlder, sendMessage, roll, rollTest, reset, textBalloons, closeBalloon }
 }

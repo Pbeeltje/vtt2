@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type MarkdownContentProps = {
   markdown: string;
@@ -7,7 +8,7 @@ type MarkdownContentProps = {
 };
 
 /**
- * Renders user-authored markdown (no raw HTML — react-markdown default).
+ * Renders user-authored markdown with GitHub tables and strikethrough (no raw HTML — react-markdown default).
  */
 export function MarkdownContent({ markdown, className }: MarkdownContentProps) {
   if (!markdown.trim()) {
@@ -32,10 +33,13 @@ export function MarkdownContent({ markdown, className }: MarkdownContentProps) {
         "[&_h2]:mb-2 [&_h2]:mt-3 [&_h2]:text-base [&_h2]:font-semibold",
         "[&_h3]:mb-1 [&_h3]:mt-2 [&_h3]:text-sm [&_h3]:font-semibold",
         "[&_hr]:my-4 [&_hr]:border-border",
+        "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-[0.92em]",
+        "[&_th]:border [&_th]:border-[rgba(128,128,128,.45)] [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold",
+        "[&_td]:border [&_td]:border-[rgba(128,128,128,.45)] [&_td]:px-2 [&_td]:py-1 [&_td]:align-top",
         className
       )}
     >
-      <ReactMarkdown>{markdown}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
     </div>
   );
 }

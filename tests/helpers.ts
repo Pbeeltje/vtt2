@@ -37,7 +37,10 @@ export const hostDm: TestUser = { id: 0, username: "HostDM", role: "DM" }
 
 export async function sessionCookie(user: TestUser): Promise<string> {
   const { createSessionToken } = await import("@/lib/session-token")
-  return createSessionToken(user)
+  const { db } = await import("@/lib/db")
+  // Sessions are tied to the stored password hash, like a real login.
+  const row = (await db.execute({ sql: "SELECT Password FROM user WHERE UserId = ?", args: [user.id] })).rows[0]
+  return createSessionToken(user, String(row?.Password ?? "!"))
 }
 
 /** Makes the next route-handler call run as `user` (or logged out with null). */

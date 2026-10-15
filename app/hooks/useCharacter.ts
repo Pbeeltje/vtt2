@@ -22,7 +22,7 @@ function mergeServerUpdate(draft: Character, previousServer: Character, nextServ
 
 /** Fields the sheet edits; ownership and ids are changed elsewhere (or never). */
 const EDITABLE_FIELDS = [
-  'Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'MaxGuard', 'Armor', 'Strength', 'MaxStrength',
+  'Name', 'Description', 'Path', 'Age', 'Level', 'Guard', 'MaxGuard', 'Armor', 'Size', 'Strength', 'MaxStrength',
   'Dexternity', 'MaxDexternity', 'Mind', 'MaxMind', 'Charisma', 'MaxCharisma', 'Skill', 'MaxSkill',
   'Mp', 'MaxMp', 'PortraitUrl', 'TokenUrl',
 ] as const;

@@ -13,6 +13,7 @@ import { loadEnvConfig } from '@next/env';
 import { initSocketIO } from './lib/socket';
 import { getDb } from './lib/db';
 import { ensureEnvDmUser, runMigrations } from './lib/migrate';
+import { checkApiRequest, sanitizeForwardedHeaders } from './lib/request-guard';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getRequestHandlers } = require('next/dist/server/lib/start-server') as {
@@ -100,14 +101,26 @@ async function main(): Promise<void> {
   const { requestHandler, upgradeHandler } = initResult;
 
   httpServer.on('request', (req, res) => {
+    sanitizeForwardedHeaders(req.headers, req.socket.remoteAddress);
     const parsedUrl = parse(req.url || '', true);
+    const rejected = checkApiRequest(req.method, parsedUrl.pathname ?? '', req.headers);
+    if (rejected) {
+      res.writeHead(rejected.status, { 'Content-Type': 'application/json', Connection: 'close' });
+      res.end(JSON.stringify({ error: rejected.error }));
+      return;
+    }
     req.url = formatUrl(parsedUrl);
     void requestHandler(req, res);
   });
 
   httpServer.on('upgrade', (req, socket, head) => {
+    sanitizeForwardedHeaders(req.headers, req.socket.remoteAddress);
     void upgradeHandler(req, socket, head);
   });
+
+  // Slow-loris protection: a client gets this long to send its headers, and requests can't hang forever.
+  httpServer.headersTimeout = 20_000;
+  httpServer.requestTimeout = 120_000;
 
   initSocketIO(httpServer);
 

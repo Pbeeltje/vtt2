@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db as client } from "@/lib/db"
 import { requireAuth, getUserFromCookie } from "@/lib/auth";
+import { rateLimit } from "@/lib/rate-limit";
 import fs from 'fs';
 import path from 'path';
 
@@ -49,13 +50,17 @@ export async function POST(req: Request) {
     if (!user) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
+    // Every upload stays on disk; keep a player from filling it.
+    if (user.role !== 'DM' && !rateLimit(`upload:user:${user.id}`, 20, 60 * 60 * 1000)) {
+      return NextResponse.json({ error: "Too many uploads; try again later" }, { status: 429 });
+    }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File;
-    const category = formData.get("category") as string;
+    const file = formData.get("file");
+    const category = formData.get("category");
 
     // Input validation
-    if (!file || !category) {
+    if (!(file instanceof File) || !category) {
       return NextResponse.json({ error: "File and category required" }, { status: 400 });
     }
 

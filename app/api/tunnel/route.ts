@@ -3,15 +3,26 @@ import { requireAuth } from "@/lib/auth";
 import { getTunnelStatus } from "@/lib/tunnel-state";
 import { startCloudflaredTunnel, stopCloudflaredTunnel } from "@/lib/cloudflared-tunnel";
 import { isHostTunnelFeatureEnabled } from "@/lib/tunnel-feature";
+import { db } from "@/lib/db";
+import { getUserRowById, rowIsHostAdmin } from "@/lib/user-schema";
+
+/** Opening the table to the internet is the host's call, not any DM's. */
+async function requireHost(): Promise<boolean> {
+  try {
+    const user = await requireAuth("DM");
+    const row = await getUserRowById(db, user.id);
+    return row !== null && rowIsHostAdmin(row);
+  } catch {
+    return false;
+  }
+}
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    try {
-      await requireAuth("DM");
-    } catch {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!(await requireHost())) {
+      return NextResponse.json({ error: "Only the host can control the tunnel" }, { status: 403 });
     }
 
     if (!isHostTunnelFeatureEnabled()) {
@@ -22,17 +33,14 @@ export async function GET() {
     return NextResponse.json({ enabled: true, running, url });
   } catch (e) {
     console.error("[tunnel GET]", e);
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Tunnel request failed" }, { status: 500 });
   }
 }
 
 export async function POST() {
   try {
-    try {
-      await requireAuth("DM");
-    } catch {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!(await requireHost())) {
+      return NextResponse.json({ error: "Only the host can control the tunnel" }, { status: 403 });
     }
 
     if (!isHostTunnelFeatureEnabled()) {
@@ -51,10 +59,8 @@ export async function POST() {
 
 export async function DELETE() {
   try {
-    try {
-      await requireAuth("DM");
-    } catch {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!(await requireHost())) {
+      return NextResponse.json({ error: "Only the host can control the tunnel" }, { status: 403 });
     }
 
     if (!isHostTunnelFeatureEnabled()) {
@@ -65,7 +71,6 @@ export async function DELETE() {
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[tunnel DELETE]", e);
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Tunnel request failed" }, { status: 500 });
   }
 }

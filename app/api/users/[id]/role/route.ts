@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db as client } from "@/lib/db"
 import { requireAuth } from "@/lib/auth";
 import { getUserRowById, rowIsHostAdmin } from "@/lib/user-schema";
+import { parseId } from "@/lib/api-errors";
+import { applyRoleToUserSockets } from "@/lib/socket";
 
 
 type RoleBody = { role?: string };
@@ -17,8 +19,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "DM only" }, { status: 403 });
   }
   const { id: idParam } = await params;
-  const targetId = parseInt(idParam, 10);
-  if (!Number.isFinite(targetId) || targetId <= 0) {
+  const targetId = parseId(idParam);
+  if (!targetId) {
     return NextResponse.json({ error: "Invalid user id" }, { status: 400 });
   }
 
@@ -81,6 +83,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     sql: "UPDATE User SET Role = ? WHERE UserId = ?",
     args: [nextRole, targetId],
   });
+  await applyRoleToUserSockets(targetId, nextRole);
 
   return NextResponse.json({
     id: targetRow.UserId,

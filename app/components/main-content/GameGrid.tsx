@@ -4,6 +4,8 @@ import type { DrawingObject } from '../DrawingLayer'
 import TokenRenderer from "./TokenRenderer"
 import DarknessLayer, { type DarknessPath } from "./DarknessLayer"
 import TextBalloon from "../TextBalloon"
+import PingLayer from "./PingLayer"
+import type { MapPing } from "../../hooks/usePings"
 import { useState } from "react"
 import type { MapInteractionTool } from "../../types/mapTool"
 import { isAnyFogTool, isFogStrokeTool } from "../../types/mapTool"
@@ -52,6 +54,7 @@ interface GameGridProps {
   onItemDragEnd: () => void;
   onItemClick: (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => void;
   onResizeStart: (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => void;
+  onRotateStart: (e: React.MouseEvent<HTMLElement>, item: LayerImage) => void;
   onDrawingClick: (e: React.MouseEvent<SVGPathElement>, drawing: DrawingObject) => void;
   onTokenDoubleClick: (item: LayerImage) => void;
   onStatusClick: (type: 'guard' | 'strength' | 'mp', character: any, characterId: number) => void;
@@ -70,6 +73,7 @@ interface GameGridProps {
     timestamp: number;
   }>;
   onCloseTextBalloon?: (balloonId: string) => void;
+  pings?: MapPing[];
 }
 
 export default function GameGrid({
@@ -112,6 +116,7 @@ export default function GameGrid({
   onItemDragEnd,
   onItemClick,
   onResizeStart,
+  onRotateStart,
   onDrawingClick,
   onTokenDoubleClick,
   onStatusClick,
@@ -120,6 +125,7 @@ export default function GameGrid({
   onOpenTokenSettings,
   textBalloons = [],
   onCloseTextBalloon,
+  pings = [],
 }: GameGridProps) {
   const [isDraggingFile, setIsDraggingFile] = useState(false)
 
@@ -301,40 +307,71 @@ export default function GameGrid({
       )}
       
       {/* Middle layer images */}
-      {middleLayerImages.map((img) => (
-        <div
-          key={img.id}
-          className={`absolute ${selectedIds.includes(img.id) ? "border-2 border-blue-500" : ""}`}
-          style={{ left: img.x, top: img.y, zIndex: 35 }}
-          draggable={true}
-          onDragStart={(e) => onItemDragStart(e, img, false)}
-          onDrag={onItemDrag}
-          onDragEnd={onItemDragEnd}
-          onClick={(e) => onItemClick(e, img)}
-        >
-          <Image 
-            src={img.url} 
-            alt="Middle layer image" 
-            width={img.width || gridSize * 2} 
-            height={img.height || gridSize * 2} 
-            style={{ objectFit: 'contain' }} 
-          />
-          {/* Resize handle - only show when selected */}
-          {selectedIds.includes(img.id) && (
-            <div 
-              className="absolute top-1 right-1 w-2 h-2 bg-blue-500 hover:bg-blue-600 cursor-se-resize z-50 rounded-sm border border-white transition-colors duration-150"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                onResizeStart(e, img);
+      {middleLayerImages.map((img) => {
+        const selected = selectedIds.includes(img.id)
+        return (
+          <div
+            key={img.id}
+            className="absolute"
+            style={{ left: img.x, top: img.y, zIndex: 35 }}
+            draggable={true}
+            onDragStart={(e) => onItemDragStart(e, img, false)}
+            onDrag={onItemDrag}
+            onDragEnd={onItemDragEnd}
+            onClick={(e) => onItemClick(e, img)}
+          >
+            {/* Everything inside turns with the image, handles included */}
+            <div
+              data-rotate-box
+              className={`relative ${selected ? "outline outline-2 outline-blue-500" : ""}`}
+              style={{
+                // No fixed size: the box wraps the image as rendered (its natural aspect ratio),
+                // so the outline and the rotation centre match what you see.
+                transform: img.rotation ? `rotate(${img.rotation}deg)` : undefined,
+                transformOrigin: "center",
               }}
-              onClick={(e) => e.stopPropagation()}
-              draggable={false}
-              title="Resize image"
-            />
-          )}
-        </div>
-      ))}
+            >
+              <Image
+                src={img.url}
+                alt="Middle layer image"
+                width={img.width || gridSize * 2}
+                height={img.height || gridSize * 2}
+                className="block"
+                style={{ objectFit: 'contain' }}
+              />
+              {/* Resize handle - only show when selected */}
+              {selected && (
+                <div
+                  className="absolute top-1 right-1 w-2 h-2 bg-blue-500 hover:bg-blue-600 cursor-se-resize z-50 rounded-sm border border-white transition-colors duration-150"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onResizeStart(e, img);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  draggable={false}
+                  title="Resize image"
+                />
+              )}
+              {/* Rotate handle - a stalk above the top edge with a grip at the end (DM only) */}
+              {selected && currentUserRole === "DM" && (
+                <div
+                  className="absolute left-1/2 bottom-full -translate-x-1/2 flex flex-col items-center z-50"
+                  draggable={false}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div
+                    className="w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 hover:bg-blue-100 cursor-grab active:cursor-grabbing shadow"
+                    onMouseDown={(e) => onRotateStart(e, img)}
+                    title="Rotate (hold Shift to snap to 15°)"
+                  />
+                  <div className="w-0.5 h-5 bg-blue-500 pointer-events-none" />
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })}
       
       {/* Top layer tokens */}
       <TokenRenderer
@@ -425,6 +462,8 @@ export default function GameGrid({
           />
         )}
       </svg>
+
+      <PingLayer pings={pings} zoomLevel={zoomLevel} />
     </div>
   )
 } 

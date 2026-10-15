@@ -8,11 +8,11 @@ import {
   SESSION_MAX_AGE_MS,
   createSessionToken,
   safeEqual,
-  verifySessionToken,
   type SessionUser,
 } from "./session-token"
+import { resolveSessionUser } from "./session-user"
 import { clientIpFromHeaders, rateLimit } from "./rate-limit"
-import { ENV_DM_USER_ID, envDmConfigured } from "./env-dm"
+import { ENV_DM_USER_ID } from "./env-dm"
 
 /**
  * Secure cookies are only kept on https. Players often join over plain http on the LAN, so mark
@@ -24,9 +24,10 @@ async function requestIsHttps(): Promise<boolean> {
   return h.get("x-forwarded-proto")?.split(",")[0].trim() === "https"
 }
 
-export async function setUserCookie(user: SessionUser) {
+/** `storedPassword` is the user's DB password hash (ignored for the env DM); see credentialStamp. */
+export async function setUserCookie(user: SessionUser, storedPassword: string) {
   const cookieStore = await cookies()
-  cookieStore.set(SESSION_COOKIE_NAME, createSessionToken(user), {
+  cookieStore.set(SESSION_COOKIE_NAME, createSessionToken(user, storedPassword), {
     httpOnly: true,
     secure: await requestIsHttps(),
     sameSite: "lax",
@@ -35,26 +36,14 @@ export async function setUserCookie(user: SessionUser) {
 }
 
 /**
- * Returns the logged-in user, or null. The cookie must carry a valid signature, and the
- * role is re-read from the database so demotions and deleted accounts take effect at once.
+ * Returns the logged-in user, or null. The cookie must carry a valid signature, the account
+ * must still exist with the same password, and the role is re-read from the database so
+ * demotions take effect at once.
  */
 export async function getUserFromCookie(): Promise<SessionUser | null> {
   try {
     const cookieStore = await cookies()
-    const session = verifySessionToken(cookieStore.get(SESSION_COOKIE_NAME)?.value)
-    if (!session) return null
-
-    const result = await client.execute({
-      sql: "SELECT Role FROM User WHERE UserId = ?",
-      args: [session.id],
-    })
-    if (result.rows.length > 0) {
-      return { ...session, role: String(result.rows[0].Role ?? "player") }
-    }
-    if (session.id === ENV_DM_USER_ID && envDmConfigured()) {
-      return { ...session, role: "DM" }
-    }
-    return null
+    return await resolveSessionUser(cookieStore.get(SESSION_COOKIE_NAME)?.value)
   } catch (error) {
     console.error("Error in getUserFromCookie:", error)
     return null
@@ -74,6 +63,8 @@ export interface LoginResult {
 }
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000
+/** bcrypt hash of a random string, compared against when the username doesn't exist. */
+const DUMMY_HASH = "$2a$10$CwTycUXWue0Thq9StjUM0uJ8.ZDGZ0JkE6nB1zMqXcN3gAo6R0F0C"
 
 /** Checks credentials, applies rate limits and sets the session cookie on success. */
 export async function authenticateAndSetCookie(username: unknown, password: unknown): Promise<LoginResult> {
@@ -102,7 +93,7 @@ export async function authenticateAndSetCookie(username: unknown, password: unkn
       if (!safeEqual(password, dmPassword)) {
         return { success: false, error: "Invalid credentials" }
       }
-      await setUserCookie({ id: ENV_DM_USER_ID, username: dmUsername, role: "DM" })
+      await setUserCookie({ id: ENV_DM_USER_ID, username: dmUsername, role: "DM" }, "")
       return { success: true, role: "DM", username: dmUsername }
     }
 
@@ -110,13 +101,10 @@ export async function authenticateAndSetCookie(username: unknown, password: unkn
       sql: "SELECT UserId, Username, Password, Role FROM User WHERE Username = ? COLLATE NOCASE AND UserId <> ?",
       args: [sanitizedUsername, ENV_DM_USER_ID],
     })
-    if (result.rows.length === 0) {
-      return { success: false, error: "Invalid credentials" }
-    }
-
+    // Unknown names still pay for a bcrypt compare, so timing doesn't reveal which accounts exist.
     const user = result.rows[0]
-    const isMatch = await bcrypt.compare(password, user.Password as string)
-    if (!isMatch) {
+    const isMatch = await bcrypt.compare(password, user ? String(user.Password) : DUMMY_HASH)
+    if (!user || !isMatch) {
       return { success: false, error: "Invalid credentials" }
     }
 
@@ -125,7 +113,7 @@ export async function authenticateAndSetCookie(username: unknown, password: unkn
       username: String(user.Username),
       role: (user.Role as string) || "player",
     }
-    await setUserCookie(sessionUser)
+    await setUserCookie(sessionUser, String(user.Password))
     return { success: true, role: sessionUser.role, username: sessionUser.username }
   } catch (error) {
     console.error("Login error:", error)

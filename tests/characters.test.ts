@@ -91,6 +91,69 @@ describe("updating characters", () => {
   })
 })
 
+describe("character size", () => {
+  it("defaults to Medium, rejects unknown sizes and scales the character's tokens", async () => {
+    const id = await createCharacter("Ogre", alice.id)
+    const { db } = await import("@/lib/db")
+    const sceneId = await createScene("Cave", {
+      gridSize: 50,
+      elements: {
+        middleLayer: [],
+        topLayer: [
+          { id: "plain", url: "/a.png", x: 0, y: 0, width: 50, height: 50, characterId: id, character: { CharacterId: id, Name: "Ogre" } },
+          { id: "resized", url: "/a.png", x: 0, y: 0, width: 80, height: 80, characterId: id, character: { CharacterId: id, Name: "Ogre", Size: "Medium" } },
+        ],
+      },
+    })
+    expect((await db.execute({ sql: "SELECT Size FROM character WHERE CharacterId = ?", args: [id] })).rows[0].Size).toBe("Medium")
+
+    const { PUT } = await import("@/app/api/characters/[id]/route")
+    await actAs(alice)
+    expect((await PUT(jsonRequest(`/api/characters/${id}`, "PUT", { Size: "Gigantic" }), params(id))).status).toBe(400)
+    const res = await PUT(jsonRequest(`/api/characters/${id}`, "PUT", { Size: "Huge" }), params(id))
+    expect(await res.json()).toMatchObject({ Size: "Huge" })
+
+    const tokens = () => db.execute({ sql: "SELECT SceneData FROM DMImage WHERE Id = ?", args: [sceneId] })
+      .then((r) => JSON.parse(String(r.rows[0].SceneData)).elements.topLayer as Array<{ width: number; character: { Size: string } }>)
+    expect((await tokens()).map((t) => [t.width, t.character.Size])).toEqual([[100, "Huge"], [160, "Huge"]])
+
+    await PUT(jsonRequest(`/api/characters/${id}`, "PUT", { Size: "Small" }), params(id))
+    expect((await tokens()).map((t) => t.width)).toEqual([25, 40])
+  })
+})
+
+describe("the party row", () => {
+  it("shows every Party character's portrait, Guard and MP to any player, without the full sheet", async () => {
+    const id = await createCharacter("Partymember", alice.id)
+    await createCharacter("Lurker", 0, "NPC")
+    const { GET } = await import("@/app/api/party/route")
+    await actAs(bob)
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const party = (await res.json()) as Array<Record<string, unknown>>
+    const member = party.find((c) => c.CharacterId === id)
+    expect(member).toMatchObject({ Name: "Partymember", userId: alice.id, ownerUsername: "alice" })
+    expect(member).toHaveProperty("Guard")
+    expect(member).not.toHaveProperty("Strength")
+    expect(party.some((c) => c.Name === "Lurker")).toBe(false)
+
+    await actAs(null)
+    expect((await GET()).status).toBe(401)
+  })
+
+  it("nudges every player to refresh when a character changes", async () => {
+    const id = await createCharacter("Nudger", alice.id)
+    const other = await connectClient(server.url, bob)
+    await actAs(alice)
+    const { PUT } = await import("@/app/api/characters/[id]/route")
+    await PUT(jsonRequest(`/api/characters/${id}`, "PUT", { Guard: 3 }), params(id))
+    await settle()
+    expect(other.of("party_changed")).toHaveLength(1)
+    expect(other.of("character_updated")).toHaveLength(0)
+    other.socket.disconnect()
+  })
+})
+
 describe("deleting characters", () => {
   it("removes jobs, inventory and tokens on every scene (old and new token formats)", async () => {
     const id = await createCharacter("Doomed", alice.id)

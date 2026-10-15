@@ -1,8 +1,8 @@
 /**
- * Parse the signed `user` session cookie from a raw Cookie header (e.g. Socket.IO handshake).
+ * Read the signed `user` session cookie from a raw Cookie header (e.g. Socket.IO handshake).
  * Must stay free of "use server" / next/headers so it can run in the Node socket stack.
  */
-import { SESSION_COOKIE_NAME, verifySessionToken, type SessionUser } from "./session-token"
+import { SESSION_COOKIE_NAME, type SessionUser } from "./session-token"
 
 export type { SessionUser }
 
@@ -20,11 +20,12 @@ function cookieValueFromHeader(cookieHeader: string | undefined, name: string): 
   return null
 }
 
-export function parseUserFromCookieHeader(cookieHeader: string | undefined): SessionUser | null {
+/** The raw session token from a Cookie header; check it with resolveSessionUser (lib/session-user.ts). */
+export function sessionTokenFromCookieHeader(cookieHeader: string | undefined): string | null {
   const raw = cookieValueFromHeader(cookieHeader, SESSION_COOKIE_NAME)
   if (!raw) return null
   try {
-    return verifySessionToken(decodeURIComponent(raw))
+    return decodeURIComponent(raw)
   } catch {
     return null
   }

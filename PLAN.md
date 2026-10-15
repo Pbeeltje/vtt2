@@ -187,6 +187,36 @@ Do these roughly in order. File references are from the audit and may drift.
 
 ---
 
+## Hardening pass (2026-10-15)
+
+On branch `phase1`, after Phase 1. **Everyone is logged out once** (the session format changed).
+
+- **Sessions end when the password changes.** The cookie carries a fingerprint of the password hash
+  (`credentialStamp`, `lib/session-token.ts`). HTTP and Socket.IO share one check, `lib/session-user.ts`.
+  Login also does a dummy bcrypt compare for unknown names, so timing doesn't reveal accounts.
+- **Request guard** (`lib/request-guard.ts`, run by `server.ts` before Next):
+  - API writes from another origin get 403 (CSRF). `SameSite=lax` alone doesn't stop same-site neighbours such as other `*.trycloudflare.com` tunnels or other ports on the LAN.
+  - Bodies over 1 MB (8 MB for `/api/images`, `/api/scenes`) get 413 before they are read. Streamed bodies without a length get 411.
+  - `X-Forwarded-For`/`CF-Connecting-IP` are only trusted from loopback (`TRUST_PROXY=true` overrides). Before, any LAN client could fake its IP to get around the login rate limit.
+  - Header and request timeouts against slow clients.
+- **Socket.IO:** same-origin handshakes only (was `cors: origin: true`), 16 KB message cap. A role change moves the user's open sockets into or out of the DM room at once; a password reset disconnects them. Switching the active scene removes players from the old scene's room.
+- **Headers:** `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy` on every page; no `X-Powered-By`. There is no `script-src` CSP; Next's inline scripts would need nonces.
+- **Input:**
+  - Player tokens are built on the server from the character row; only id and position come from the client. Before, any fields, stats or image URL were stored.
+  - Drawings store and broadcast only their own fields, and check colour, path and id. The server sets the timestamp.
+  - Character `PortraitUrl`/`TokenUrl` must be a same-site path or `https://`, without quotes or brackets (they go into CSS `url()`). Existing imgur links stay valid.
+  - New usernames: letters, digits, `_ . -`. Password resets are capped at 200 characters.
+- **Rate limits:** chat 30/30 s, drawings 120/min, player uploads 20/h, new journal notes 30/min (max 1,000 per user).
+- **Tunnel** start/stop/status is host-only.
+- **Verified:** 87 vitest tests (15 new in `tests/hardening.test.ts`, mutation-checked), typecheck, production build, and 14 HTTP/socket smoke checks on a copy of the DB, including the spoofed-IP test from a LAN address.
+
+Known and left as-is:
+- Players can read fog-of-war and NPC token snapshots in the scene JSON. Hiding them needs server-side filtering per role (Phase 2, when tokens stop carrying snapshots).
+- Logout only clears the cookie. A stolen cookie works until it expires (7 days) or the password changes.
+- `npm audit`: 8 findings, all in Tailwind 3's build tooling, not reachable at runtime.
+
+---
+
 ## Phase 2: Job System data model
 
 | Concept | Today | Target |

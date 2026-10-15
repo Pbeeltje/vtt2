@@ -34,7 +34,8 @@ and is the only one who can reset a DM's password. Players register on the login
 | `PORT`, `LISTEN_HOST` | no | Default `3000` on all interfaces (LAN players can join). |
 | `COOKIE_SECURE` | no | `true` forces Secure cookies. Otherwise they're Secure only over https (tunnels). |
 | `ALLOWED_DEV_ORIGINS` | no | Extra hostnames for dev behind a custom tunnel domain. |
-| `ENABLE_HOST_TUNNEL`, `CLOUDFLARED_PATH` | no | Let the DM start a Cloudflare tunnel from the UI. |
+| `ENABLE_HOST_TUNNEL`, `CLOUDFLARED_PATH` | no | Let the host start a Cloudflare tunnel from the UI. |
+| `TRUST_PROXY` | no | `true` trusts `X-Forwarded-*` from any address. By default only proxies on this machine (cloudflared, ngrok) are trusted. |
 
 ## Playing over the network
 

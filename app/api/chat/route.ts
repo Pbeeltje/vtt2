@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromCookie } from "@/lib/auth"
 import { CHAT_COLUMNS, postChatMessage, resolveSpeaker } from "@/lib/chat"
+import { rateLimit } from "@/lib/rate-limit"
 
 const DEFAULT_PAGE = 100
 const MAX_PAGE = 500
@@ -39,6 +40,10 @@ export async function POST(req: Request) {
   const user = await getUserFromCookie()
   if (!user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+  }
+
+  if (!rateLimit(`chat:user:${user.id}`, 30, 30 * 1000)) {
+    return NextResponse.json({ error: "You're sending messages too fast" }, { status: 429 })
   }
 
   try {

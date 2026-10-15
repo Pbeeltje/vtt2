@@ -56,12 +56,8 @@ export function JobsTab({ jobs, handleCreateJob, handleJobSubmit }: JobsTabProps
                   <div className="min-w-0 flex-1">
                     <span className="font-medium">{job.Name} (Tier {job.Tier})</span>
                     {job.Description?.trim() ? (
-                      <div className="relative mt-2 max-h-[7.5rem] overflow-hidden text-muted-foreground">
+                      <div className="mt-2 max-h-[7.5rem] overflow-hidden text-muted-foreground [mask-image:linear-gradient(to_bottom,#000_calc(100%-2.25rem),transparent)]">
                         <MarkdownContent markdown={job.Description} />
-                        <div
-                          className="pointer-events-none absolute inset-x-0 bottom-0 h-9 bg-gradient-to-t from-background to-transparent"
-                          aria-hidden
-                        />
                       </div>
                     ) : (
                       <p className="text-sm text-muted-foreground mt-2 italic">No description</p>

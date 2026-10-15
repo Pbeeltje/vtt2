@@ -41,10 +41,10 @@ export function InventoryTab({ characterId, maxStrength }: InventoryTabProps) {
   ) || false;
 
   const getRowBackground = (rowNumber: number) => {
-    if (rowNumber <= greenRows) return 'bg-green-100';
-    if (rowNumber <= greenRows + orangeRows) return 'bg-orange-100';
-    if (rowNumber <= greenRows + orangeRows + redRows) return 'bg-red-100';
-    return 'bg-red-300'; // Bright red for hidden rows
+    if (rowNumber <= greenRows) return 'bg-[#15291a]';
+    if (rowNumber <= greenRows + orangeRows) return 'bg-[#33270f]';
+    if (rowNumber <= greenRows + orangeRows + redRows) return 'bg-[#351610]';
+    return 'bg-[#5a1a12]'; // Strong red for hidden rows
   };
 
   const isRowVisible = (rowNumber: number) => {
@@ -147,7 +147,7 @@ export function InventoryTab({ characterId, maxStrength }: InventoryTabProps) {
     
     return (
       <tr key={`header-${startRow}`}>
-        <td colSpan={4} className="px-4 py-1 text-xs font-medium text-gray-600 bg-gray-50 border-t-2 border-gray-300">
+        <td colSpan={4} className="jade-sc px-4 py-1 text-xs font-semibold text-[var(--jade-gold)] bg-[#222b21] border-t-2 border-[#4c5746]">
           {text}
         </td>
       </tr>
@@ -157,13 +157,13 @@ export function InventoryTab({ characterId, maxStrength }: InventoryTabProps) {
   return (
     <div>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse border border-gray-300">
+        <table className="w-full border-collapse border border-[#3f4a3d]">
           <thead>
-            <tr className="bg-gray-100">
-              <th className="border border-gray-300 px-1 py-0.5 text-left font-semibold w-7">#</th>
-              <th className="border border-gray-300 px-1.5 py-0.5 text-left font-semibold">Item</th>
-              <th className="border border-gray-300 px-1.5 py-0.5 text-left font-semibold">Note</th>
-              <th className="border border-gray-300 px-1 py-0.5 text-center font-semibold w-10"></th>
+            <tr className="bg-[#222b21] text-[var(--jade-gold)]">
+              <th className="border border-[#3f4a3d] px-1 py-0.5 text-left font-semibold w-7">#</th>
+              <th className="border border-[#3f4a3d] px-1.5 py-0.5 text-left font-semibold">Item</th>
+              <th className="border border-[#3f4a3d] px-1.5 py-0.5 text-left font-semibold">Note</th>
+              <th className="border border-[#3f4a3d] px-1 py-0.5 text-center font-semibold w-10"></th>
             </tr>
           </thead>
           <tbody>
@@ -189,10 +189,10 @@ export function InventoryTab({ characterId, maxStrength }: InventoryTabProps) {
                 <React.Fragment key={`row-${rowNumber}`}>
                   {header}
                   <tr className={bgClass}>
-                    <td className="border border-gray-300 px-1 py-0.5 font-medium w-7 text-sm">
+                    <td className="border border-[#3f4a3d] px-1 py-0.5 font-medium w-7 text-sm">
                       {rowNumber}
                     </td>
-                    <td className="border border-gray-300 px-1.5 py-0.5">
+                    <td className="border border-[#3f4a3d] px-1.5 py-0.5">
                       {editingRow === rowNumber ? (
                         <Input
                           value={editForm.item}
@@ -205,7 +205,7 @@ export function InventoryTab({ characterId, maxStrength }: InventoryTabProps) {
                         <span className="text-sm">{item.item?.Name || ''}</span>
                       )}
                     </td>
-                    <td className="border border-gray-300 px-1.5 py-0.5">
+                    <td className="border border-[#3f4a3d] px-1.5 py-0.5">
                       {editingRow === rowNumber ? (
                         <Input
                           value={editForm.note}
@@ -217,7 +217,7 @@ export function InventoryTab({ characterId, maxStrength }: InventoryTabProps) {
                         <span className="text-sm">{item.item?.Description || ''}</span>
                       )}
                     </td>
-                    <td className="border border-gray-300 px-1 py-0.5">
+                    <td className="border border-[#3f4a3d] px-1 py-0.5">
                       {editingRow === rowNumber ? (
                         <div className="flex space-x-1 justify-center">
                           <Button size="sm" onClick={() => handleSaveRow(rowNumber)}>
@@ -261,8 +261,8 @@ export function InventoryTab({ characterId, maxStrength }: InventoryTabProps) {
       </div>
       
       {hasItemsInHiddenRows && (
-        <div className="mt-4 p-3 bg-red-200 border border-red-300 rounded-lg">
-          <p className="text-sm text-red-800">
+        <div className="mt-4 p-3 bg-[#351610] border border-[#7a2a1a]">
+          <p className="text-sm text-[var(--jade-hit)]">
             ⚠️ Warning: Some items have been dropped due to reduced strength.
           </p>
         </div>

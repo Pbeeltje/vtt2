@@ -201,7 +201,7 @@ export default function DmPlayerAccounts({
 
   if (allUsers.length === 0) {
     return (
-      <p className="text-sm text-stone-600 bg-white/80 rounded p-3">
+      <p className="jade-inset text-sm text-muted-foreground p-3">
         No accounts yet. Players appear here after they register.
       </p>
     );
@@ -209,7 +209,7 @@ export default function DmPlayerAccounts({
 
   return (
     <>
-      <p className="text-sm text-stone-700 bg-white/70 rounded p-2 border border-stone-300/80 mb-3">
+      <p className="jade-inset text-sm text-muted-foreground p-2 mb-3">
         Open a user to reset password, assign characters, or (as host) grant admin.
       </p>
       <ul className="space-y-2">
@@ -217,13 +217,13 @@ export default function DmPlayerAccounts({
           <li key={u.id}>
             <button
               type="button"
-              className="w-full text-left rounded border border-stone-400/60 bg-white/90 px-3 py-2.5 hover:bg-white flex items-center justify-between gap-2"
+              className="w-full text-left jade-inset border border-[#3f4a3d] px-3 py-2.5 hover:border-[var(--jade-gold-hi)] flex items-center justify-between gap-2"
               onClick={() => setDetailUserId(u.id)}
             >
-              <span className="font-medium text-stone-900">{u.username}</span>
+              <span className="font-medium text-[var(--jade-ink-hi)]">{u.username}</span>
               <span className="flex items-center gap-1.5 shrink-0">
                 {u.isHostAdmin ? (
-                  <span className="inline-flex items-center gap-0.5 text-xs font-medium text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                  <span className="inline-flex items-center gap-0.5 text-xs font-medium text-[#1d1606] bg-[var(--jade-gold-hi)] px-1.5 py-0.5 rounded">
                     <Crown className="h-3 w-3" />
                     Host
                   </span>
@@ -235,7 +235,7 @@ export default function DmPlayerAccounts({
                   </span>
                 ) : null}
                 {u.role === "player" ? (
-                  <span className="text-xs uppercase tracking-wide text-stone-500">Player</span>
+                  <span className="text-xs uppercase tracking-wide text-[var(--jade-muted)]">Player</span>
                 ) : null}
               </span>
             </button>
@@ -251,7 +251,7 @@ export default function DmPlayerAccounts({
                 <DialogTitle className="flex flex-wrap items-center gap-2">
                   {detailUser.username}
                   {detailUser.isHostAdmin ? (
-                    <span className="text-xs font-normal inline-flex items-center gap-1 text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                    <span className="text-xs font-normal inline-flex items-center gap-1 text-[#1d1606] bg-[var(--jade-gold-hi)] px-2 py-0.5 rounded">
                       <Crown className="h-3.5 w-3.5" />
                       Host
                     </span>
@@ -294,7 +294,7 @@ export default function DmPlayerAccounts({
                     placeholder="New password"
                     value={passwordByUser[detailUser.id]?.a ?? ""}
                     onChange={(e) => setFields(detailUser.id, "a", e.target.value)}
-                    className="bg-stone-50"
+                    className=""
                   />
                   <Input
                     type="password"
@@ -302,7 +302,7 @@ export default function DmPlayerAccounts({
                     placeholder="Confirm"
                     value={passwordByUser[detailUser.id]?.b ?? ""}
                     onChange={(e) => setFields(detailUser.id, "b", e.target.value)}
-                    className="bg-stone-50"
+                    className=""
                   />
                   <Button
                     type="button"

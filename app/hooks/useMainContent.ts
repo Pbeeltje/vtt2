@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react"
 import type { LayerImage } from "../types/layerImage"
+import { sizeMultiplier } from "../lib/tokens"
 
 interface UseMainContentProps {
   backgroundImage: string | null
@@ -131,12 +132,17 @@ export const useMainContent = ({
   }, [])
 
   const snapToGrid = useCallback((layer: LayerImage[], newGridSize: number) => {
-    return layer.map((item) => ({
-      ...item,
-      x: Math.floor(item.x / newGridSize) * newGridSize,
-      y: Math.floor(item.y / newGridSize) * newGridSize,
-      ...(item.width === gridSize && item.height === gridSize ? { width: newGridSize, height: newGridSize } : {}),
-    }))
+    return layer.map((item) => {
+      // Items sized to the grid (character tokens by their size) follow the new grid size.
+      const cells = sizeMultiplier(item.character?.Size)
+      const fitsGrid = item.width === gridSize * cells && item.height === gridSize * cells
+      return {
+        ...item,
+        x: Math.floor(item.x / newGridSize) * newGridSize,
+        y: Math.floor(item.y / newGridSize) * newGridSize,
+        ...(fitsGrid ? { width: newGridSize * cells, height: newGridSize * cells } : {}),
+      }
+    })
   }, [gridSize])
 
   /** Moves the given items by (dx, dy): tokens snap to the grid, map images move freely. */

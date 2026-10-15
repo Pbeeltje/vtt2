@@ -4,10 +4,14 @@
  * Kept free of "use server" / next/headers so the Socket.IO handshake can use it too.
  */
 import { createHmac, randomBytes, timingSafeEqual } from "crypto"
+import { ENV_DM_USER_ID } from "./env-dm"
 
 export type SessionUser = { id: number; username: string; role: string }
 
-type SessionPayload = SessionUser & { exp: number }
+/** `cred` fingerprints the password the session was created with (see credentialStamp). */
+type SessionPayload = SessionUser & { exp: number; cred: string }
+
+export type VerifiedSession = SessionUser & { cred: string }
 
 export const SESSION_COOKIE_NAME = "user"
 export const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
@@ -34,18 +38,30 @@ function sign(data: string): string {
   return createHmac("sha256", getSecret()).update(data).digest("base64url")
 }
 
-export function createSessionToken(user: SessionUser): string {
+/**
+ * A short fingerprint of the user's password, stored in the session. Changing or resetting the
+ * password changes it, which ends every existing session of that user. `storedPassword` is the
+ * DB hash; the env DM's password lives in DM_PASSWORD instead.
+ */
+export function credentialStamp(userId: number, storedPassword: string): string {
+  const credential = userId === ENV_DM_USER_ID ? process.env.DM_PASSWORD ?? "" : storedPassword
+  return sign(`cred:${userId}:${credential}`).slice(0, 22)
+}
+
+export function createSessionToken(user: SessionUser, storedPassword: string): string {
   const payload: SessionPayload = {
     id: user.id,
     username: user.username,
     role: user.role,
     exp: Date.now() + SESSION_MAX_AGE_MS,
+    cred: credentialStamp(user.id, storedPassword),
   }
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url")
   return `${data}.${sign(data)}`
 }
 
-export function verifySessionToken(token: string | undefined | null): SessionUser | null {
+/** Checks the signature and expiry only; resolveSessionUser (lib/session-user.ts) also checks the DB. */
+export function verifySessionToken(token: string | undefined | null): VerifiedSession | null {
   if (!token) return null
   const dot = token.indexOf(".")
   if (dot <= 0) return null
@@ -64,11 +80,12 @@ export function verifySessionToken(token: string | undefined | null): SessionUse
       typeof payload.username !== "string" ||
       typeof payload.role !== "string" ||
       typeof payload.exp !== "number" ||
-      payload.exp < Date.now()
+      payload.exp < Date.now() ||
+      typeof payload.cred !== "string"
     ) {
       return null
     }
-    return { id, username: payload.username, role: payload.role }
+    return { id, username: payload.username, role: payload.role, cred: payload.cred }
   } catch {
     return null
   }

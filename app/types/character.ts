@@ -11,6 +11,7 @@ export interface Character {
   Age?: number
   Level?: number
   Armor?: number
+  Size?: string
   Guard?: number
   MaxGuard?: number
   Strength?: number

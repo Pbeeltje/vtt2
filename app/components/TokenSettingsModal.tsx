@@ -2,8 +2,15 @@ import React, { useState } from 'react'
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import type { LayerImage } from "../types/layerImage"
+import { STATUS_EFFECTS, StatusEffectIcon, isStatusEffect, type StatusEffect } from "../lib/status-effects"
 
-export type TokenSettings = { scale: number; auraColor: string | null; auraRadius: number | null }
+/** `scale` is left out for character tokens: their size comes from the character sheet. */
+export type TokenSettings = {
+  scale?: number
+  auraColor: string | null
+  auraRadius: number | null
+  statusEffect: StatusEffect | null
+}
 
 interface TokenSettingsModalProps {
   token: LayerImage
@@ -13,18 +20,20 @@ interface TokenSettingsModalProps {
   gridSize: number
 }
 
-/** Size and aura of one token. Render it with key={token.id} so it starts from that token's values. */
+/** Aura and status effect of one token, plus its size when it has no character sheet to take it from. Render it with key={token.id} so it starts from that token's values. */
 export default function TokenSettingsModal({ token, onClose, onSave, gridSize }: TokenSettingsModalProps) {
   const [scale, setScale] = useState((token.width || gridSize) / gridSize)
   const [auraColor, setAuraColor] = useState(token.auraColor || '#87CEEB')
   const [auraRadius, setAuraRadius] = useState(token.auraRadius || 1)
+  const [statusEffect, setStatusEffect] = useState<StatusEffect | null>(isStatusEffect(token.statusEffect) ? token.statusEffect : null)
   const [auraEnabled, setAuraEnabled] = useState(Boolean(token.auraColor && token.auraRadius && token.auraRadius > 0))
 
   const handleSave = () => {
     onSave(token.id, {
-      scale: Math.min(5, Math.max(0.1, scale)),
+      scale: token.character ? undefined : Math.min(5, Math.max(0.1, scale)),
       auraColor: auraEnabled ? auraColor : null,
       auraRadius: auraEnabled ? auraRadius : null,
+      statusEffect,
     })
     onClose()
   }
@@ -48,7 +57,8 @@ export default function TokenSettingsModal({ token, onClose, onSave, gridSize }:
           )}
         </div>
         
-        {/* Scale Section */}
+        {/* Scale Section: character tokens take their size from the sheet */}
+        {!token.character && (
         <div className="mb-8 p-4 bg-gray-50 rounded-lg">
           <Label className="text-sm font-medium text-gray-700 mb-3 block">
             Token Scale
@@ -70,8 +80,42 @@ export default function TokenSettingsModal({ token, onClose, onSave, gridSize }:
             Range: 0.1× to 5× (10px to {gridSize * 5}px)
           </div>
         </div>
+        )}
 
-
+        {/* Status Effect Section: one at a time, click the active one again to clear it */}
+        <div className="mb-8 p-4 bg-gray-50 rounded-lg">
+          <Label className="text-sm font-medium text-gray-700 mb-3 block">
+            Status Effect
+          </Label>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Status effect">
+            {(Object.keys(STATUS_EFFECTS) as StatusEffect[]).map((effect) => (
+              <button
+                key={effect}
+                type="button"
+                role="radio"
+                aria-checked={statusEffect === effect}
+                title={STATUS_EFFECTS[effect].label}
+                onClick={() => setStatusEffect(statusEffect === effect ? null : effect)}
+                className={`w-10 h-10 rounded-md border-2 flex items-center justify-center bg-white hover:border-gray-400 ${
+                  statusEffect === effect ? "border-blue-500 ring-2 ring-blue-200" : "border-gray-200"
+                }`}
+              >
+                <StatusEffectIcon effect={effect} className="w-6 h-6" />
+              </button>
+            ))}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={statusEffect === null}
+              onClick={() => setStatusEffect(null)}
+              className={`h-10 px-3 rounded-md border-2 text-sm bg-white hover:border-gray-400 ${
+                statusEffect === null ? "border-blue-500 ring-2 ring-blue-200" : "border-gray-200"
+              }`}
+            >
+              None
+            </button>
+          </div>
+        </div>
 
         {/* Aura Section */}
         <div className="mb-8 p-4 bg-gray-50 rounded-lg">

@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback, useEffect, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "@/components/ui/use-toast"
 import { clientToGridLogical } from "@/lib/utils"
 import { tokenCharacterId, type SceneState } from "@/lib/scene-model"
@@ -21,10 +21,13 @@ import { useDragAndDrop } from "../hooks/useDragAndDrop"
 import { useDrawing } from "../hooks/useDrawing"
 import type { NewDrawingData } from "../hooks/useDrawings"
 import type { TextBalloonData } from "../hooks/useChat"
+import type { MapPing } from "../hooks/usePings"
 import { useMapNavigation } from "../hooks/map/useMapNavigation"
 import { useSelectionBox } from "../hooks/map/useSelectionBox"
 import { useMapKeyboard } from "../hooks/map/useMapKeyboard"
 import { useItemResize } from "../hooks/map/useItemResize"
+import { useItemRotate } from "../hooks/map/useItemRotate"
+import { confirm } from "@/components/ui/confirm-dialog"
 
 type StatusField = "guard" | "strength" | "mp"
 const STATUS_COLUMN: Record<StatusField, "Guard" | "Strength" | "Mp"> = { guard: "Guard", strength: "Strength", mp: "Mp" }
@@ -57,6 +60,11 @@ interface MainContentProps {
   onUploadImage: (category: string, file: File) => Promise<DMImage | null>
   textBalloons: TextBalloonData[]
   onCloseTextBalloon: (balloonId: string) => void
+  pings: MapPing[]
+  /** Shift+click on an empty spot: ping there, in map coordinates. */
+  onPing: (x: number, y: number) => void
+  /** The one character among the selected tokens, or null (none, or several). */
+  onSelectedCharacterChange?: (characterId: number | null) => void
 }
 
 function MainContent({
@@ -85,6 +93,9 @@ function MainContent({
   onUploadImage,
   textBalloons,
   onCloseTextBalloon,
+  pings,
+  onPing,
+  onSelectedCharacterChange,
 }: MainContentProps) {
   const isDM = currentUserRole === "DM"
   const { gridSize, gridColor, darknessPaths, isDarknessLayerVisible } = scene
@@ -247,17 +258,18 @@ function MainContent({
     onDarknessChange: setDarknessPaths,
   })
 
-  const handleResetDarkness = useCallback(() => {
-    if (window.confirm("Reset fog of war? This removes all revealed areas and fills the map with fog again.")) {
+  const handleResetDarkness = useCallback(async () => {
+    const ok = await confirm({ title: "Reset fog of war?", description: "This removes all revealed areas and fills the map with fog again.", confirmLabel: "Reset fog", destructive: true })
+    if (ok) {
       setDarknessPaths([])
     }
   }, [setDarknessPaths])
 
-  const handleDeleteAllDrawings = useCallback(() => {
+  const handleDeleteAllDrawings = useCallback(async () => {
     if (!isDM) return
     if (drawings.length === 0) {
       toast({ title: "No drawings", description: "There are no drawings on this scene." })
-    } else if (window.confirm(`Delete all ${drawings.length} drawings on this scene? This cannot be undone.`)) {
+    } else if (await confirm({ title: `Delete all ${drawings.length} drawings?`, description: "Every drawing on this scene goes. This cannot be undone.", confirmLabel: "Delete all", destructive: true })) {
       onDrawingsDelete(drawings.map((d) => d.id))
     }
   }, [isDM, drawings, onDrawingsDelete])
@@ -308,11 +320,17 @@ function MainContent({
   )
   const { resizingId, startResize } = useItemResize({ enabled: isDM, zoomLevel, gridSize, resizeItem })
 
+  const rotateItem = useCallback(
+    (id: string, rotation: number) => mapItems((item) => (item.id === id ? { ...item, rotation } : item)),
+    [mapItems]
+  )
+  const { startRotate } = useItemRotate({ enabled: isDM, rotateItem })
+
   const handleGridClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement
       const onItem = target.closest(".token-image, [draggable=\"true\"]")
-      if (!onItem && currentTool !== "brush" && !isAnyFogTool(currentTool) && !selection.isSelecting) {
+      if (!onItem && !e.shiftKey && currentTool !== "brush" && !isAnyFogTool(currentTool) && !selection.isSelecting) {
         setSelectedIds([])
         setSelectedDrawingIds([])
       }
@@ -333,6 +351,14 @@ function MainContent({
     },
     [currentTool, setSelectedIds, setSelectedDrawingIds]
   )
+
+  // --- The round menu acts for the selected token's character ----------------------------
+
+  const selectedCharacterId = useMemo(() => {
+    const ids = new Set(topLayerImages.filter((t) => selectedIds.includes(t.id)).map(tokenCharacterId).filter((id): id is number => id !== null))
+    return ids.size === 1 ? [...ids][0] : null
+  }, [topLayerImages, selectedIds])
+  useEffect(() => onSelectedCharacterChange?.(selectedCharacterId), [selectedCharacterId, onSelectedCharacterChange])
 
   // --- Keyboard: delete and arrow-key nudge -----------------------------------------------
 
@@ -455,10 +481,10 @@ function MainContent({
           ? item
           : {
               ...item,
-              width: settings.scale * gridSize,
-              height: settings.scale * gridSize,
+              ...(settings.scale !== undefined && { width: settings.scale * gridSize, height: settings.scale * gridSize }),
               auraColor: settings.auraColor ?? undefined,
               auraRadius: settings.auraRadius ?? undefined,
+              statusEffect: settings.statusEffect ?? undefined,
             }
       ),
     [gridSize, mapItems]
@@ -469,11 +495,21 @@ function MainContent({
   const isPaintTool = isCanvasStrokeTool(currentTool) || isFogCellTool(currentTool)
 
   const handleGridMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement
+    // Shift+click on a token or drawing still adds it to the selection; anywhere else it pings.
+    if (e.button === 0 && e.shiftKey && !e.altKey && !target.closest(".token-image, [draggable=\"true\"], path")) {
+      const rect = gridRef.current?.getBoundingClientRect()
+      if (rect) {
+        const point = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel)
+        onPing(point.x, point.y)
+      }
+      e.stopPropagation()
+      return
+    }
     if (isPaintTool && e.button === 0 && !e.altKey) {
       startDrawing(e)
       e.stopPropagation()
     } else if (e.button === 0 && !e.altKey) {
-      const target = e.target as HTMLElement
       if (!target.closest(".token-image, [draggable=\"true\"], path")) selection.startSelection(e)
     } else {
       navigation.startPan(e)
@@ -510,7 +546,7 @@ function MainContent({
   }
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden">
+    <div className="flex flex-col h-full w-full overflow-hidden bg-[#050403]">
       <div
         ref={containerRef}
         className="flex-grow relative overflow-auto"
@@ -525,7 +561,8 @@ function MainContent({
         }}
         onDragOver={handleDragOver}
       >
-        <div className="absolute top-2 left-2 z-30">
+        <div className="fixed left-4 top-4 z-30">
+          <ZoomControls zoomLevel={zoomLevel} onZoomIn={navigation.zoomIn} onZoomOut={navigation.zoomOut} onZoomReset={navigation.zoomReset} />
           <DrawingToolbar
             currentTool={currentTool}
             onToolChange={onToolChange}
@@ -541,7 +578,6 @@ function MainContent({
             fogBrushDiameter={fogBrushDiameter}
             onFogBrushDiameterChange={onFogBrushDiameterChange}
           />
-          <ZoomControls zoomLevel={zoomLevel} onZoomIn={navigation.zoomIn} onZoomOut={navigation.zoomOut} onZoomReset={navigation.zoomReset} />
         </div>
 
         <GameGrid
@@ -584,6 +620,7 @@ function MainContent({
           onItemDragEnd={handleItemDragEnd}
           onItemClick={handleItemClick}
           onResizeStart={(e, item) => startResize(e, item, topLayerImages.some((t) => t.id === item.id))}
+          onRotateStart={startRotate}
           onDrawingClick={handleDrawingClick}
           onTokenDoubleClick={handleTokenDoubleClick}
           onStatusClick={handleStatusClick}
@@ -592,6 +629,7 @@ function MainContent({
           onOpenTokenSettings={setSettingsToken}
           textBalloons={textBalloons}
           onCloseTextBalloon={onCloseTextBalloon}
+          pings={pings}
         />
       </div>
 

@@ -86,8 +86,16 @@ function formatExpression(terms: RolledTerm[]): string {
     .join("")
 }
 
-/** One-line chat text, e.g. "rolled 2d8kh1+1: 2d8kh1 [(3), 7] + 1 = 8". Dropped dice are in parentheses. */
+/**
+ * One-line chat text, e.g. "rolled 2d8kh1 [(3), 7] + 1 = 8". Dropped dice are in parentheses.
+ * A single plain die reads "rolled a d10: 3".
+ */
 export function describeRoll(result: DiceRollResult, label?: string): string {
+  const prefix = label ? `${label}: ` : ""
+  const [only] = result.terms
+  if (result.terms.length === 1 && only.kind === "dice" && only.sign > 0 && only.rolls.length === 1) {
+    return `${prefix}rolled a d${only.sides}: ${result.total}`
+  }
   const parts = result.terms.map((t, i) => {
     const sign = i === 0 ? (t.sign < 0 ? "-" : "") : t.sign < 0 ? " - " : " + "
     if (t.kind === "constant") return `${sign}${t.value}`
@@ -95,5 +103,34 @@ export function describeRoll(result: DiceRollResult, label?: string): string {
     const dice = t.rolls.map((r, idx) => (keptSet.has(idx) || t.kept.length === t.rolls.length ? String(r) : `(${r})`))
     return `${sign}${t.notation} [${dice.join(", ")}]`
   })
-  return `${label ? `${label}: ` : ""}rolled ${result.expression}: ${parts.join("")} = ${result.total}`
+  return `${prefix}rolled ${parts.join("")} = ${result.total}`
+}
+
+export const TEST_ATTRIBUTES = { Strength: "STR", Dexternity: "DEX", Mind: "MND", Charisma: "CHA" } as const
+export type TestAttribute = keyof typeof TEST_ATTRIBUTES
+
+export function isTestAttribute(value: unknown): value is TestAttribute {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(TEST_ATTRIBUTES, value)
+}
+
+export interface TestResult {
+  attribute: TestAttribute
+  score: number
+  roll: number
+  pass: boolean
+  /** Roll minus score: the row of the partial success table (negative is better). */
+  margin: number
+}
+
+/** Scores a Test's d20: equal to or under the score passes; 1 always passes and 20 always fails. */
+export function scoreTest(attribute: TestAttribute, score: number, roll: number): TestResult {
+  const pass = roll === 1 || (roll !== 20 && roll <= score)
+  return { attribute, score, roll, pass, margin: roll - score }
+}
+
+/** Chat text ending in the roll, e.g. "Mind test vs 12, pass: rolled a d20: 9". */
+export function describeTest(test: TestResult): string {
+  const name = test.attribute === "Dexternity" ? "Dexterity" : test.attribute
+  const natural = test.roll === 1 || test.roll === 20 ? ` (natural ${test.roll})` : ""
+  return `${name} test vs ${test.score}, ${test.pass ? "pass" : "fail"}${natural}: rolled a d20: ${test.roll}`
 }

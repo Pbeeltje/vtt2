@@ -3,9 +3,12 @@ import { db as client } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { requireAuth } from "@/lib/auth"
 import { getUserRowById, rowIsHostAdmin } from "@/lib/user-schema"
+import { parseId } from "@/lib/api-errors"
+import { disconnectUserSockets } from "@/lib/socket"
 
 
 const MIN_PASSWORD_LENGTH = 8
+const MAX_PASSWORD_LENGTH = 200
 
 export async function PUT(
   request: Request,
@@ -26,8 +29,8 @@ export async function PUT(
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
   }
 
-  const userId = parseInt((await params).id, 10)
-  if (!Number.isFinite(userId) || userId <= 0) {
+  const userId = parseId((await params).id)
+  if (!userId) {
     return NextResponse.json({ error: "Invalid user id" }, { status: 400 })
   }
 
@@ -39,9 +42,9 @@ export async function PUT(
   }
 
   const newPassword = typeof body.newPassword === "string" ? body.newPassword : ""
-  if (newPassword.length < MIN_PASSWORD_LENGTH) {
+  if (newPassword.length < MIN_PASSWORD_LENGTH || newPassword.length > MAX_PASSWORD_LENGTH) {
     return NextResponse.json(
-      { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` },
+      { error: `Password must be ${MIN_PASSWORD_LENGTH} to ${MAX_PASSWORD_LENGTH} characters` },
       { status: 400 }
     )
   }
@@ -64,6 +67,8 @@ export async function PUT(
     sql: "UPDATE User SET Password = ? WHERE UserId = ?",
     args: [hashedPassword, userId],
   })
+  // The new password ends the user's sessions (see credentialStamp); close their live sockets too.
+  disconnectUserSockets(userId)
 
   return NextResponse.json({ ok: true })
 }

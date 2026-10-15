@@ -1,8 +1,6 @@
 "use client"
 
 import { memo, useEffect, useMemo, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import type { Character } from "../../types/character"
 import type { User } from "../../types/user"
 import type { Speaker } from "../../hooks/useChat"
@@ -48,52 +46,35 @@ function ChatComposer({ user, characters, onSend, compact = false }: ChatCompose
         const i = raw.indexOf(":")
         setSpeaker({ type: raw.slice(0, i) as Speaker["type"], name: raw.slice(i + 1) })
       }}
-      className={
-        compact
-          ? "w-full p-1.5 text-xs border rounded-md bg-stone-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          : "mr-2 p-2 h-full border rounded-md bg-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-      }
+      className={`jade-input max-w-[45%] shrink-0 cursor-pointer px-1.5 font-semibold text-[var(--jade-name)] ${compact ? "h-7 text-xs" : "h-8 text-sm"}`}
       title="Speak as"
+      aria-label="Speak as"
     >
-      <option value={`user:${user.username}`}>{user.username} (You)</option>
+      <option value={`user:${user.username}`}>{user.username} (you)</option>
       {speakable.map((c) => (
         <option key={c.CharacterId} value={`character:${c.Name}`}>
-          {c.Name} (Character)
+          {c.Name}
         </option>
       ))}
     </select>
   )
 
-  const input = (
-    <Input
-      type="text"
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onKeyDown={(e) => e.key === "Enter" && send()}
-      placeholder={compact ? "Message…" : "Type a message..."}
-      maxLength={2000}
-      className={compact ? "flex-1 h-8 text-xs bg-stone-200" : "flex-grow mr-2 bg-stone-200"}
-    />
-  )
-
-  if (compact) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        {picker}
-        <div className="flex gap-1">
-          {input}
-          <Button type="button" size="sm" className="h-8 px-2 text-xs shrink-0" onClick={send}>
-            Send
-          </Button>
-        </div>
-      </div>
-    )
-  }
   return (
-    <div className="flex items-center h-10">
+    <div className="flex items-center gap-1.5">
       {picker}
-      {input}
-      <Button onClick={send}>Send</Button>
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && send()}
+        placeholder={compact ? "Message…" : "Say something…"}
+        maxLength={2000}
+        aria-label="Message"
+        className={`jade-input min-w-0 flex-1 px-2 ${compact ? "h-7 text-xs" : "h-8 text-sm"}`}
+      />
+      <button type="button" className={`jade-btn ${compact ? "!h-7 !px-2 text-xs" : "text-sm"}`} onClick={send}>
+        Send
+      </button>
     </div>
   )
 }

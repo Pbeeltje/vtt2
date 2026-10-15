@@ -8,6 +8,7 @@ import {
   hostDm,
   jsonRequest,
   requestContext,
+  sessionCookie,
   settle,
   setupTestDb,
   startSocketServer,
@@ -35,8 +36,7 @@ afterAll(async () => {
 describe("sessions", () => {
   it("rejects a forged or tampered cookie", async () => {
     const { getUserFromCookie } = await import("@/lib/auth")
-    const { createSessionToken } = await import("@/lib/session-token")
-    const token = createSessionToken(alice)
+    const token = await sessionCookie(alice)
     const [payload, sig] = token.split(".")
     const forgedPayload = Buffer.from(JSON.stringify({ ...alice, role: "DM", exp: Date.now() + 1e6 })).toString("base64url")
 
@@ -149,7 +149,7 @@ describe("POST /api/roll", () => {
     const data = JSON.parse(row.Data)
     expect(data.terms[0].rolls).toHaveLength(2)
     expect(data.total).toBe(Math.max(...data.terms[0].rolls))
-    expect(row.Content).toMatch(/^Attack: rolled 2d8kh1: /)
+    expect(row.Content).toMatch(/^Attack: rolled 2d8kh1 \[/)
   })
 
   it("rejects bad expressions and other players' characters", async () => {
@@ -158,5 +158,41 @@ describe("POST /api/roll", () => {
     expect((await POST(jsonRequest("/api/roll", "POST", { expression: "1000d6" }))).status).toBe(400)
     await actAs(bob)
     expect((await POST(jsonRequest("/api/roll", "POST", { expression: "d20", speakerName: "Aria", senderType: "character" }))).status).toBe(403)
+  })
+})
+
+describe("POST /api/roll/test", () => {
+  it("rolls a d20 against the stored score as the character", async () => {
+    const { db } = await import("@/lib/db")
+    await db.execute({ sql: "UPDATE character SET Mind = 12 WHERE Name = 'Aria'", args: [] })
+    const id = Number((await db.execute({ sql: "SELECT CharacterId FROM character WHERE Name = 'Aria'", args: [] })).rows[0].CharacterId)
+    await actAs(alice)
+    const { POST } = await import("@/app/api/roll/test/route")
+    const res = await POST(jsonRequest("/api/roll/test", "POST", { characterId: id, attribute: "Mind" }))
+    expect(res.status).toBe(200)
+    const row = await res.json()
+    expect(row).toMatchObject({ Type: "diceRoll", Username: "Aria", SenderType: "character" })
+    const data = JSON.parse(row.Data)
+    expect(data.test).toMatchObject({ attribute: "Mind", score: 12, roll: data.total })
+    expect(row.Content).toMatch(/^Mind test vs 12, (pass|fail).*: rolled a d20: \d+$/)
+  })
+
+  it("rejects other players' characters, unknown attributes and unknown characters", async () => {
+    const { db } = await import("@/lib/db")
+    const id = Number((await db.execute({ sql: "SELECT CharacterId FROM character WHERE Name = 'Aria'", args: [] })).rows[0].CharacterId)
+    const { POST } = await import("@/app/api/roll/test/route")
+    await actAs(bob)
+    expect((await POST(jsonRequest("/api/roll/test", "POST", { characterId: id, attribute: "Mind" }))).status).toBe(403)
+    await actAs(alice)
+    expect((await POST(jsonRequest("/api/roll/test", "POST", { characterId: id, attribute: "Name" }))).status).toBe(400)
+    expect((await POST(jsonRequest("/api/roll/test", "POST", { characterId: 99999, attribute: "Mind" }))).status).toBe(404)
+  })
+
+  it("lets the DM roll for any character", async () => {
+    const { db } = await import("@/lib/db")
+    const id = Number((await db.execute({ sql: "SELECT CharacterId FROM character WHERE Name = 'Aria'", args: [] })).rows[0].CharacterId)
+    await actAs(hostDm)
+    const { POST } = await import("@/app/api/roll/test/route")
+    expect((await POST(jsonRequest("/api/roll/test", "POST", { characterId: id, attribute: "Mind" }))).status).toBe(200)
   })
 })

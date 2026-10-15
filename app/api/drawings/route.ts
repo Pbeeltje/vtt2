@@ -3,6 +3,13 @@ import { db } from '@/lib/db'
 import { getUserFromCookie } from '@/lib/auth'
 import { getIO } from '@/lib/socket'
 import { getActiveSceneId } from '@/lib/app-settings'
+import { parseId } from '@/lib/api-errors'
+import { rateLimit } from '@/lib/rate-limit'
+
+/** SVG path data only: commands, numbers, separators. */
+const SVG_PATH = /^[MLHVCSQTAZmlhvcsqtaz0-9eE.,\s+-]+$/
+/** Hex or rgb()/rgba(); nothing that could reference a URL. */
+const DRAWING_COLOR = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i
 
 /** Players only see and draw on the active scene; DMs on any scene. */
 async function maySeeScene(user: { role: string }, sceneId: unknown): Promise<boolean> {
@@ -17,8 +24,8 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url)
-    const sceneId = searchParams.get('sceneId')
-    
+    const sceneId = parseId(searchParams.get('sceneId'))
+
     if (!sceneId) {
       return NextResponse.json({ error: 'Scene ID is required' }, { status: 400 })
     }
@@ -44,29 +51,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    const data = await request.json()
-    
-    if (!data.id || !data.path || !data.color || !data.sceneId) {
-       return NextResponse.json({ error: 'Missing required drawing data fields' }, { status: 400 });
+    if (!rateLimit(`drawing:user:${u.id}`, 120, 60 * 1000)) {
+      return NextResponse.json({ error: 'Drawing too fast; slow down a little' }, { status: 429 })
     }
+
+    const data = await request.json().catch(() => null)
+    if (!data || typeof data !== 'object') {
+      return NextResponse.json({ error: 'Invalid drawing data' }, { status: 400 })
+    }
+    const sceneId = parseId(data.sceneId)
     if (
-      typeof data.id !== 'string' || data.id.length > 64 ||
-      typeof data.path !== 'string' || data.path.length > 200_000 ||
-      typeof data.color !== 'string' || data.color.length > 50
+      !sceneId ||
+      typeof data.id !== 'string' || !/^[\w-]{1,64}$/.test(data.id) ||
+      typeof data.path !== 'string' || data.path.length === 0 || data.path.length > 200_000 || !SVG_PATH.test(data.path) ||
+      typeof data.color !== 'string' || !DRAWING_COLOR.test(data.color)
     ) {
       return NextResponse.json({ error: 'Invalid drawing data' }, { status: 400 });
     }
-    if (!(await maySeeScene(u, data.sceneId))) {
+    if (!(await maySeeScene(u, sceneId))) {
       return NextResponse.json({ error: 'You can only draw on the active scene' }, { status: 403 });
     }
 
-    const createdBy = u.id
-    const createdAt = data.createdAt || new Date().toISOString()
-    const payload = { ...data, createdBy, createdAt }
+    // Only the stored fields go back out; the server sets who and when.
+    const payload = { id: data.id, path: data.path, color: data.color, createdBy: u.id, sceneId, createdAt: new Date().toISOString() }
 
     const info = await db.execute({
       sql: 'INSERT INTO drawing (id, path, color, createdBy, sceneId, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-      args: [data.id, data.path, data.color, createdBy, data.sceneId, createdAt],
+      args: [payload.id, payload.path, payload.color, payload.createdBy, payload.sceneId, payload.createdAt],
     });
 
     if (info.rowsAffected === 0) {
@@ -76,18 +87,11 @@ export async function POST(request: Request) {
 
     // Emit event to other clients
     try {
-      const io = getIO();
-      // Ensure data.sceneId is a string for room name
-      const sceneRoom = typeof data.sceneId === 'number' ? data.sceneId.toString() : data.sceneId;
-      if (sceneRoom) {
-        io.to(sceneRoom).emit('drawing_added', payload);
-        console.log(`Socket.IO: Emitted drawing_added to room ${sceneRoom}`, payload);
-      }
+      getIO().to(String(sceneId)).emit('drawing_added', payload);
     } catch (socketError) {
       console.error("Socket.IO emit error in POST /drawings:", socketError);
-      // Decide if this should affect the HTTP response. For now, it won't.
     }
-    
+
     return NextResponse.json(payload);
   } catch (error) {
     console.error('Error creating drawing:', error);
@@ -111,7 +115,7 @@ export async function DELETE(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const drawingIdToDelete = searchParams.get('id')
-    if (!drawingIdToDelete) {
+    if (!drawingIdToDelete || drawingIdToDelete.length > 64) {
       return NextResponse.json({ error: 'Drawing ID is required' }, { status: 400 })
     }
 

@@ -2,6 +2,7 @@ import Image from "next/image"
 import { tokenCharacterId } from "@/lib/scene-model"
 import { Settings } from "lucide-react"
 import type { LayerImage } from "../../types/layerImage"
+import { STATUS_EFFECTS, StatusEffectIcon, isStatusEffect } from "../../lib/status-effects"
 
 interface TokenRendererProps {
   tokens: LayerImage[];
@@ -64,10 +65,21 @@ export default function TokenRenderer({
               alt="Token" 
               width={img.width || gridSize} 
               height={img.height || gridSize} 
-              style={{ objectFit: 'contain', zIndex: 5 }} 
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               className="token-image" 
             />
             
+            {/* Status effect badge - bottom-right corner, always visible */}
+            {isStatusEffect(img.statusEffect) && (
+              <div
+                className="absolute -right-1 -bottom-1 w-6 h-6 rounded-full bg-white shadow-md border border-gray-300 flex items-center justify-center pointer-events-none"
+                style={{ zIndex: 39 }}
+                title={STATUS_EFFECTS[img.statusEffect].label}
+              >
+                <StatusEffectIcon effect={img.statusEffect} className="w-4 h-4" />
+              </div>
+            )}
+
             {/* Settings Gear - Show when selected */}
             {selectedIds.includes(img.id) && (
               <div className="absolute -right-2 -top-2 z-40">
@@ -104,7 +116,7 @@ export default function TokenRenderer({
               {/* Guard Circle */}
               <div className="status-circle guard-circle relative bg-white rounded-full p-1">
                 <div 
-                  className="w-8 h-8 rounded-full border-2 border-green-500 flex items-center justify-center text-sm cursor-pointer hover:bg-green-50"
+                  className="w-9 h-9 rounded-full border-2 border-green-500 flex items-center justify-center text-[10px] font-bold leading-none tracking-tighter tabular-nums cursor-pointer hover:bg-green-50"
                   onClick={() => onStatusClick('guard', img.character, tokenCharacterId(img)!)}
                 >
                   {img.character.Guard}/{img.character.MaxGuard}
@@ -117,7 +129,7 @@ export default function TokenRenderer({
               {/* Strength Circle */}
               <div className="status-circle strength-circle relative bg-white rounded-full p-1">
                 <div 
-                  className="w-8 h-8 rounded-full border-2 border-red-500 flex items-center justify-center text-sm cursor-pointer hover:bg-red-50"
+                  className="w-9 h-9 rounded-full border-2 border-red-500 flex items-center justify-center text-[10px] font-bold leading-none tracking-tighter tabular-nums cursor-pointer hover:bg-red-50"
                   onClick={() => onStatusClick('strength', img.character, tokenCharacterId(img)!)}
                 >
                   {img.character.Strength}/{img.character.MaxStrength}
@@ -131,7 +143,7 @@ export default function TokenRenderer({
               {img.character.Path === "Magic User" && (
                 <div className="status-circle mp-circle relative bg-white rounded-full p-1">
                   <div 
-                    className="w-8 h-8 rounded-full border-2 border-blue-500 flex items-center justify-center text-sm cursor-pointer hover:bg-blue-50"
+                    className="w-9 h-9 rounded-full border-2 border-blue-500 flex items-center justify-center text-[10px] font-bold leading-none tracking-tighter tabular-nums cursor-pointer hover:bg-blue-50"
                     onClick={() => onStatusClick('mp', img.character, tokenCharacterId(img)!)}
                   >
                     {img.character.Mp}/{img.character.MaxMp}

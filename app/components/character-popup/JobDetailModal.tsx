@@ -143,7 +143,7 @@ export function JobDetailModal({ job, open, onOpenChange, onSave, onCreate }: Jo
         <DialogPrimitive.Content
           className={cn(
             "flex max-h-[85vh] w-[50vw] min-w-[min(100%,18rem)] max-w-[min(50vw,56rem)] flex-col gap-0 overflow-hidden p-0",
-            "fixed left-1/2 top-1/2 z-[210] translate-x-0 translate-y-0 border bg-background shadow-lg outline-none",
+            "jade jade-well jade-fill fixed left-1/2 top-1/2 z-[210] translate-x-0 translate-y-0 border-0 outline-none",
             "data-[state=open]:animate-none data-[state=closed]:animate-none"
           )}
           style={{
@@ -154,7 +154,7 @@ export function JobDetailModal({ job, open, onOpenChange, onSave, onCreate }: Jo
           <DialogHeader
             className={cn(
               "flex shrink-0 flex-row items-center justify-between space-y-0 border-b px-4 py-3 text-left",
-              "cursor-grab touch-none select-none active:cursor-grabbing bg-muted/50"
+              "cursor-grab touch-none select-none active:cursor-grabbing bg-black/25"
             )}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}

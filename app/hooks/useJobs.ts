@@ -28,6 +28,7 @@ function isAbortError(e: unknown): boolean {
 
 export function useJobs(characterId: number) {
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -35,8 +36,10 @@ export function useJobs(characterId: number) {
     const fetchJobs = async () => {
       if (typeof characterId !== 'number' || !Number.isInteger(characterId) || characterId <= 0) {
         setJobs([]);
+        setLoading(false);
         return;
       }
+      setLoading(true);
 
       try {
         const response = await fetch(`/api/characters/${characterId}/jobs`, {
@@ -58,7 +61,10 @@ export function useJobs(characterId: number) {
         const data = (Array.isArray(raw) ? raw : []).map((row) =>
           rowToJob(row as Record<string, unknown>)
         );
-        if (!ac.signal.aborted) setJobs(data);
+        if (!ac.signal.aborted) {
+          setJobs(data);
+          setLoading(false);
+        }
       } catch (error) {
         if (ac.signal.aborted || isAbortError(error)) return;
         const catchedError = error instanceof Error ? error : new Error(String(error));
@@ -68,6 +74,7 @@ export function useJobs(characterId: number) {
           variant: "destructive"
         });
         setJobs([]);
+        setLoading(false);
       }
     };
 
@@ -158,6 +165,7 @@ export function useJobs(characterId: number) {
 
   return {
     jobs,
+    loading,
     handleCreateJob,
     handleJobSubmit,
   };

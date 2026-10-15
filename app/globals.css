@@ -101,3 +101,168 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ==========================================================================
+   Jade HUD theme ("Kuldahar Jade", after Icewind Dale II).
+   Surfaces that opt in with the .jade class get a dark shadcn palette, so Button,
+   Input, Select and friends inside them follow along. The textures are SVG lighting
+   on fractal noise, which gives the prerendered-stone look without image files.
+   ========================================================================== */
+:root {
+  --jade-edge: #0a0d0a;
+  --jade-line: #7d896f;
+  --jade-line-hi: #8e9a80;
+  --jade-well: #1d251c;
+  --jade-deep: #182017;
+  --jade-ink: #e6e3d3;
+  --jade-ink-hi: #efe9cf;
+  --jade-muted: #8f9a84;
+  --jade-gold: #d8c37c;
+  --jade-gold-hi: #e0c25a;
+  --jade-name: #c4d96a;
+  --jade-roll: #9fd6ff;
+  --jade-hit: #ff9b7a;
+  --jade-good: #7cf08a;
+  --jade-warn: #ffd24a;
+  --jade-outline: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 2px 3px #000;
+  /* The bottom HUD: the ticker band plus the panel below it. Floating panels stay clear of it. */
+  --hud-band: 26px;
+  --hud-panel: 136px;
+  --hud-h: calc(var(--hud-band) + var(--hud-panel));
+  --tx-marble: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22360%22%20height%3D%22360%22%3E%3Cfilter%20id%3D%22f%22%20x%3D%220%22%20y%3D%220%22%20width%3D%22100%25%22%20height%3D%22100%25%22%20color-interpolation-filters%3D%22sRGB%22%3E%3CfeTurbulence%20type%3D%22fractalNoise%22%20baseFrequency%3D%220.012%200.035%22%20numOctaves%3D%225%22%20seed%3D%223%22%20stitchTiles%3D%22stitch%22%2F%3E%3CfeDiffuseLighting%20lighting-color%3D%22%238f9c84%22%20surfaceScale%3D%222.2%22%20diffuseConstant%3D%221%22%3E%3CfeDistantLight%20azimuth%3D%22225%22%20elevation%3D%2258%22%2F%3E%3C%2FfeDiffuseLighting%3E%3C%2Ffilter%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20filter%3D%22url(%23f)%22%2F%3E%3C%2Fsvg%3E");
+  --tx-marble-dark: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22256%22%20height%3D%22256%22%3E%3Cfilter%20id%3D%22f%22%20x%3D%220%22%20y%3D%220%22%20width%3D%22100%25%22%20height%3D%22100%25%22%20color-interpolation-filters%3D%22sRGB%22%3E%3CfeTurbulence%20type%3D%22fractalNoise%22%20baseFrequency%3D%220.03%22%20numOctaves%3D%224%22%20seed%3D%2212%22%20stitchTiles%3D%22stitch%22%2F%3E%3CfeDiffuseLighting%20lighting-color%3D%22%233f4a3d%22%20surfaceScale%3D%222%22%20diffuseConstant%3D%221%22%3E%3CfeDistantLight%20azimuth%3D%22225%22%20elevation%3D%2255%22%2F%3E%3C%2FfeDiffuseLighting%3E%3C%2Ffilter%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20filter%3D%22url(%23f)%22%2F%3E%3C%2Fsvg%3E");
+  --tx-knot: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2228%22%20height%3D%2216%22%3E%3Cg%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%3E%3Cpath%20d%3D%22M0%208C7%200%207%200%2014%208S21%2016%2028%208%22%20stroke%3D%22%230b0f0b%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M0%208C7%200%207%200%2014%208S21%2016%2028%208%22%20stroke%3D%22%23a7b394%22%20stroke-width%3D%222.4%22%2F%3E%3Cpath%20d%3D%22M0%208C7%2016%207%2016%2014%208%22%20stroke%3D%22%230b0f0b%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M0%208C7%2016%207%2016%2014%208%22%20stroke%3D%22%23a7b394%22%20stroke-width%3D%222.4%22%2F%3E%3Cpath%20d%3D%22M14%208C21%200%2021%200%2028%208%22%20stroke%3D%22%230b0f0b%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M14%208C21%200%2021%200%2028%208%22%20stroke%3D%22%23a7b394%22%20stroke-width%3D%222.4%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+
+.jade {
+  --background: 115 14% 12%;
+  --foreground: 50 24% 87%;
+  --card: 115 14% 13%;
+  --card-foreground: 50 24% 87%;
+  --popover: 115 14% 13%;
+  --popover-foreground: 50 24% 87%;
+  --primary: 45 55% 66%;
+  --primary-foreground: 120 20% 6%;
+  --secondary: 110 12% 21%;
+  --secondary-foreground: 50 24% 87%;
+  --muted: 110 10% 18%;
+  --muted-foreground: 95 10% 64%;
+  --accent: 110 14% 24%;
+  --accent-foreground: 50 30% 90%;
+  --destructive: 8 65% 42%;
+  --destructive-foreground: 50 30% 95%;
+  --border: 95 9% 30%;
+  --input: 95 9% 30%;
+  --ring: 46 60% 60%;
+  --radius: 2px;
+  color: hsl(var(--foreground));
+  font-family: var(--font-spectral), Georgia, "Times New Roman", serif;
+  color-scheme: dark;
+}
+.jade, .jade * { scrollbar-color: #9aa585 #141a14; }
+.jade ::-webkit-scrollbar { width: 12px; height: 12px; }
+.jade ::-webkit-scrollbar-track { background: linear-gradient(90deg, #141a14, #2c3529, #141a14); }
+.jade ::-webkit-scrollbar-thumb { background: linear-gradient(90deg, #9aa585, #e8e2c0, #9aa585); border: 2px solid #141a14; border-radius: 4px; }
+.jade ::-webkit-scrollbar-corner { background: #141a14; }
+.jade :focus-visible { outline: 2px solid #ffd77a; outline-offset: 2px; }
+
+@layer components {
+  .jade-marble { background-color: #5f6a57; background-image: linear-gradient(rgba(255, 255, 255, .05), rgba(0, 0, 0, .3)), var(--tx-marble); }
+  .jade-marble-dark { background-color: #2c3529; background-image: var(--tx-marble-dark); }
+  .jade-knot { background: var(--tx-knot) 0 50% / 28px 16px repeat-x, #1b231c; box-shadow: 0 -2px 0 var(--jade-edge), 0 2px 0 var(--jade-edge), inset 0 1px 0 #6f7b62, inset 0 -1px 0 #6f7b62; }
+  /* The free-standing knot bars slant down at both ends and slip into the window's frame
+     (bottom bars, .jade-knot-under, slant up instead). The polygon reaches past the box for the edge lines;
+     the corner gradients draw the slanted edge (dark, then the light green inner line) along each cut. */
+  i.jade-knot {
+    --knot-cut: transparent calc(50% - .5px), var(--jade-edge) calc(50% - .5px) calc(50% + 1.5px), #6f7b62 calc(50% + 1.5px) calc(50% + 2.5px), transparent calc(50% + 2.5px);
+    background:
+      linear-gradient(to bottom right, var(--knot-cut)) 2px 0 / 10px 100% no-repeat,
+      linear-gradient(to bottom left, var(--knot-cut)) calc(100% - 2px) 0 / 10px 100% no-repeat,
+      var(--tx-knot) 0 50% / 28px 16px repeat-x, #1b231c;
+    clip-path: polygon(14px -3px, calc(100% - 14px) -3px, 100% calc(100% + 3px), 0 calc(100% + 3px));
+  }
+  i.jade-knot.jade-knot-under {
+    background:
+      linear-gradient(to top right, var(--knot-cut)) 2px 0 / 10px 100% no-repeat,
+      linear-gradient(to top left, var(--knot-cut)) calc(100% - 2px) 0 / 10px 100% no-repeat,
+      var(--tx-knot) 0 50% / 28px 16px repeat-x, #1b231c;
+    clip-path: polygon(0 -3px, 100% -3px, calc(100% - 14px) calc(100% + 3px), 14px calc(100% + 3px));
+  }
+  .jade-frame { box-shadow: 0 0 0 2px var(--jade-edge), 0 0 0 4px var(--jade-line), 0 0 0 5px var(--jade-edge); }
+  .jade-well { background-color: var(--jade-well); box-shadow: 0 0 0 2px var(--jade-edge), 0 0 0 4px var(--jade-line), 0 0 0 5px var(--jade-edge), inset 0 0 14px #000; }
+  .jade-inset { background-color: var(--jade-deep); box-shadow: inset 0 0 0 1px #3f4a3d, inset 0 0 12px #000; }
+  /* Lit dark-green stone for large panel areas. Fixed so neighbouring pieces tile without seams. */
+  .jade-fill { background-color: #344031; background-image: linear-gradient(rgba(170, 186, 150, .10), rgba(0, 0, 0, .10)), var(--tx-marble-dark); background-attachment: fixed; }
+
+  /* Square quick slot (tools, dice, menu). data-active = the chosen tool (IWD red ring), data-lit = a switch that is on. */
+  .jade-slot {
+    position: relative; display: inline-grid; place-items: center; flex: none;
+    color: var(--jade-gold);
+    background: radial-gradient(circle at 50% 45%, #2a3428, #151b14 80%);
+    box-shadow: 0 0 0 2px var(--jade-edge), inset 0 0 0 2px var(--jade-line-hi), inset 0 0 0 3px #232b23, inset 0 0 10px #000;
+    transition: color .12s, box-shadow .12s;
+  }
+  .jade-slot:hover { color: #fff3b0; }
+  .jade-slot[data-active="true"] { color: #fff3b0; box-shadow: 0 0 0 2px var(--jade-edge), inset 0 0 0 2px #d23a2a, inset 0 0 0 3px #3a0d08, inset 0 0 10px #000; }
+  .jade-slot[data-lit="true"] { color: #fff3b0; box-shadow: 0 0 0 2px var(--jade-edge), inset 0 0 0 2px var(--jade-gold-hi), inset 0 0 12px rgba(224, 194, 90, .35); }
+  .jade-slot:disabled { opacity: .45; cursor: default; }
+  .jade-slot svg { filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, .95)) drop-shadow(-1px -1px 0 rgba(255, 255, 255, .15)); }
+
+  .jade-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+    height: 2rem; padding: 0 .75rem; white-space: nowrap;
+    font-family: var(--font-spectral), Georgia, serif; font-weight: 500; color: #f2ecd2;
+    background: linear-gradient(#3c4838, #1a2119);
+    box-shadow: 0 0 0 2px var(--jade-edge), inset 0 0 0 1px #a6b192;
+  }
+  .jade-btn:hover { background: linear-gradient(#4a5845, #222b20); }
+  .jade-btn-danger { color: #fff1e8; background: linear-gradient(#7a2a1c, #3a0d08); box-shadow: 0 0 0 2px var(--jade-edge), inset 0 0 0 1px #e07a5f; }
+  .jade-btn-danger:hover { background: linear-gradient(#923424, #4a120a); }
+  .jade-btn:disabled { color: #7a8470; cursor: default; background: linear-gradient(#2c3529, #151b14); }
+
+  /* Engraved plaque used for tabs and the phase column. */
+  .jade-tab {
+    display: grid; place-items: center;
+    font-family: var(--font-spectral-sc), var(--font-spectral), Georgia, serif; font-weight: 600; letter-spacing: .05em;
+    color: var(--jade-muted);
+    background: linear-gradient(#242d23, #161c15);
+    box-shadow: 0 0 0 2px var(--jade-edge), inset 0 0 0 1px #4c5746;
+  }
+  .jade-tab:hover { color: var(--jade-ink); }
+  .jade-tab[data-active="true"] { color: #fff3b0; background: linear-gradient(#4a3d14, #1d1606); box-shadow: 0 0 0 2px var(--jade-edge), inset 0 0 0 1px var(--jade-gold-hi); }
+
+  .jade-input {
+    background-color: var(--jade-deep); color: var(--jade-ink-hi);
+    box-shadow: 0 0 0 2px var(--jade-edge), inset 0 0 0 1px #5f6b56;
+    font-family: var(--font-spectral), Georgia, serif; outline: none;
+  }
+  .jade-input::placeholder { color: #7d896f; }
+  .jade-input:focus { box-shadow: 0 0 0 2px var(--jade-edge), inset 0 0 0 1px var(--jade-gold-hi); }
+
+  .jade-title { font-family: var(--font-spectral), Georgia, serif; font-weight: 600; color: #f2ecd2; text-shadow: var(--jade-outline); }
+  .jade-sc { font-family: var(--font-spectral-sc), var(--font-spectral), Georgia, serif; letter-spacing: .06em; }
+  .jade-outline { text-shadow: var(--jade-outline); }
+}
+
+@keyframes jade-ticker { to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .jade-ticker-run { animation: none !important; } }
+
+/* Map ping (shift+click): rings grow and fade, the centre dot fades with them. Lasts 1.8s (usePings). */
+@keyframes vtt-ping-ring {
+  from { transform: scale(0.15); opacity: 1; }
+  to { transform: scale(1); opacity: 0; }
+}
+@keyframes vtt-ping-dot {
+  0%, 60% { opacity: 1; }
+  to { opacity: 0; }
+}
+.vtt-ping-ring {
+  border: 3px solid;
+  opacity: 0;
+  animation: vtt-ping-ring 1.3s ease-out forwards;
+}
+.vtt-ping-dot { animation: vtt-ping-dot 1.8s ease-out forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .vtt-ping-ring { animation-duration: 0.01s; animation-delay: 0s !important; opacity: 0; }
+  .vtt-ping-dot { animation-duration: 1.8s; }
+}

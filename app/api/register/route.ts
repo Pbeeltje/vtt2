@@ -11,7 +11,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Too many attempts. Try again in a few minutes." }, { status: 429 });
     }
 
-    const { username, password, inviteCode } = await req.json();
+    const { username, password, inviteCode } = (await req.json().catch(() => ({}))) ?? {};
 
     if (!username || !password || typeof username !== "string" || typeof password !== "string") {
       return NextResponse.json({ error: "Username and password are required" }, { status: 400 });
@@ -31,6 +31,10 @@ export async function POST(req: Request) {
 
     if (sanitizedUsername.length < 3) {
       return NextResponse.json({ error: "Username must be at least 3 characters long" }, { status: 400 });
+    }
+    // Names show up in chat, presence and the DM's user list: letters, digits, _ . - only.
+    if (!/^[\p{L}\p{N}_.-]+$/u.test(sanitizedUsername)) {
+      return NextResponse.json({ error: "Usernames may only contain letters, digits, _ . and -" }, { status: 400 });
     }
 
     if (sanitizedPassword.length < 8) {

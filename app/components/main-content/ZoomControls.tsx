@@ -5,38 +5,27 @@ interface ZoomControlsProps {
   onZoomReset: () => void;
 }
 
-export default function ZoomControls({ 
-  zoomLevel, 
-  onZoomIn, 
-  onZoomOut, 
-  onZoomReset 
-}: ZoomControlsProps) {
+/** Zoom out / level / in, above the drawing toolbar. Clicking the level resets it to 100%. */
+export default function ZoomControls({ zoomLevel, onZoomIn, onZoomOut, onZoomReset }: ZoomControlsProps) {
   return (
-    <div className="flex items-center space-x-2">
-      <button 
-        onClick={onZoomOut} 
-        className="w-6 h-6 flex items-center justify-center bg-stone-300 hover:bg-stone-500 rounded-full" 
-        title="Zoom Out"
-      >
-        <span className="text-sm">−</span>
+    <div
+      className="jade jade-marble mb-2 flex w-fit items-center gap-1 p-1.5"
+      style={{ boxShadow: "0 0 0 2px #0a0d0a, inset 0 0 0 1px #8e9a80, 0 8px 18px rgba(0,0,0,.7)" }}
+    >
+      <button type="button" onClick={onZoomOut} className="jade-slot h-7 w-7 text-lg font-semibold leading-none" title="Zoom out" aria-label="Zoom out">
+        −
       </button>
-      <div className="text-xs font-medium w-12 text-center bg-stone-300 rounded">
+      <button
+        type="button"
+        onClick={onZoomReset}
+        className="jade-inset h-7 w-14 text-center text-xs font-semibold tabular-nums text-[var(--jade-ink-hi)] hover:text-[#fff3b0]"
+        title="Reset zoom to 100%"
+      >
         {Math.round(zoomLevel * 100)}%
-      </div>
-      <button 
-        onClick={onZoomIn} 
-        className="w-6 h-6 flex items-center justify-center bg-stone-300 hover:bg-stone-500 rounded-full" 
-        title="Zoom In"
-      >
-        <span className="text-sm">+</span>
       </button>
-      <button 
-        onClick={onZoomReset} 
-        className="ml-1 px-2 py-1 text-xs bg-stone-300 hover:bg-stone-500 rounded" 
-        title="Reset Zoom"
-      >
-        Reset
+      <button type="button" onClick={onZoomIn} className="jade-slot h-7 w-7 text-lg font-semibold leading-none" title="Zoom in" aria-label="Zoom in">
+        +
       </button>
     </div>
   )
-} 
+}

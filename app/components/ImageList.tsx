@@ -10,6 +10,7 @@ import { toast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { confirm } from "@/components/ui/confirm-dialog"
 import { DEFAULT_BORDER_SIZE, parseSceneData } from "@/lib/scene-model"
 import type { DMImage } from "../types/image"
 
@@ -135,7 +136,7 @@ function ImageList({
                     return (
                       <li
                         key={image.Id}
-                        className={`flex items-center justify-between p-2 bg-white rounded-lg shadow ${isActive ? "ring-2 ring-green-500" : ""}`}
+                        className={`flex items-center justify-between p-2 jade-inset ${isActive ? "ring-2 ring-[var(--jade-good)]" : ""}`}
                         draggable={!isScene}
                         onDragStart={
                           isScene
@@ -148,12 +149,12 @@ function ImageList({
                         onClick={() => isScene && onSceneClick(image)}
                       >
                         <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 bg-gray-200 rounded overflow-hidden">
+                          <div className="w-10 h-10 bg-[#141a14] overflow-hidden">
                             <Image src={image.Link || "/placeholder.svg"} alt={image.Name} width={40} height={40} className="object-cover" draggable={false} />
                           </div>
                           <span className={`text-left ${isScene ? "hover:underline cursor-pointer" : ""} ${image.Name.length > 10 ? "text-sm break-words" : "text-base"}`}>
                             {image.Name}
-                            {isActive && <span className="ml-2 text-xs text-green-700">(active)</span>}
+                            {isActive && <span className="ml-2 text-xs text-[var(--jade-good)]">(active)</span>}
                           </span>
                         </div>
                         <div className="flex gap-1">
@@ -165,7 +166,7 @@ function ImageList({
                                 e.stopPropagation()
                                 onMakeSceneActive(image.Id)
                               }}
-                              className="text-green-500 hover:text-green-700 h-7 w-7"
+                              className="text-[var(--jade-good)] hover:text-white h-7 w-7"
                               title="Make active scene for players"
                             >
                               <Play className="h-4 w-4" />
@@ -175,11 +176,12 @@ function ImageList({
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={(e) => {
+                              onClick={async (e) => {
                                 e.stopPropagation()
-                                if (window.confirm("Clear this scene's tokens, images, fog and grid settings?")) void onClearSceneData(image)
+                                const ok = await confirm({ title: `Clear ${image.Name}?`, description: "Removes this scene's tokens, images, fog and grid settings.", confirmLabel: "Clear", destructive: true })
+                                if (ok) void onClearSceneData(image)
                               }}
-                              className="text-blue-500 hover:text-blue-700 h-7 w-7"
+                              className="text-[var(--jade-roll)] hover:text-white h-7 w-7"
                               title="Clear scene data"
                             >
                               <Trash2 className="h-3 w-3" />
@@ -200,9 +202,10 @@ function ImageList({
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.stopPropagation()
-                              if (window.confirm(`Are you sure you want to delete ${image.Name}?`)) void onDeleteImage(image)
+                              const ok = await confirm({ title: `Delete ${image.Name}?`, description: "This cannot be undone.", confirmLabel: "Delete", destructive: true })
+                              if (ok) void onDeleteImage(image)
                             }}
                             title="Delete image"
                             className="h-7 w-7"
@@ -260,7 +263,7 @@ function ImageList({
                 className="col-span-3"
               />
             </div>
-            <div className="col-span-4 text-sm text-gray-500 text-center">
+            <div className="col-span-4 text-sm text-[var(--jade-muted)] text-center">
               Changing the scale moves tokens, images, fog and drawings with the map. Border size is a fraction of the
               image size (0.2 = 20%) that lets you place things outside the map.
             </div>

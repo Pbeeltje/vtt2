@@ -47,8 +47,8 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
   return (
     <div className="w-full max-w-md space-y-6">
       <div className="space-y-2 text-center">
-        <h1 className="text-3xl font-bold">Login</h1>
-        <p className="text-gray-500 dark:text-gray-400">Enter your credentials to access your account</p>
+        <h1 className="jade-title text-2xl">Welcome back</h1>
+        <p className="text-muted-foreground">Log in to take your seat at the table.</p>
       </div>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">

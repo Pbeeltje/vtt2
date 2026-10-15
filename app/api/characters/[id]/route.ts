@@ -7,6 +7,7 @@ import { tokenCharacterId } from "@/lib/scene-model"
 import { listSceneRows, updateScene } from "@/lib/scene-store"
 import { broadcastSceneState } from "@/lib/scene-sync"
 import { refreshCharacterTokens } from "@/lib/token-refresh"
+import { CHARACTER_SIZES, isCharacterSize } from "@/app/lib/tokens"
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -18,6 +19,11 @@ const NUMBER_FIELDS = [
 ]
 const TEXT_FIELDS: Record<string, number> = { Name: 100, Description: 20_000 }
 const URL_FIELDS = ["PortraitUrl", "TokenUrl"]
+/**
+ * Image URLs end up in <img src> and CSS url("...") on every player's screen: same-site paths or
+ * https only, and no quotes, brackets or spaces that could break out of url("...").
+ */
+const IMAGE_URL = /^(\/(?![/\\])|https:\/\/)[^\s"'()<>\\]*$/
 const PATHS = ["Warrior", "Magic User"]
 
 /**
@@ -42,12 +48,18 @@ function columnsFromBody(body: Record<string, unknown>, isDM: boolean): Record<s
   for (const field of URL_FIELDS) {
     const value = body[field]
     if (value === undefined) continue
-    if (value !== null && (typeof value !== "string" || value.length > 2000)) return `${field} must be a URL`
+    if (value !== null && value !== "" && (typeof value !== "string" || value.length > 2000 || !IMAGE_URL.test(value))) {
+      return `${field} must be an uploaded image or an https:// link`
+    }
     columns[field] = value || null
   }
   if (body.Path !== undefined) {
     if (typeof body.Path !== "string" || !PATHS.includes(body.Path)) return "Path must be Warrior or Magic User"
     columns.Path = body.Path
+  }
+  if (body.Size !== undefined) {
+    if (!isCharacterSize(body.Size)) return `Size must be one of ${Object.keys(CHARACTER_SIZES).join(", ")}`
+    columns.Size = body.Size
   }
   if (body.JobId !== undefined) {
     if (body.JobId !== null && !Number.isInteger(body.JobId)) return "JobId must be a number or null"

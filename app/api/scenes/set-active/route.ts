@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth"
 import { authErrorResponse, parseId } from "@/lib/api-errors"
 import { getActiveSceneId, setActiveSceneId } from "@/lib/app-settings"
 import { getSceneRow } from "@/lib/scene-store"
-import { getIO, AUTHENTICATED_ROOM } from "@/lib/socket"
+import { getIO, AUTHENTICATED_ROOM, removePlayersFromInactiveScenes } from "@/lib/socket"
 
 /** The active scene id (what players see), for any logged-in user. */
 export async function GET() {
@@ -29,6 +29,8 @@ export async function POST(req: Request) {
     }
 
     await setActiveSceneId(id)
+    // Players stop receiving updates for the scene they were on, whatever their client does.
+    removePlayersFromInactiveScenes(id)
     getIO().to(AUTHENTICATED_ROOM).emit("force_scene_change", id)
     return NextResponse.json({ ok: true, sceneId: id })
   } catch (error) {

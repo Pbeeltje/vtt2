@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireAuth } from "@/lib/auth"
 import { toJournalNote } from "@/app/types/journal-note"
+import { parseId } from "@/lib/api-errors"
 
 const MAX_CONTENT = 200_000
 const MAX_TITLE = 500
@@ -13,8 +14,8 @@ export async function PATCH(
   try {
     const user = await requireAuth()
     const { id: idParam } = await params
-    const id = parseInt(idParam, 10)
-    if (!Number.isFinite(id)) {
+    const id = parseId(idParam)
+    if (!id) {
       return NextResponse.json({ error: "Invalid id" }, { status: 400 })
     }
 
@@ -27,7 +28,10 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const data = (await request.json()) as { title?: unknown; content?: unknown }
+    const data = (await request.json().catch(() => null)) as { title?: unknown; content?: unknown } | null
+    if (!data || typeof data !== "object") {
+      return NextResponse.json({ error: "Invalid body" }, { status: 400 })
+    }
     let title = existing.Title
     let content = existing.Content
 
@@ -66,8 +70,8 @@ export async function DELETE(
   try {
     const user = await requireAuth()
     const { id: idParam } = await params
-    const id = parseInt(idParam, 10)
-    if (!Number.isFinite(id)) {
+    const id = parseId(idParam)
+    if (!id) {
       return NextResponse.json({ error: "Invalid id" }, { status: 400 })
     }
 

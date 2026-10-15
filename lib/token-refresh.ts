@@ -1,6 +1,6 @@
 // Tokens carry a snapshot of their character's stats (PLAN.md Phase 2 replaces it with live
 // data). Until then the server refreshes the snapshots whenever a character is saved.
-import { characterTokenSnapshot, characterTokenUrl } from "../app/lib/tokens"
+import { characterTokenSnapshot, characterTokenUrl, sizeMultiplier } from "../app/lib/tokens"
 import type { Character } from "../app/types/character"
 import type { LayerImage } from "../app/types/layerImage"
 import { tokenCharacterId } from "./scene-model"
@@ -20,7 +20,10 @@ export async function refreshCharacterTokens(row: Record<string, unknown>): Prom
         const url = token.url === characterTokenUrl(token.character) ? characterTokenUrl(character) : token.url
         if (url === token.url && JSON.stringify(snapshot) === JSON.stringify(token.character)) return token
         changed = true
-        return { ...token, url, characterId: character.CharacterId, character: snapshot }
+        // A new size scales the token, keeping any manual resize relative to it.
+        const scale = sizeMultiplier(snapshot.Size) / sizeMultiplier(token.character.Size)
+        const resized = scale === 1 ? {} : { width: Math.round((token.width || state.gridSize) * scale), height: Math.round((token.height || state.gridSize) * scale) }
+        return { ...token, ...resized, url, characterId: character.CharacterId, character: snapshot }
       })
       return changed ? { ...state, elements: { ...state.elements, topLayer } } : { error: "unchanged", status: 200 }
     })

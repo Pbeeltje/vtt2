@@ -10,6 +10,8 @@ export type LayerImage = {
     color?: string // Optional: Token color overlay (hex color)
     auraColor?: string // Optional: Token aura color (hex color)
     auraRadius?: number // Optional: Token aura radius in grid units
+    statusEffect?: string // Optional: status effect icon shown on the token (app/lib/status-effects.tsx)
+    rotation?: number // Optional: clockwise rotation in degrees around the item's centre (map images/props)
     character?: {
       CharacterId?: number; // Add CharacterId here
       Name: string
@@ -20,6 +22,7 @@ export type LayerImage = {
       MaxStrength: number
       Mp: number
       MaxMp: number
+      Size?: string; // Small | Medium | Large | Huge | Massive (app/lib/tokens.ts)
       userId?: number; // Added character's userId
       TokenUrl?: string; // Add TokenUrl for token images
       PortraitUrl?: string; // Add PortraitUrl for portrait images

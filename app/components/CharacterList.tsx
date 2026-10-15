@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Trash2 } from "lucide-react"
+import { confirm } from "@/components/ui/confirm-dialog"
 import { characterTokenSnapshot, characterTokenUrl } from "../lib/tokens"
 import type { Character } from "../types/character"
 
@@ -47,16 +48,16 @@ const CharacterListItem = memo(function CharacterListItem({
 
   return (
     <li
-      className="flex items-center justify-between p-2 bg-white rounded-lg shadow"
+      className="jade-inset flex items-center justify-between p-2"
       draggable={canDrag}
       onDragStart={canDrag ? handleDragStart : undefined}
     >
       <div className="flex items-center space-x-3">
-        <div className="w-12 h-12 bg-gray-200 rounded-full overflow-hidden">
+        <div className="w-12 h-12 bg-[#141a14] rounded-full shadow-[0_0_0_2px_#0a0d0a,0_0_0_3px_#7d896f] overflow-hidden">
           {hasImage ? (
             <Image src={characterTokenUrl(character)} alt={`${character.TokenUrl ? "Token" : "Portrait"} of ${character.Name}`} width={48} height={48} className="object-cover" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">No Image</div>
+            <div className="w-full h-full flex items-center justify-center text-[var(--jade-muted)] text-xs">No Image</div>
           )}
         </div>
         <button className="text-left hover:underline" onClick={() => onOpen(character)}>
@@ -76,8 +77,9 @@ function CharacterList({ characters, onAddCharacter, onOpenCharacter, onDeleteCh
   const [activeCategory, setActiveCategory] = useState<string>(CATEGORIES_FOR_DM[0])
 
   const handleDelete = useCallback(
-    (character: Character) => {
-      if (window.confirm(`Are you sure you want to delete ${character.Name}?`)) onDeleteCharacter(character)
+    async (character: Character) => {
+      const ok = await confirm({ title: `Delete ${character.Name}?`, description: "This cannot be undone.", confirmLabel: "Delete", destructive: true })
+      if (ok) onDeleteCharacter(character)
     },
     [onDeleteCharacter]
   )
@@ -108,7 +110,7 @@ function CharacterList({ characters, onAddCharacter, onOpenCharacter, onDeleteCh
         {characters.length > 0 ? (
           <ul className="space-y-2">{renderItems(characters)}</ul>
         ) : (
-          <p className="p-2 text-gray-500">You have no characters assigned to you.</p>
+          <p className="p-2 text-[var(--jade-muted)]">You have no characters assigned to you.</p>
         )}
       </ScrollArea>
     )
@@ -128,10 +130,10 @@ function CharacterList({ characters, onAddCharacter, onOpenCharacter, onDeleteCh
           <ScrollArea className="h-[calc(100vh-280px)] pr-4">
             <ul className="space-y-2">
               {renderItems(byCategory[category])}
-              {byCategory[category].length === 0 && <li className="p-2 text-gray-500">No characters in this category</li>}
+              {byCategory[category].length === 0 && <li className="p-2 text-[var(--jade-muted)]">No characters in this category</li>}
             </ul>
             <Button className="w-full mt-4" onClick={() => onAddCharacter(category)}>
-              <Plus className="w-4 h-4 mr-2" /> Add {category}
+              <Plus className="w-4 h-4 mr-2" /> Add {category === "Party" ? "PC" : category}
             </Button>
           </ScrollArea>
         </TabsContent>

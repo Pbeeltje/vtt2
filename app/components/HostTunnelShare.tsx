@@ -9,7 +9,11 @@ const DISMISS_KEY = "vtt-dismiss-tunnel-share-popup";
 
 type TunnelGet = { enabled: boolean; running?: boolean; url?: string | null };
 
-export function HostTunnelShare({ visible }: { visible: boolean }) {
+/**
+ * The DM's internet share card. `openRequest` counts clicks on "Share" in the Players tab: each
+ * one brings the card back after it was hidden.
+ */
+export function HostTunnelShare({ visible, openRequest = 0 }: { visible: boolean; openRequest?: number }) {
   const [enabled, setEnabled] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -48,6 +52,22 @@ export function HostTunnelShare({ visible }: { visible: boolean }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (openRequest === 0 || !checked) return;
+    if (!enabled) {
+      toast({ title: "Sharing is off", description: "Internet sharing isn't switched on for this server." });
+      return;
+    }
+    setDismissed(false);
+    try {
+      localStorage.removeItem(DISMISS_KEY);
+    } catch {
+      /* ignore */
+    }
+    // Only react to new clicks, not to the checks finishing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest]);
 
   useEffect(() => {
     if (!visible || !url) return;
@@ -111,7 +131,7 @@ export function HostTunnelShare({ visible }: { visible: boolean }) {
   if (!visible || !checked || !enabled || dismissed) return null;
 
   return (
-    <div className="fixed bottom-[4.5rem] left-3 z-[200] max-w-sm rounded-lg border bg-background/95 p-3 pr-9 shadow-md backdrop-blur text-sm">
+    <div className="jade jade-well fixed bottom-[calc(var(--hud-h)+16px)] left-3 z-[40] max-w-sm p-3 pr-9 text-sm">
       <Button
         type="button"
         variant="ghost"
