@@ -29,7 +29,7 @@ interface RightSideMenuProps {
   onOpenCharacter: (character: Character) => void
   onDeleteCharacter: (character: Character) => void
   images: DMImage[]
-  /** The scene list from the scene state (fresher SceneData than the image list). */
+  /** The scene list from the scene state (fresher scene summaries than the image list). */
   scenes: DMImage[]
   onRefreshImages: () => void
   onUploadImage: (category: string, file: File) => Promise<unknown>

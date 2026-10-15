@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db as client } from "@/lib/db"
 import { requireAuth, getUserFromCookie } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
+import { DMIMAGE_SUMMARY_COLUMNS, toSummaryRow } from "@/lib/scene-store";
 import fs from 'fs';
 import path from 'path';
 
@@ -21,15 +22,13 @@ export async function GET(req: Request) {
     // Only DMs can access images
     const user = await requireAuth('DM');
 
+    // Scenes come with a summary of their map state, not the whole SceneData (that can be large).
     const result = await client.execute({
-      sql: "SELECT * FROM DMImage",
+      sql: `SELECT ${DMIMAGE_SUMMARY_COLUMNS} FROM DMImage`,
       args: [],
     });
-    
-    // No translation needed, just return the result as is
-    const imagesWithTranslatedCategory = result.rows;
-    
-    return NextResponse.json(imagesWithTranslatedCategory);
+
+    return NextResponse.json(result.rows.map(toSummaryRow));
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Authentication required") {

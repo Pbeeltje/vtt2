@@ -9,6 +9,7 @@ import {
   normalizeSceneState,
   parseSceneData,
   sceneContentKey,
+  sceneSummary,
   type SceneState,
 } from "@/lib/scene-model"
 import { api, ApiError, errorMessage } from "../lib/api"
@@ -23,8 +24,28 @@ const SAVE_DELAY_MS = 400
 type SceneResponse = { sceneId: number; state: SceneState | null }
 
 function savedAt(scene: DMImage): number {
-  const at = scene.SceneData ? parseSceneData(scene.SceneData).savedAt : undefined
-  return at ? Date.parse(at) || 0 : 0
+  return scene.SavedAt ? Date.parse(scene.SavedAt) || 0 : 0
+}
+
+/** A scene as the lists keep it: the summary of `state` instead of the full SceneData. */
+function listEntry(row: DMImage, state: SceneState | null): DMImage {
+  const { SceneData: _full, ...rest } = row
+  return { ...rest, ...sceneSummary(state) }
+}
+
+/**
+ * `row` with the summary of `state`, or `row` itself when nothing the lists show changed (so the
+ * memoised side panels don't re-render on every autosave). SavedAt only matters for the DM's
+ * start scene at login, so it doesn't count as a change.
+ */
+function withSummary(row: DMImage, state: SceneState | null): DMImage {
+  const next = sceneSummary(state)
+  const same =
+    row.SceneData === undefined &&
+    row.HasSceneData === next.HasSceneData &&
+    row.Scale === next.Scale &&
+    row.BorderSize === next.BorderSize
+  return same ? row : listEntry(row, state)
 }
 
 /**
@@ -67,10 +88,15 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
     [commit]
   )
 
+  /** Keeps the scene lists' summary of `sceneId` in step with a newly saved or received state. */
   const rememberSceneData = useCallback((sceneId: number, state: SceneState | null) => {
-    const SceneData = state ? JSON.stringify(state) : undefined
-    setScenes((prev) => prev.map((s) => (s.Id === sceneId ? { ...s, SceneData } : s)))
-    setSelectedScene((prev) => (prev && prev.Id === sceneId ? { ...prev, SceneData } : prev))
+    setScenes((prev) => {
+      const index = prev.findIndex((s) => s.Id === sceneId)
+      if (index === -1) return prev
+      const updated = withSummary(prev[index], state)
+      return updated === prev[index] ? prev : prev.map((s, i) => (i === index ? updated : s))
+    })
+    setSelectedScene((prev) => (prev && prev.Id === sceneId ? withSummary(prev, state) : prev))
   }, [])
 
   /** A newer server state for `sceneId`, merged into the scene if it is the one on screen. */
@@ -148,7 +174,10 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
     return () => window.removeEventListener("beforeunload", onUnload)
   }, [flushSave])
 
-  /** Shows a scene (or nothing). Pending edits of the previous scene are saved first. */
+  /**
+   * Shows a scene (or nothing). `row` must be a full row (with SceneData, from GET /api/scenes/[id]);
+   * list rows only carry a summary. Pending edits of the previous scene are saved first.
+   */
   const showScene = useCallback(
     async (row: DMImage | null) => {
       await flushSave()
@@ -156,7 +185,7 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
       sceneIdRef.current = row?.Id ?? null
       baseRef.current = row ? state : null
       commit(state)
-      setSelectedScene(row)
+      setSelectedScene(row ? listEntry(row, row.SceneData ? state : null) : null)
     },
     [commit, flushSave]
   )
@@ -166,7 +195,8 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
     async (sceneId: number) => {
       try {
         const row = await api<DMImage>(`/api/scenes/${sceneId}`)
-        setScenes((prev) => (prev.some((s) => s.Id === row.Id) ? prev.map((s) => (s.Id === row.Id ? row : s)) : [...prev, row]))
+        const entry = listEntry(row, row.SceneData ? parseSceneData(row.SceneData) : null)
+        setScenes((prev) => (prev.some((s) => s.Id === row.Id) ? prev.map((s) => (s.Id === row.Id ? entry : s)) : [...prev, entry]))
         await showScene(row)
       } catch (error) {
         toast({ title: "Scene not loaded", description: errorMessage(error), variant: "destructive" })
@@ -187,13 +217,15 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
         setActiveSceneId(active.sceneId)
         const start =
           list.find((s) => s.Id === active.sceneId) ??
-          (forUser.role === "DM" ? [...list].filter((s) => s.SceneData).sort((a, b) => savedAt(b) - savedAt(a))[0] : undefined)
-        await showScene(start ?? null)
+          (forUser.role === "DM" ? [...list].filter((s) => s.HasSceneData).sort((a, b) => savedAt(b) - savedAt(a))[0] : undefined)
+        // The list only has summaries; load the full map state of the scene to show.
+        if (start) await loadSceneById(start.Id)
+        else await showScene(null)
       } catch (error) {
         toast({ title: "Scenes not loaded", description: errorMessage(error), variant: "destructive" })
       }
     },
-    [showScene]
+    [showScene, loadSceneById]
   )
 
   const resetScenes = useCallback(() => {

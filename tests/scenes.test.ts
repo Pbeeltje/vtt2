@@ -80,6 +80,33 @@ describe("scene list and access", () => {
     expect(forDm.map((s: { Id: number }) => s.Id)).toEqual(expect.arrayContaining([active, prep]))
   })
 
+  it("lists scenes as summaries; the full map state only comes with a single scene", async () => {
+    const big = await createScene("Summarised", { scale: 2, borderSize: 0.5, savedAt: "2026-02-03T00:00:00.000Z", gridSize: 40 })
+    const broken = await createScene("Broken", null)
+    const { db } = await import("@/lib/db")
+    await db.execute({ sql: "UPDATE DMImage SET SceneData = '{oops' WHERE Id = ?", args: [broken] })
+
+    await actAs(hostDm)
+    const { GET } = await scenesRoute()
+    const list = await (await GET()).json()
+    const row = (id: number) => list.find((s: { Id: number }) => s.Id === id)
+    expect(row(big)).toEqual({
+      Id: big, Name: "Summarised", Link: "/uploads/Scene/Summarised.png", Category: "Scene", UserId: 0,
+      HasSceneData: true, Scale: 2, BorderSize: 0.5, SavedAt: "2026-02-03T00:00:00.000Z",
+    })
+    // Same defaults parseSceneData would give.
+    expect(row(broken)).toMatchObject({ HasSceneData: true, Scale: 1, BorderSize: 0.2, SavedAt: null })
+    expect(list.every((s: Record<string, unknown>) => !("SceneData" in s))).toBe(true)
+
+    const { GET: getImages } = await import("@/app/api/images/route")
+    const images = await (await getImages(jsonRequest("/api/images", "GET"))).json()
+    expect(images.find((i: { Id: number }) => i.Id === big)).toEqual(row(big))
+
+    const { GET: getOne } = await sceneRoute()
+    const full = await (await getOne(jsonRequest(`/api/scenes/${big}`, "GET"), params(big))).json()
+    expect(JSON.parse(full.SceneData)).toMatchObject({ scale: 2, gridSize: 40 })
+  })
+
   it("hides other scenes from players by id", async () => {
     const { GET } = await sceneRoute()
     await actAs(alice)
@@ -163,6 +190,22 @@ describe("versioned saves", () => {
     expect(event.args[0]).toBe(sceneId)
     expect(event.args[1]).toMatchObject({ version: 1, isDarknessLayerVisible: true, darknessPaths: fog })
     for (const c of [dm, player, guest]) c.socket.disconnect()
+  })
+
+  it("stores and broadcasts the fog compacted", async () => {
+    const at = (s: number) => `2026-01-01T00:00:0${s}`
+    const rect = { x: 0, y: 0, width: 50, height: 50 }
+    const fog = [
+      { id: "p0", type: "paint", createdAt: at(0), cellRect: { x: 50, y: 0, width: 50, height: 50 } },
+      { id: "e1", type: "erase", createdAt: at(1), cellRect: rect },
+      { id: "p2", type: "paint", createdAt: at(2), cellRect: rect },
+      { id: "e3", type: "erase", createdAt: at(3), cellRect: rect },
+    ]
+    const res = await saveScene(sceneId, { darknessPaths: fog as SceneState["darknessPaths"] }, 0)
+    expect((await res.json()).state.darknessPaths.map((p: { id: string }) => p.id)).toEqual(["e3"])
+    const { db } = await import("@/lib/db")
+    const stored = await db.execute({ sql: "SELECT SceneData FROM DMImage WHERE Id = ?", args: [sceneId] })
+    expect(JSON.parse(String(stored.rows[0].SceneData)).darknessPaths.map((p: { id: string }) => p.id)).toEqual(["e3"])
   })
 
   it("only lets the DM save the whole scene", async () => {
