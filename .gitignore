@@ -33,4 +33,5 @@ vttdatabase.db-wal
 .cursor/rules/task-list.mdc
 *.csv
 .cursor/rules/security-checklist.mdc
-public/uploads/Images/
+public/uploads/
+!.env.example
