@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { clientToGridLogical } from "@/lib/utils"
+import { thumbUrl } from "@/lib/upload-url"
 import { toast } from "@/components/ui/use-toast"
 import type { LayerImage } from "../types/layerImage"
 import { createCharacterToken } from "../lib/tokens"
@@ -221,7 +222,8 @@ export const useDragAndDrop = ({
       canvas.width = item.width || gridSize
       canvas.height = item.height || gridSize
       const img = new window.Image()
-      img.src = item.url
+      // The copy the map already shows, so starting a drag doesn't fetch the full-size original.
+      img.src = thumbUrl(item.url, Math.max(canvas.width, canvas.height))
       img.onload = () => { 
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
         try {
@@ -272,6 +274,9 @@ export const useDragAndDrop = ({
       dx = newX - referenceItem.x
       dy = newY - referenceItem.y
     }
+
+    // `drag` keeps firing while the mouse rests, and tokens snap to whole cells: most calls move nothing.
+    if (dx === 0 && dy === 0) return
 
     const { middleLayer, topLayer } = updateItemPosition(draggingIds, dx, dy)
     onUpdateImages?.(middleLayer, topLayer)

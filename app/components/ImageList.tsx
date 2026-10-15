@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label"
 import { confirm } from "@/components/ui/confirm-dialog"
 import { DEFAULT_BORDER_SIZE, parseSceneData } from "@/lib/scene-model"
 import type { DMImage } from "../types/image"
+import { thumbUrl } from "@/lib/upload-url"
 
 const CATEGORIES = ["Scene", "Image", "Prop"] as const
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
@@ -150,7 +151,7 @@ function ImageList({
                       >
                         <div className="flex items-center space-x-3">
                           <div className="w-10 h-10 bg-[#141a14] overflow-hidden">
-                            <Image src={image.Link || "/placeholder.svg"} alt={image.Name} width={40} height={40} className="object-cover" draggable={false} />
+                            <Image src={thumbUrl(image.Link || "/placeholder.svg", 40)} loading="lazy" alt={image.Name} width={40} height={40} className="object-cover" draggable={false} />
                           </div>
                           <span className={`text-left ${isScene ? "hover:underline cursor-pointer" : ""} ${image.Name.length > 10 ? "text-sm break-words" : "text-base"}`}>
                             {image.Name}

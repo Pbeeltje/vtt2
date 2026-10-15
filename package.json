@@ -8,6 +8,8 @@
     "dev:share": "concurrently -n app,tunnel -c blue,magenta \"npm run dev\" \"node ./scripts/wait-and-tunnel.mjs\"",
     "build": "next build && tsc --project tsconfig.server.json",
     "start": "cross-env NODE_ENV=production node .next/server_custom_build/server.js",
+    "start:share": "concurrently -n app,tunnel -c blue,magenta \"npm start\" \"node ./scripts/wait-and-tunnel.mjs\"",
+    "session": "npm run build && npm run start:share",
     "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.server.json",
     "test": "vitest run",
     "test:watch": "vitest",

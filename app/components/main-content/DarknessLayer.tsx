@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 
 export interface DarknessPath {
   id: string;
@@ -20,18 +20,8 @@ interface DarknessLayerProps {
   currentUserRole?: string | null;
 }
 
-export default function DarknessLayer({
-  width,
-  height,
-  darknessPaths,
-  isVisible,
-  currentUserRole,
-}: DarknessLayerProps) {
-  const isDM = currentUserRole === 'DM';
-  
-  // Don't render anything if not visible
-  if (!isVisible) return null;
-
+/** The mask's paint/erase shapes, in the order they were made. */
+function maskNodes(darknessPaths: DarknessPath[]) {
   /** Paint vs erase must interleave by time; if all paints render after all erases, fog paint blocks later reveals forever. */
   const orderedPaths = [...darknessPaths].sort((a, b) => {
     const t = (a.createdAt || "").localeCompare(b.createdAt || "");
@@ -39,7 +29,7 @@ export default function DarknessLayer({
     return a.id.localeCompare(b.id);
   });
 
-  const maskOperationNodes = orderedPaths.map((p) => {
+  return orderedPaths.map((p) => {
     const ink = p.type === "erase" ? "black" : "white";
     if (p.cellRect) {
       return (
@@ -66,6 +56,21 @@ export default function DarknessLayer({
       />
     );
   });
+}
+
+function DarknessLayer({
+  width,
+  height,
+  darknessPaths,
+  isVisible,
+  currentUserRole,
+}: DarknessLayerProps) {
+  const isDM = currentUserRole === 'DM';
+  // Only rebuilt when the fog itself changes, not on every map re-render.
+  const maskOperationNodes = useMemo(() => maskNodes(darknessPaths), [darknessPaths]);
+
+  // Don't render anything if not visible
+  if (!isVisible) return null;
 
   // For players, show solid black overlay with erased areas creating transparent holes
   if (!isDM) {
@@ -140,3 +145,4 @@ export default function DarknessLayer({
     </div>
   );
 } 
+export default memo(DarknessLayer);

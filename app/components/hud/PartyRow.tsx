@@ -3,6 +3,7 @@
 import { memo } from "react"
 import type { PartyMember } from "../../hooks/useParty"
 import type { User } from "../../types/user"
+import { thumbUrl } from "@/lib/upload-url"
 
 interface PartyRowProps {
   party: PartyMember[]
@@ -49,7 +50,7 @@ function PartyRow({ party, user, openCharacterId, onOpenSheet }: PartyRowProps) 
               <span
                 className="relative block h-[72px] w-16 bg-[#111] bg-cover bg-[center_25%]"
                 style={{
-                  backgroundImage: picture ? `url("${picture}")` : undefined,
+                  backgroundImage: picture ? `url("${thumbUrl(picture, 72)}")` : undefined,
                   boxShadow: open
                     ? `0 0 0 2px #0a0d0a, 0 0 0 3px #48d85b${own ? ", 0 0 0 5px #e0c25a" : ""}, 0 0 10px rgba(72,216,91,.5)`
                     : own

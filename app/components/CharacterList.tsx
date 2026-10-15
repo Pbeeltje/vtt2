@@ -9,6 +9,7 @@ import { Plus, Trash2 } from "lucide-react"
 import { confirm } from "@/components/ui/confirm-dialog"
 import { characterTokenSnapshot, characterTokenUrl } from "../lib/tokens"
 import type { Character } from "../types/character"
+import { thumbUrl } from "@/lib/upload-url"
 
 const CATEGORIES_FOR_DM = ["Party", "NPC", "Monster"] as const
 
@@ -55,7 +56,7 @@ const CharacterListItem = memo(function CharacterListItem({
       <div className="flex items-center space-x-3">
         <div className="w-12 h-12 bg-[#141a14] rounded-full shadow-[0_0_0_2px_#0a0d0a,0_0_0_3px_#7d896f] overflow-hidden">
           {hasImage ? (
-            <Image src={characterTokenUrl(character)} alt={`${character.TokenUrl ? "Token" : "Portrait"} of ${character.Name}`} width={48} height={48} className="object-cover" />
+            <Image src={thumbUrl(characterTokenUrl(character), 48)} loading="lazy" alt={`${character.TokenUrl ? "Token" : "Portrait"} of ${character.Name}`} width={48} height={48} className="object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-[var(--jade-muted)] text-xs">No Image</div>
           )}

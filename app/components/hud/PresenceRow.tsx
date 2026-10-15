@@ -3,6 +3,7 @@
 import { memo } from "react"
 import { DEFAULT_AVATAR_URL } from "@/lib/player-colors"
 import type { PlayerProfile } from "../../hooks/usePresence"
+import { thumbUrl } from "@/lib/upload-url"
 
 interface PresenceRowProps {
   online: PlayerProfile[]
@@ -32,7 +33,7 @@ function PresenceRow({ online, currentUserId, onOpenProfile }: PresenceRowProps)
             <span
               className="relative block h-[88px] w-[88px] bg-[#6b6f68] bg-cover bg-center"
               style={{
-                backgroundImage: `url("${player.avatarUrl || DEFAULT_AVATAR_URL}")`,
+                backgroundImage: `url("${thumbUrl(player.avatarUrl || DEFAULT_AVATAR_URL, 88)}")`,
                 // The scene plate's frame (.jade-well), without its dark fill.
                 boxShadow: "0 0 0 2px var(--jade-edge), 0 0 0 4px var(--jade-line), 0 0 0 5px var(--jade-edge)",
               }}

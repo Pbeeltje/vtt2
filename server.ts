@@ -14,6 +14,7 @@ import { initSocketIO } from './lib/socket';
 import { getDb } from './lib/db';
 import { ensureEnvDmUser, runMigrations } from './lib/migrate';
 import { checkApiRequest, sanitizeForwardedHeaders } from './lib/request-guard';
+import { handleUploadRequest } from './lib/uploads-server';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getRequestHandlers } = require('next/dist/server/lib/start-server') as {
@@ -110,7 +111,15 @@ async function main(): Promise<void> {
       return;
     }
     req.url = formatUrl(parsedUrl);
-    void requestHandler(req, res);
+    void handleUploadRequest(req, res, parsedUrl.pathname ?? '', projectRoot)
+      .then((handled) => {
+        if (!handled) return requestHandler(req, res);
+      })
+      .catch((err) => {
+        console.error('Request failed:', err);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
   });
 
   httpServer.on('upgrade', (req, socket, head) => {

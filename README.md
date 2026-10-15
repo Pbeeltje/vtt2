@@ -42,6 +42,14 @@ and is the only one who can reset a DM's password. Players register on the login
 - **LAN:** players open `http://<your-ip>:3000` (the server prints the address).
 - **Internet:** `npm run dev:share` starts the app plus a Cloudflare quick tunnel and prints the
   public URL. Or run `npm run tunnel:cloudflare` / `npm run tunnel:ngrok` next to `npm run dev`.
+- **For a real session, run the production build:** `npm run session` builds, starts and tunnels
+  (or `npm run build` once, then `npm run start:share`). The dev server compiles pages on first
+  visit and ships unminified React, which players feel as lag. Stop `npm run dev` first: the build
+  replaces `.next`.
+
+Uploads are served by `server.ts` itself (`lib/uploads-server.ts`) with a year-long cache, and
+small pictures (tokens, lists, avatars) load resized WebP copies from `/uploads/_thumbs/<size>/`,
+made on first request and kept in `.cache/thumbs/`.
 
 ## Scripts
 
@@ -49,6 +57,7 @@ and is the only one who can reset a DM's password. Players register on the login
 |---|---|
 | `npm run dev` | Dev server (restarts when `server.ts` or the socket/DB modules change). |
 | `npm run build` / `npm start` | Production build / run. |
+| `npm run start:share` / `npm run session` | Production server plus tunnel / build first, then that. |
 | `npm test` | Vitest: unit tests plus API and Socket.IO integration tests on a temp DB. |
 | `npm run typecheck` | TypeScript for the app and the custom server. |
 

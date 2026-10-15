@@ -9,7 +9,9 @@
     "lib/env-dm.ts",
     "lib/app-settings.ts",
     "lib/parse-user-cookie.ts",
-    "lib/session-token.ts"
+    "lib/session-token.ts",
+    "lib/uploads-server.ts",
+    "lib/upload-url.ts"
   ],
   "ext": "ts,sql,json",
   "exec": "tsc --project tsconfig.server.json && node .next/server_custom_build/server.js",

@@ -35,3 +35,7 @@ vttdatabase.db-wal
 .cursor/rules/security-checklist.mdc
 public/uploads/
 !.env.example
+
+# resized upload copies (lib/uploads-server.ts)
+/.cache/
+/.claude/worktrees/

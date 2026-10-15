@@ -6,6 +6,7 @@ import { DEFAULT_AVATAR_URL, PLAYER_COLORS, PLAYER_COLOR_NAMES } from "@/lib/pla
 import { api, errorMessage } from "../lib/api"
 import { useImageUpload } from "./character-popup/useImageUpload"
 import type { User } from "../types/user"
+import { thumbUrl } from "@/lib/upload-url"
 
 interface PlayerProfileProps {
   user: User
@@ -39,7 +40,7 @@ export default function PlayerProfile({ user, onProfileChange }: PlayerProfilePr
         disabled={avatar.uploading || saving}
         className="group relative h-20 w-20 shrink-0 bg-[#6b6f68] bg-cover bg-center"
         style={{
-          backgroundImage: `url("${user.avatarUrl || DEFAULT_AVATAR_URL}")`,
+          backgroundImage: `url("${thumbUrl(user.avatarUrl || DEFAULT_AVATAR_URL, 80)}")`,
           boxShadow: `0 0 0 2px #0a0d0a, 0 0 0 4px ${color}`,
         }}
         title="Upload an avatar"

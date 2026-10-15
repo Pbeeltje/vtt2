@@ -6,7 +6,9 @@ import DarknessLayer, { type DarknessPath } from "./DarknessLayer"
 import TextBalloon from "../TextBalloon"
 import PingLayer from "./PingLayer"
 import type { MapPing } from "../../hooks/usePings"
-import { useState } from "react"
+import { memo, useState } from "react"
+import { thumbUrl } from "@/lib/upload-url"
+import { useStableCallback } from "../../hooks/useStableCallback"
 import type { MapInteractionTool } from "../../types/mapTool"
 import { isAnyFogTool, isFogStrokeTool } from "../../types/mapTool"
 
@@ -129,6 +131,19 @@ export default function GameGrid({
 }: GameGridProps) {
   const [isDraggingFile, setIsDraggingFile] = useState(false)
 
+  // The parent makes new handlers on most renders (every mouse move while drawing or dragging);
+  // stable ones let unchanged tokens, images and drawings skip re-rendering.
+  const itemDragStart = useStableCallback(onItemDragStart)
+  const itemDrag = useStableCallback(onItemDrag)
+  const itemDragEnd = useStableCallback(onItemDragEnd)
+  const itemClick = useStableCallback(onItemClick)
+  const resizeStart = useStableCallback(onResizeStart)
+  const rotateStart = useStableCallback(onRotateStart)
+  const drawingClick = useStableCallback(onDrawingClick)
+  const tokenDoubleClick = useStableCallback(onTokenDoubleClick)
+  const statusClick = useStableCallback(onStatusClick)
+  const openTokenSettings = useStableCallback(onOpenTokenSettings)
+
   // Calculate border dimensions
   const borderWidth = imageDimensions ? Math.round(imageDimensions.width * sceneBorderSize) : 0;
   const borderHeight = imageDimensions ? Math.round(imageDimensions.height * sceneBorderSize) : 0;
@@ -164,6 +179,8 @@ export default function GameGrid({
       }}
       onDrop={(e) => {
         e.preventDefault();
+        // The outer scroll container also listens for drops; don't let it handle this one again.
+        e.stopPropagation();
         // Check if this is a file drop (from file explorer) or image drop (from UI)
         const files = e.dataTransfer.files;
         const jsonData = e.dataTransfer.getData("application/json");
@@ -307,84 +324,34 @@ export default function GameGrid({
       )}
       
       {/* Middle layer images */}
-      {middleLayerImages.map((img) => {
-        const selected = selectedIds.includes(img.id)
-        return (
-          <div
-            key={img.id}
-            className="absolute"
-            style={{ left: img.x, top: img.y, zIndex: 35 }}
-            draggable={true}
-            onDragStart={(e) => onItemDragStart(e, img, false)}
-            onDrag={onItemDrag}
-            onDragEnd={onItemDragEnd}
-            onClick={(e) => onItemClick(e, img)}
-          >
-            {/* Everything inside turns with the image, handles included */}
-            <div
-              data-rotate-box
-              className={`relative ${selected ? "outline outline-2 outline-blue-500" : ""}`}
-              style={{
-                // No fixed size: the box wraps the image as rendered (its natural aspect ratio),
-                // so the outline and the rotation centre match what you see.
-                transform: img.rotation ? `rotate(${img.rotation}deg)` : undefined,
-                transformOrigin: "center",
-              }}
-            >
-              <Image
-                src={img.url}
-                alt="Middle layer image"
-                width={img.width || gridSize * 2}
-                height={img.height || gridSize * 2}
-                className="block"
-                style={{ objectFit: 'contain' }}
-              />
-              {/* Resize handle - only show when selected */}
-              {selected && (
-                <div
-                  className="absolute top-1 right-1 w-2 h-2 bg-blue-500 hover:bg-blue-600 cursor-se-resize z-50 rounded-sm border border-white transition-colors duration-150"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onResizeStart(e, img);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  draggable={false}
-                  title="Resize image"
-                />
-              )}
-              {/* Rotate handle - a stalk above the top edge with a grip at the end (DM only) */}
-              {selected && currentUserRole === "DM" && (
-                <div
-                  className="absolute left-1/2 bottom-full -translate-x-1/2 flex flex-col items-center z-50"
-                  draggable={false}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div
-                    className="w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 hover:bg-blue-100 cursor-grab active:cursor-grabbing shadow"
-                    onMouseDown={(e) => onRotateStart(e, img)}
-                    title="Rotate (hold Shift to snap to 15°)"
-                  />
-                  <div className="w-0.5 h-5 bg-blue-500 pointer-events-none" />
-                </div>
-              )}
-            </div>
-          </div>
-        )
-      })}
-      
+      {middleLayerImages.map((img) => (
+        <MapImageItem
+          key={img.id}
+          img={img}
+          gridSize={gridSize}
+          selected={selectedIds.includes(img.id)}
+          canRotate={currentUserRole === "DM"}
+          onItemDragStart={itemDragStart}
+          onItemDrag={itemDrag}
+          onItemDragEnd={itemDragEnd}
+          onItemClick={itemClick}
+          onResizeStart={resizeStart}
+          onRotateStart={rotateStart}
+        />
+      ))}
+
       {/* Top layer tokens */}
       <TokenRenderer
         tokens={topLayerImages}
         gridSize={gridSize}
         selectedIds={selectedIds}
-        onItemDragStart={onItemDragStart}
-        onItemDrag={onItemDrag}
-        onItemDragEnd={onItemDragEnd}
-        onItemClick={onItemClick}
-        onTokenDoubleClick={onTokenDoubleClick}
-        onStatusClick={onStatusClick}
-        onOpenTokenSettings={onOpenTokenSettings}
+        onItemDragStart={itemDragStart}
+        onItemDrag={itemDrag}
+        onItemDragEnd={itemDragEnd}
+        onItemClick={itemClick}
+        onTokenDoubleClick={tokenDoubleClick}
+        onStatusClick={statusClick}
+        onOpenTokenSettings={openTokenSettings}
       />
 
       {/* Text balloons - Above tokens */}
@@ -428,20 +395,12 @@ export default function GameGrid({
       {/* Drawing layer - Above darkness layer */}
       <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 40, pointerEvents: 'none' }}>
         {/* Regular drawings */}
-        {drawings.map((drawing) => (
-          <path
-            key={drawing.id}
-            d={drawing.path}
-            stroke={selectedDrawingIds.includes(drawing.id) ? "blue" : drawing.color}
-            strokeWidth={selectedDrawingIds.includes(drawing.id) ? "5" : "3"}
-            fill="none"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            onClick={(e) => onDrawingClick(e, drawing)}
-            className={`${currentTool === 'cursor' ? 'cursor-pointer' : ''}`}
-            style={{ pointerEvents: currentTool === 'cursor' ? 'stroke' : 'none' }}
-          />
-        ))}
+        <DrawingPaths
+          drawings={drawings}
+          selectedDrawingIds={selectedDrawingIds}
+          selectable={currentTool === 'cursor'}
+          onDrawingClick={drawingClick}
+        />
         
         {/* Current drawing path preview */}
         {isDrawing && currentPath && (
@@ -467,3 +426,125 @@ export default function GameGrid({
     </div>
   )
 } 
+interface MapImageItemProps {
+  img: LayerImage
+  gridSize: number
+  selected: boolean
+  canRotate: boolean
+  onItemDragStart: GameGridProps["onItemDragStart"]
+  onItemDrag: GameGridProps["onItemDrag"]
+  onItemDragEnd: GameGridProps["onItemDragEnd"]
+  onItemClick: GameGridProps["onItemClick"]
+  onResizeStart: GameGridProps["onResizeStart"]
+  onRotateStart: GameGridProps["onRotateStart"]
+}
+
+/** One middle-layer image; re-renders only when it (or its selection) changes. */
+const MapImageItem = memo(function MapImageItem({
+  img,
+  gridSize,
+  selected,
+  canRotate,
+  onItemDragStart,
+  onItemDrag,
+  onItemDragEnd,
+  onItemClick,
+  onResizeStart,
+  onRotateStart,
+}: MapImageItemProps) {
+  const width = img.width || gridSize * 2
+  const height = img.height || gridSize * 2
+  return (
+    <div
+      className="absolute"
+      style={{ left: img.x, top: img.y, zIndex: 35 }}
+      draggable={true}
+      onDragStart={(e) => onItemDragStart(e, img, false)}
+      onDrag={onItemDrag}
+      onDragEnd={onItemDragEnd}
+      onClick={(e) => onItemClick(e, img)}
+    >
+      {/* Everything inside turns with the image, handles included */}
+      <div
+        data-rotate-box
+        className={`relative ${selected ? "outline outline-2 outline-blue-500" : ""}`}
+        style={{
+          // No fixed size: the box wraps the image as rendered (its natural aspect ratio),
+          // so the outline and the rotation centre match what you see.
+          transform: img.rotation ? `rotate(${img.rotation}deg)` : undefined,
+          transformOrigin: "center",
+        }}
+      >
+        <Image
+          src={thumbUrl(img.url, Math.max(width, height))}
+          alt="Middle layer image"
+          width={width}
+          height={height}
+          className="block"
+          style={{ objectFit: 'contain' }}
+        />
+        {/* Resize handle - only show when selected */}
+        {selected && (
+          <div
+            className="absolute top-1 right-1 w-2 h-2 bg-blue-500 hover:bg-blue-600 cursor-se-resize z-50 rounded-sm border border-white transition-colors duration-150"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onResizeStart(e, img);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            draggable={false}
+            title="Resize image"
+          />
+        )}
+        {/* Rotate handle - a stalk above the top edge with a grip at the end (DM only) */}
+        {selected && canRotate && (
+          <div
+            className="absolute left-1/2 bottom-full -translate-x-1/2 flex flex-col items-center z-50"
+            draggable={false}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 hover:bg-blue-100 cursor-grab active:cursor-grabbing shadow"
+              onMouseDown={(e) => onRotateStart(e, img)}
+              title="Rotate (hold Shift to snap to 15°)"
+            />
+            <div className="w-0.5 h-5 bg-blue-500 pointer-events-none" />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+})
+
+/** The saved drawings; skipped while only the stroke being drawn changes. */
+const DrawingPaths = memo(function DrawingPaths({
+  drawings,
+  selectedDrawingIds,
+  selectable,
+  onDrawingClick,
+}: {
+  drawings: DrawingObject[]
+  selectedDrawingIds: string[]
+  selectable: boolean
+  onDrawingClick: GameGridProps["onDrawingClick"]
+}) {
+  return (
+    <>
+      {drawings.map((drawing) => (
+        <path
+          key={drawing.id}
+          d={drawing.path}
+          stroke={selectedDrawingIds.includes(drawing.id) ? "blue" : drawing.color}
+          strokeWidth={selectedDrawingIds.includes(drawing.id) ? "5" : "3"}
+          fill="none"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          onClick={(e) => onDrawingClick(e, drawing)}
+          className={`${selectable ? 'cursor-pointer' : ''}`}
+          style={{ pointerEvents: selectable ? 'stroke' : 'none' }}
+        />
+      ))}
+    </>
+  )
+})
