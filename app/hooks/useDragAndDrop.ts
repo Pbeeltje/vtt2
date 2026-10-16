@@ -1,6 +1,5 @@
 import { useCallback, useRef } from 'react'
 import { clientToGridLogical } from "@/lib/utils"
-import { thumbUrl } from "@/lib/upload-url"
 import { toast } from "@/components/ui/use-toast"
 import type { LayerImage } from "../types/layerImage"
 import { createCharacterToken } from "../lib/tokens"
@@ -215,24 +214,8 @@ export const useDragAndDrop = ({
     
     // Clear any files from data transfer
     e.dataTransfer.clearData("Files")
-    
-    const canvas = document.createElement("canvas")
-    const ctx = canvas.getContext("2d")
-    if (ctx) { 
-      canvas.width = item.width || gridSize
-      canvas.height = item.height || gridSize
-      const img = new window.Image()
-      // The copy the map already shows, so starting a drag doesn't fetch the full-size original.
-      img.src = thumbUrl(item.url, Math.max(canvas.width, canvas.height))
-      img.onload = () => { 
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        try {
-          e.dataTransfer.setDragImage(canvas, canvas.width / 2, canvas.height / 2) 
-        } catch (error) {
-          console.warn("Error setting drag image, drag might have been cancelled or image too complex.", error)
-        }
-      } 
-    } 
+    // The browser's own drag ghost is used. (A canvas ghost drawn in an image's onload came too
+    // late: setDragImage only works during dragstart, so it was never shown.)
 
     isDragging.current = true
     draggedItem.current = item

@@ -12,8 +12,9 @@ interface ChatLogProps {
   compact?: boolean
 }
 
-const dateFormat: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", year: "numeric" }
-const timeFormat: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" }
+// Made once: toLocaleDateString/TimeString build a new formatter on every call, for every row.
+const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })
+const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" })
 
 // Combat-log colours on the jade panel: characters in yellow-green, the DM in ember, system lines in gold.
 function speakerColor(message: ChatMessage): string {
@@ -82,36 +83,54 @@ function ChatLog({ messages, hasMore, onLoadOlder, className = "", compact = fal
           </div>
         )}
         {messages.map((message, index) => {
-          const date = new Date(message.timestamp)
-          const valid = !isNaN(date.getTime())
-          const dateText = valid ? date.toLocaleDateString("en-GB", dateFormat) : ""
+          const dateText = messageDate(message)
           const showDate = dateText !== "" && dateText !== previousDate
           if (dateText) previousDate = dateText
-          const name = message.type === "system" ? "System" : message.username || "Unknown"
           return (
-            <div key={message.MessageId ?? `msg-${index}-${message.timestamp}`}>
-              {showDate && (
-                <div className={`jade-sc text-center text-[var(--jade-muted)] ${compact ? "text-[10px] my-1" : "text-xs my-2 pt-1"}`}>— {dateText} —</div>
-              )}
-              <div className={compact ? "flex gap-1 leading-snug text-[var(--jade-ink)]" : "flex text-[15px] leading-[1.25] text-[var(--jade-ink)]"}>
-                <span className={compact ? "text-[10px] text-[var(--jade-ink)] [text-shadow:0_1px_2px_#000] shrink-0 w-9 pt-px" : "text-[11px] text-[var(--jade-muted)] [text-shadow:0_1px_2px_#000] mr-2 pt-[3px] min-w-[36px] tabular-nums"}>
-                  {valid ? date.toLocaleTimeString("en-GB", timeFormat) : "—"}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <span style={{ color: speakerColor(message), fontWeight: 600 }}>{name}:</span>{" "}
-                  {message.type === "diceRoll" ? (
-                    <DiceText text={toPlainText(message.content)} />
-                  ) : (
-                    <span className="whitespace-pre-wrap">{toPlainText(message.content)}</span>
-                  )}
-                </div>
-              </div>
-            </div>
+            <ChatRow
+              key={message.MessageId ?? `msg-${index}-${message.timestamp}`}
+              message={message}
+              dateHeading={showDate ? dateText : null}
+              compact={compact}
+            />
           )
         })}
       </div>
     </div>
   )
 }
+
+/** "dd/mm/yyyy" of the message, or "" if its timestamp is unreadable. */
+function messageDate(message: ChatMessage): string {
+  const date = new Date(message.timestamp)
+  return isNaN(date.getTime()) ? "" : dateFormat.format(date)
+}
+
+/** One line of chat; existing lines don't re-render when a new message arrives. */
+const ChatRow = memo(function ChatRow({ message, dateHeading, compact }: { message: ChatMessage; dateHeading: string | null; compact: boolean }) {
+  const date = new Date(message.timestamp)
+  const valid = !isNaN(date.getTime())
+  const name = message.type === "system" ? "System" : message.username || "Unknown"
+  return (
+    <div>
+      {dateHeading && (
+        <div className={`jade-sc text-center text-[var(--jade-muted)] ${compact ? "text-[10px] my-1" : "text-xs my-2 pt-1"}`}>— {dateHeading} —</div>
+      )}
+      <div className={compact ? "flex gap-1 leading-snug text-[var(--jade-ink)]" : "flex text-[15px] leading-[1.25] text-[var(--jade-ink)]"}>
+        <span className={compact ? "text-[10px] text-[var(--jade-ink)] [text-shadow:0_1px_2px_#000] shrink-0 w-9 pt-px" : "text-[11px] text-[var(--jade-muted)] [text-shadow:0_1px_2px_#000] mr-2 pt-[3px] min-w-[36px] tabular-nums"}>
+          {valid ? timeFormat.format(date) : "—"}
+        </span>
+        <div className="min-w-0 flex-1">
+          <span style={{ color: speakerColor(message), fontWeight: 600 }}>{name}:</span>{" "}
+          {message.type === "diceRoll" ? (
+            <DiceText text={toPlainText(message.content)} />
+          ) : (
+            <span className="whitespace-pre-wrap">{toPlainText(message.content)}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+})
 
 export default memo(ChatLog)
