@@ -60,6 +60,8 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
   // What the (debounced) save sends: the note being edited and its text right now.
   const editing = useRef<{ id: number | null; title: string; content: string }>({ id: null, title: "", content: "" })
   const journalLoadedRef = useRef(false)
+  /** The first load while it runs: opening again meanwhile waits for it instead of loading twice. */
+  const journalLoading = useRef<Promise<void> | null>(null)
 
   /** Opens a note in the editor (null: none) and remembers it for next time. */
   const showNote = useCallback(
@@ -102,8 +104,7 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
     saveTimer.current = setTimeout(() => void flushSave(), 650)
   }, [flushSave])
 
-  const initPanel = useCallback(async () => {
-    if (journalLoadedRef.current) return
+  const loadJournal = useCallback(async () => {
     setLoading(true)
     try {
       let list = newestFirst(await api<JournalNote[]>("/api/journal-notes"))
@@ -124,8 +125,15 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
     }
   }, [userId, showNote])
 
+  const initPanel = useCallback(() => {
+    if (journalLoadedRef.current) return Promise.resolve()
+    journalLoading.current ??= loadJournal().finally(() => (journalLoading.current = null))
+    return journalLoading.current
+  }, [loadJournal])
+
   useEffect(() => {
     journalLoadedRef.current = false
+    journalLoading.current = null
   }, [userId])
 
   useEffect(() => {

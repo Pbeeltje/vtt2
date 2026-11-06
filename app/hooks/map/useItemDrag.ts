@@ -5,7 +5,7 @@ import { toast } from "@/components/ui/use-toast"
 import { clientToGridLogical } from "@/lib/utils"
 import type { LayerImage } from "../../types/layerImage"
 import { dragPositions, isSamePlace, type PlacedItem, type Point } from "../../lib/map-items"
-import { swallowNextClick } from "./clickGuard"
+import { startGesture, type Gesture } from "./gesture"
 
 /** Screen pixels the mouse must travel before a press on an item becomes a drag (less is a click). */
 const DRAG_THRESHOLD_PX = 4
@@ -40,7 +40,7 @@ type Drag = {
  * Pressing on an item selects it (or keeps the selection if it is part of it). Once the mouse has
  * moved a few pixels, the selection follows it: tokens snap to the grid, images move freely. While
  * dragging, only a preview (`dragPositions`) changes; the scene is updated once, on release. Escape
- * cancels. Window pointer events drive it, so the drag keeps going outside the map.
+ * cancels. It runs as a map gesture (./gesture), so it keeps going outside the map.
  */
 export function useItemDrag({
   gridRef,
@@ -55,8 +55,9 @@ export function useItemDrag({
 }: UseItemDragProps) {
   const [preview, setPreview] = useState<Map<string, Point> | null>(null)
   const dragRef = useRef<Drag | null>(null)
-  const detachRef = useRef<(() => void) | null>(null)
+  const gestureRef = useRef<Gesture | null>(null)
   const frameRef = useRef<number | null>(null)
+
   // The drag outlives the render it started in; read these when it ends.
   const latest = useRef({ zoomLevel, gridSize, onMove })
   latest.current = { zoomLevel, gridSize, onMove }
@@ -69,21 +70,21 @@ export function useItemDrag({
     [gridRef]
   )
 
-  const end = useCallback((commit: boolean) => {
+  /** The gesture ended: commit the move unless cancelled. True when the items were dragged. */
+  const finish = useCallback((commit: boolean): boolean => {
     const drag = dragRef.current
     dragRef.current = null
-    detachRef.current?.()
-    detachRef.current = null
+    gestureRef.current = null
     if (frameRef.current !== null) {
       cancelAnimationFrame(frameRef.current)
       frameRef.current = null
     }
     setPreview(null)
-    if (!drag?.started) return
-    swallowNextClick()
+    if (!drag?.started) return false
     if (commit && drag.positions && !isSamePlace(drag.items, drag.positions)) {
       latest.current.onMove(drag.positions, drag.items)
     }
+    return true
   }, [])
 
   const startItemDrag = useCallback(
@@ -95,21 +96,9 @@ export function useItemDrag({
       if (!grabbedItem || !grabPoint) return
       // Keeps the browser from dragging the <img> itself, or selecting text.
       e.preventDefault()
-      end(false)
 
       // Shift+click adds to or removes from the selection (see the click handler); no drag.
       if (e.shiftKey) return
-      const inSelection = selectedIds.includes(itemId)
-      if (!inSelection) setSelectedIds([itemId])
-      const ids = new Set(inSelection ? selectedIds : [itemId])
-
-      const grabbed: PlacedItem = { item: grabbedItem, isToken: Boolean(top) }
-      const items: PlacedItem[] = [
-        ...topLayerImages.filter((t) => ids.has(t.id)).map((item) => ({ item, isToken: true })),
-        ...middleLayerImages.filter((i) => ids.has(i.id)).map((item) => ({ item, isToken: false })),
-      ].filter(({ item, isToken }) => canMove(item, isToken))
-
-      dragRef.current = { grabbed, items, startClient: { x: e.clientX, y: e.clientY }, grabPoint, started: false, positions: null }
 
       const onPointerMove = (ev: PointerEvent) => {
         const drag = dragRef.current
@@ -122,7 +111,7 @@ export function useItemDrag({
               description: drag.grabbed.isToken ? "You can only move your own character tokens." : "Players cannot move map images.",
               variant: "destructive",
             })
-            end(false)
+            gestureRef.current?.cancel()
             return
           }
           drag.started = true
@@ -139,32 +128,28 @@ export function useItemDrag({
           })
         }
       }
-      const onPointerUp = (ev: PointerEvent) => {
-        if (ev.button === 0) end(true)
-      }
-      const onKeyDown = (ev: KeyboardEvent) => {
-        if (ev.key === "Escape" && dragRef.current?.started) {
-          ev.preventDefault()
-          end(false)
-        }
-      }
-      const onBlur = () => end(true)
-      window.addEventListener("pointermove", onPointerMove)
-      window.addEventListener("pointerup", onPointerUp)
-      window.addEventListener("keydown", onKeyDown)
-      window.addEventListener("blur", onBlur)
-      detachRef.current = () => {
-        window.removeEventListener("pointermove", onPointerMove)
-        window.removeEventListener("pointerup", onPointerUp)
-        window.removeEventListener("keydown", onKeyDown)
-        window.removeEventListener("blur", onBlur)
-      }
+
+      const gesture = startGesture(e, { kind: "drag", button: 0, onMove: onPointerMove, onEnd: finish })
+      if (!gesture) return
+
+      const inSelection = selectedIds.includes(itemId)
+      if (!inSelection) setSelectedIds([itemId])
+      const ids = new Set(inSelection ? selectedIds : [itemId])
+
+      const grabbed: PlacedItem = { item: grabbedItem, isToken: Boolean(top) }
+      const items: PlacedItem[] = [
+        ...topLayerImages.filter((t) => ids.has(t.id)).map((item) => ({ item, isToken: true })),
+        ...middleLayerImages.filter((i) => ids.has(i.id)).map((item) => ({ item, isToken: false })),
+      ].filter(({ item, isToken }) => canMove(item, isToken))
+
+      dragRef.current = { grabbed, items, startClient: { x: e.clientX, y: e.clientY }, grabPoint, started: false, positions: null }
+      gestureRef.current = gesture
     },
-    [topLayerImages, middleLayerImages, selectedIds, setSelectedIds, canMove, mapPoint, end]
+    [topLayerImages, middleLayerImages, selectedIds, setSelectedIds, canMove, mapPoint, finish]
   )
 
   // Leaving the map mid-drag (scene switch, unmount) drops the drag.
-  useEffect(() => () => end(false), [end])
+  useEffect(() => () => gestureRef.current?.cancel(), [])
 
   return { dragPositions: preview, startItemDrag }
 }

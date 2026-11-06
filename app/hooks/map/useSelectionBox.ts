@@ -1,9 +1,9 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { LayerImage } from "../../types/layerImage"
 import type { DrawingObject } from "../../types/drawing"
-import { swallowNextClick } from "./clickGuard"
+import { startGesture, type Gesture } from "./gesture"
 
 type Point = { x: number; y: number }
 
@@ -31,7 +31,8 @@ function pathBounds(path: string) {
 
 /**
  * Drag a rectangle on empty map space to select what's inside: everything for the DM; a
- * player only gets their own tokens and drawings.
+ * player only gets their own tokens and drawings. Runs as a map gesture (./gesture): it keeps
+ * going outside the map, and Escape cancels it, keeping the previous selection.
  */
 export function useSelectionBox({
   gridRef,
@@ -45,49 +46,40 @@ export function useSelectionBox({
   setSelectedIds,
   setSelectedDrawingIds,
 }: UseSelectionBoxProps) {
-  const [selectionStart, setSelectionStart] = useState<Point | null>(null)
-  const [selectionEnd, setSelectionEnd] = useState<Point | null>(null)
-  const isSelecting = selectionStart !== null
+  /** The box being dragged (map coordinates), or null. */
+  const [box, setBox] = useState<{ start: Point; end: Point } | null>(null)
+  const boxRef = useRef(box)
+  const gestureRef = useRef<Gesture | null>(null)
+
+  // The box outlives the render it started in; select from the latest map when it ends.
+  const latest = useRef({ zoomLevel, gridSize, middleLayerImages, topLayerImages, drawings, currentUserRole, currentUserId, setSelectedIds, setSelectedDrawingIds })
+  latest.current = { zoomLevel, gridSize, middleLayerImages, topLayerImages, drawings, currentUserRole, currentUserId, setSelectedIds, setSelectedDrawingIds }
 
   const toMap = useCallback(
-    (e: React.MouseEvent): Point | null => {
+    (clientX: number, clientY: number): Point | null => {
       const rect = gridRef.current?.getBoundingClientRect()
-      return rect ? { x: (e.clientX - rect.left) / zoomLevel, y: (e.clientY - rect.top) / zoomLevel } : null
+      const zoom = latest.current.zoomLevel
+      return rect ? { x: (clientX - rect.left) / zoom, y: (clientY - rect.top) / zoom } : null
     },
-    [gridRef, zoomLevel]
+    [gridRef]
   )
 
-  const startSelection = useCallback(
-    (e: React.MouseEvent) => {
-      const point = toMap(e)
-      if (e.button !== 0 || !point) return
-      setSelectionStart(point)
-      setSelectionEnd(point)
-      e.preventDefault()
-    },
-    [toMap]
-  )
+  const show = useCallback((next: { start: Point; end: Point } | null) => {
+    boxRef.current = next
+    setBox(next)
+  }, [])
 
-  const moveSelection = useCallback(
-    (e: React.MouseEvent) => {
-      if (!selectionStart) return
-      const point = toMap(e)
-      if (point) setSelectionEnd(point)
-      e.preventDefault()
-    },
-    [selectionStart, toMap]
-  )
-
-  const endSelection = useCallback(() => {
-    if (!selectionStart || !selectionEnd) {
-      setSelectionStart(null)
-      setSelectionEnd(null)
-      return
-    }
-    const minX = Math.min(selectionStart.x, selectionEnd.x)
-    const maxX = Math.max(selectionStart.x, selectionEnd.x)
-    const minY = Math.min(selectionStart.y, selectionEnd.y)
-    const maxY = Math.max(selectionStart.y, selectionEnd.y)
+  /** Selects what the box covers (unless cancelled). */
+  const finish = useCallback((commit: boolean): boolean => {
+    const current = boxRef.current
+    gestureRef.current = null
+    show(null)
+    if (!commit || !current) return false
+    const { gridSize, middleLayerImages, topLayerImages, drawings, currentUserRole, currentUserId, setSelectedIds, setSelectedDrawingIds } = latest.current
+    const minX = Math.min(current.start.x, current.end.x)
+    const maxX = Math.max(current.start.x, current.end.x)
+    const minY = Math.min(current.start.y, current.end.y)
+    const maxY = Math.max(current.start.y, current.end.y)
     const overlaps = (item: LayerImage) =>
       item.x < maxX && item.x + (item.width || gridSize) > minX && item.y < maxY && item.y + (item.height || gridSize) > minY
     const isDM = currentUserRole === "DM"
@@ -107,10 +99,35 @@ export function useSelectionBox({
 
     setSelectedIds(itemIds)
     setSelectedDrawingIds(drawingIds)
-    swallowNextClick()
-    setSelectionStart(null)
-    setSelectionEnd(null)
-  }, [selectionStart, selectionEnd, gridSize, currentUserRole, currentUserId, middleLayerImages, topLayerImages, drawings, setSelectedIds, setSelectedDrawingIds])
+    return true
+  }, [show])
 
-  return { isSelecting, selectionStart, selectionEnd, startSelection, moveSelection, endSelection }
+  const startSelection = useCallback(
+    (e: React.MouseEvent) => {
+      const point = toMap(e.clientX, e.clientY)
+      if (e.button !== 0 || !point) return
+      const gesture = startGesture(e, {
+        kind: "select",
+        button: 0,
+        onMove: (ev) => {
+          const end = toMap(ev.clientX, ev.clientY)
+          if (end && boxRef.current) show({ start: boxRef.current.start, end })
+        },
+        onEnd: finish,
+      })
+      if (!gesture) return
+      e.preventDefault()
+      gestureRef.current = gesture
+      show({ start: point, end: point })
+    },
+    [toMap, finish, show]
+  )
+
+  useEffect(() => () => gestureRef.current?.cancel(), [])
+
+  const rect = box
+    ? { x: Math.min(box.start.x, box.end.x), y: Math.min(box.start.y, box.end.y), width: Math.abs(box.end.x - box.start.x), height: Math.abs(box.end.y - box.start.y) }
+    : null
+
+  return { selectionRect: rect, startSelection }
 }

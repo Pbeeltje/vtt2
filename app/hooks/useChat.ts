@@ -40,6 +40,7 @@ export function useChat(socket: Socket | null, findToken: (characterName: string
   gridSizeRef.current = gridSize
   // Messages arrive both in our own POST response and over the socket; keep the first.
   const seenIds = useRef(new Set<number>())
+  const loadingOlder = useRef(false)
 
   // One balloon per character: a new line replaces the old one. Our own lines show the balloon
   // as soon as they're sent; the server's copy of the same line then leaves it alone.
@@ -104,14 +105,18 @@ export function useChat(socket: Socket | null, findToken: (characterName: string
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0]?.MessageId
-    if (!oldest) return
+    if (!oldest || loadingOlder.current) return
+    loadingOlder.current = true
     try {
       const rows = await api<Record<string, unknown>[]>(`/api/chat?limit=${PAGE_SIZE}&before=${oldest}`)
-      const older = remember(rows.map(toChatMessage))
+      const older = rows.map(toChatMessage).filter((m) => m.MessageId === undefined || !seenIds.current.has(m.MessageId))
+      remember(older)
       setMessages((prev) => [...older, ...prev])
       setHasMore(rows.length === PAGE_SIZE)
     } catch (error) {
       toast({ title: "Older messages not loaded", description: errorMessage(error), variant: "destructive" })
+    } finally {
+      loadingOlder.current = false
     }
   }, [messages])
 

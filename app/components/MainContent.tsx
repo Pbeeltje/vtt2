@@ -28,7 +28,7 @@ import { useMapKeyboard } from "../hooks/map/useMapKeyboard"
 import { useItemResize } from "../hooks/map/useItemResize"
 import { useItemRotate } from "../hooks/map/useItemRotate"
 import { useItemDrag } from "../hooks/map/useItemDrag"
-import { isSwallowedClick } from "../hooks/map/clickGuard"
+import { isSwallowedClick } from "../hooks/map/gesture"
 import { useMapDrop } from "../hooks/map/useMapDrop"
 import { usePlayArea } from "../hooks/map/usePlayArea"
 import { fitToGrid, movedPosition, withPositions, type PlacedItem, type Point } from "../lib/map-items"
@@ -61,6 +61,8 @@ interface MainContentProps {
   zoomLevel: number
   setZoomLevel: React.Dispatch<React.SetStateAction<number>>
   currentSceneId: number | null
+  /** The shown scene is the one players currently see. */
+  isSceneLive: boolean
   currentUserId: number
   currentUserRole: string
   drawings: DrawingObject[]
@@ -101,6 +103,7 @@ function MainContent({
   zoomLevel,
   setZoomLevel,
   currentSceneId,
+  isSceneLive,
   currentUserId,
   currentUserRole,
   drawings,
@@ -147,10 +150,23 @@ function MainContent({
   )
   const setDarknessPaths = useCallback((paths: DarknessPath[]) => onUpdateScene((s) => ({ ...s, darknessPaths: paths })), [onUpdateScene])
   const setGridColor = useCallback((color: string) => onUpdateScene((s) => ({ ...s, gridColor: color })), [onUpdateScene])
-  const toggleDarknessLayer = useCallback(
-    () => onUpdateScene((s) => ({ ...s, isDarknessLayerVisible: !s.isDarknessLayerVisible })),
-    [onUpdateScene]
-  )
+  /**
+   * Turning fog off on the live scene shows players the whole map, so once part of it has been
+   * revealed (the DM is clearly using fog) ask first.
+   */
+  const toggleDarknessLayer = useCallback(async () => {
+    const isPartlyRevealed = darknessPaths.some((p) => p.type === "erase")
+    if (isDarknessLayerVisible && isSceneLive && isPartlyRevealed) {
+      const ok = await confirm({
+        title: "Turn off fog of war?",
+        description: "Players on this live scene will see the whole map. Revealed areas are kept and come back when you turn fog on again.",
+        confirmLabel: "Turn off fog",
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    onUpdateScene((s) => ({ ...s, isDarknessLayerVisible: !s.isDarknessLayerVisible }))
+  }, [onUpdateScene, darknessPaths, isDarknessLayerVisible, isSceneLive])
 
   /** Who may change an item: the DM anything, a player only their own character tokens. */
   const canEdit = useCallback(
@@ -445,7 +461,8 @@ function MainContent({
   // --- Mouse routing on the grid ----------------------------------------------------------
   // Left button: Shift on empty map pings; paint tools draw (over items too); on an item it
   // picks the item up; on empty map it starts a selection box. Other buttons and Alt+drag pan,
-  // which the scroll container handles as the event bubbles up to it.
+  // which the scroll container handles as the event bubbles up to it. Each of these runs as a
+  // map gesture (hooks/map/gesture): one at a time, driven by window events until released.
 
   const isPaintTool = isCanvasStrokeTool(currentTool) || isFogCellTool(currentTool)
 
@@ -470,20 +487,6 @@ function MainContent({
     else if (!isOnMapThing(e.target)) selection.startSelection(e)
   }
 
-  const handleGridMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!selection.isSelecting) return
-    selection.moveSelection(e)
-    e.stopPropagation()
-  }
-
-  const endSelection = () => {
-    if (selection.isSelecting) selection.endSelection()
-  }
-
-  const { selectionStart: a, selectionEnd: b } = selection
-  const selectionRect =
-    selection.isSelecting && a && b ? { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) } : null
-
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[#050403]">
       <div
@@ -491,9 +494,6 @@ function MainContent({
         className="relative grow overflow-auto"
         style={{ cursor: navigation.isPanning ? "grabbing" : "grab", userSelect: "none" }}
         onMouseDown={navigation.startPan}
-        onMouseMove={navigation.pan}
-        onMouseUp={navigation.endPan}
-        onMouseLeave={navigation.endPan}
         onDragOver={drop.onDragOver}
         onDragLeave={drop.onDragLeave}
         onDrop={drop.onDrop}
@@ -540,15 +540,12 @@ function MainContent({
           currentColor={currentColor}
           darknessPaths={darknessPaths}
           isDarknessLayerVisible={isDarknessLayerVisible}
-          selectionRect={selectionRect}
+          selectionRect={selection.selectionRect}
           isFileOver={drop.isFileOver}
           textBalloons={textBalloons}
           pings={pings}
           onGridClick={handleGridClick}
           onMouseDown={handleGridMouseDown}
-          onMouseMove={handleGridMouseMove}
-          onMouseUp={endSelection}
-          onMouseLeave={endSelection}
           onItemClick={handleItemClick}
           onResizeStart={(e, item) => startResize(e, item, topLayerImages.some((t) => t.id === item.id))}
           onRotateStart={startRotate}

@@ -6,6 +6,7 @@ import type { DarknessPath, DrawingObject } from "../types/drawing"
 import type { MapInteractionTool } from "../types/mapTool"
 import { isFogCellTool, isFogStrokeTool, isCanvasStrokeTool } from "../types/mapTool"
 import { cellPathData, gridCellsAlongLine, simplifyPoints, smoothPath, type Point } from "../lib/stroke"
+import { startGesture, type Gesture } from "./map/gesture"
 
 /** Samples closer than this many screen pixels to the last kept one are noise, not shape. */
 const MIN_SAMPLE_SCREEN_PX = 1.5
@@ -69,8 +70,10 @@ interface UseDrawingProps {
 /**
  * Freehand drawing and fog painting on the map.
  *
- * A stroke starts on the grid's mousedown; from then on window pointer events drive it, so it
- * keeps going past the grid's edge and ends wherever the button is released (Escape cancels).
+ * A stroke starts on the grid's mousedown and runs as a map gesture (./map/gesture): it keeps
+ * going past the grid's edge and ends wherever the button is released (Escape cancels).
+ * Every move re-reads where the grid is and its zoom, so scrolling or zooming mid-stroke keeps
+ * the line under the pointer.
  * While drawing, the preview `<path>` (`previewRef`) is updated directly, once per frame, and the
  * finished stroke is committed once: a smoothed, simplified drawing, or one batch of fog ops.
  */
@@ -92,10 +95,21 @@ export function useDrawing({
   const previewRef = useRef<SVGPathElement>(null)
   const strokeRef = useRef<Stroke | null>(null)
   const frameRef = useRef<number | null>(null)
-  const detachRef = useRef<(() => void) | null>(null)
+  const gestureRef = useRef<Gesture | null>(null)
   // Commit with the latest callbacks, whatever render the stroke started in.
   const commitTargets = useRef({ onDrawingAdd, onDarknessAdd })
   commitTargets.current = { onDrawingAdd, onDarknessAdd }
+  const zoomRef = useRef(zoomLevel || 1)
+  zoomRef.current = zoomLevel || 1
+
+  /** Where the grid is on screen right now (it moves when the map scrolls or zooms). */
+  const refreshFrame = useCallback(() => {
+    const stroke = strokeRef.current
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!stroke || !rect) return
+    stroke.rect = rect
+    stroke.zoom = zoomRef.current
+  }, [gridRef])
 
   const renderPreview = useCallback(() => {
     frameRef.current = null
@@ -133,24 +147,27 @@ export function useDrawing({
     stroke.last = { ix, iy }
   }, [])
 
-  /** Ends the stroke; commits it unless cancelled. */
+  /** Ends the stroke; commits it (with the release point, if any) unless cancelled. */
   const finish = useCallback(
-    (commit: boolean) => {
+    (commit: boolean, release?: PointerEvent): boolean => {
+      if (commit && release) {
+        refreshFrame()
+        addSample(release.clientX, release.clientY)
+      }
       const stroke = strokeRef.current
       strokeRef.current = null
-      detachRef.current?.()
-      detachRef.current = null
+      gestureRef.current = null
       if (frameRef.current !== null) {
         cancelAnimationFrame(frameRef.current)
         frameRef.current = null
       }
       previewRef.current?.removeAttribute("d")
-      if (!stroke || !commit) return
+      if (!stroke || !commit) return false
 
       const { onDrawingAdd: addDrawing, onDarknessAdd: addDarkness } = commitTargets.current
       const createdAt = new Date().toISOString()
       if (stroke.kind === "cells") {
-        if (!addDarkness || stroke.cells.length === 0) return
+        if (!addDarkness || stroke.cells.length === 0) return true
         const type = stroke.tool === "darknessEraserCell" ? "erase" : "paint"
         const base = newId("darkness")
         addDarkness(
@@ -161,11 +178,11 @@ export function useDrawing({
             cellRect: { x: ix * stroke.gridSize, y: iy * stroke.gridSize, width: stroke.gridSize, height: stroke.gridSize },
           }))
         )
-        return
+        return true
       }
 
       const path = smoothPath(simplifyPoints(stroke.points, SIMPLIFY_SCREEN_PX / stroke.zoom))
-      if (!path) return
+      if (!path) return true
       if (isFogStrokeTool(stroke.tool)) {
         // Fill closes the loop back to the start, so the enclosed area is covered as well.
         const fill = stroke.fogFill && stroke.points.length > 2
@@ -182,8 +199,9 @@ export function useDrawing({
       } else {
         void addDrawing({ path, color: stroke.color })
       }
+      return true
     },
-    []
+    [refreshFrame, addSample]
   )
 
   const startDrawing = useCallback(
@@ -198,8 +216,19 @@ export function useDrawing({
       if (cells && !onDarknessAdd) return
       const rect = gridRef.current?.getBoundingClientRect()
       if (!rect) return
+      const gesture = startGesture(e, {
+        kind: "stroke",
+        button: 0,
+        onMove: (ev) => {
+          refreshFrame()
+          for (const sample of samplesOf(ev)) addSample(sample.clientX, sample.clientY)
+          schedulePreview()
+        },
+        onEnd: finish,
+      })
+      if (!gesture) return
+      gestureRef.current = gesture
       e.preventDefault()
-      finish(false) // a stroke left hanging (button released outside the window)
 
       const zoom = zoomLevel || 1
       const p = clientToGridLogical(e.clientX, e.clientY, rect, zoom)
@@ -221,36 +250,13 @@ export function useDrawing({
         strokeRef.current = { kind: "line", tool: currentTool, color: currentColor, fogBrushDiameter, fogFill, rect, zoom, points: [p] }
       }
 
-      const onMove = (ev: PointerEvent) => {
-        for (const s of samplesOf(ev)) addSample(s.clientX, s.clientY)
-        schedulePreview()
-      }
-      const onUp = (ev: PointerEvent) => {
-        if (ev.button !== 0) return
-        addSample(ev.clientX, ev.clientY)
-        finish(true)
-      }
-      const onKey = (ev: KeyboardEvent) => {
-        if (ev.key === "Escape") finish(false)
-      }
-      const onBlur = () => finish(true)
-      window.addEventListener("pointermove", onMove)
-      window.addEventListener("pointerup", onUp)
-      window.addEventListener("keydown", onKey)
-      window.addEventListener("blur", onBlur)
-      detachRef.current = () => {
-        window.removeEventListener("pointermove", onMove)
-        window.removeEventListener("pointerup", onUp)
-        window.removeEventListener("keydown", onKey)
-        window.removeEventListener("blur", onBlur)
-      }
       schedulePreview()
     },
-    [currentTool, currentColor, currentSceneId, currentUserId, fogBrushDiameter, fogFill, gridRef, gridSize, zoomLevel, onDarknessAdd, addSample, schedulePreview, finish]
+    [currentTool, currentColor, currentSceneId, currentUserId, fogBrushDiameter, fogFill, gridRef, gridSize, zoomLevel, onDarknessAdd, addSample, schedulePreview, finish, refreshFrame]
   )
 
   // Leaving the map mid-stroke (scene switch, unmount) drops the stroke.
-  useEffect(() => () => finish(false), [finish])
+  useEffect(() => () => gestureRef.current?.cancel(), [])
 
   const handleDrawingClick = useCallback(
     (e: React.MouseEvent<SVGPathElement>, drawing: DrawingObject) => {

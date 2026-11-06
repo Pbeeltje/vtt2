@@ -154,12 +154,14 @@ export default function Home() {
     }
   }, [loadEverything])
 
-  const { resetScenes } = scenes
+  const { resetScenes, flushSave } = scenes
   const { reset: resetCharacters } = characters
   const { reset: resetChat } = chat
   const { reset: resetLibrary } = library
   const handleLogout = useCallback(async () => {
     if (!(await confirm({ title: user ? `Log out ${user.username}?` : "Log out?", description: "You can log back in at any time.", confirmLabel: "Log out" }))) return
+    // Save the DM's last map edits while the session still exists.
+    await flushSave()
     try {
       await api("/api/logout", { method: "POST" })
     } catch {
@@ -167,12 +169,18 @@ export default function Home() {
       return
     }
     setUser(null)
+    // Nothing of this session carries over to whoever logs in next on this tab.
+    setPhase(null)
+    setNotesOpen(false)
+    setJobsCharacterId(null)
+    setSelectedCharacterId(null)
+    setCurrentTool("cursor")
     resetCharacters()
     resetChat()
     resetLibrary()
     resetScenes()
     toast({ title: "Logged out" })
-  }, [user, resetCharacters, resetChat, resetLibrary, resetScenes])
+  }, [user, flushSave, resetCharacters, resetChat, resetLibrary, resetScenes])
 
   // Stable callbacks for the memoised panels and chat, so map drags don't re-render them.
   const { sendMessage, loadOlder, roll, rollTest } = chat
@@ -341,6 +349,7 @@ export default function Home() {
               zoomLevel={zoomLevel}
               setZoomLevel={setZoomLevel}
               currentSceneId={selectedScene?.Id ?? null}
+              isSceneLive={selectedSceneId !== null && scenes.activeSceneId === selectedSceneId}
               currentUserId={user.id}
               currentUserRole={user.role}
               drawings={drawings.drawings}

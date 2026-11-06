@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { startGesture, type Gesture } from "./gesture"
 
 export const MIN_ZOOM = 0.5
 export const MAX_ZOOM = 3
@@ -19,12 +20,11 @@ interface UseMapNavigationProps {
 }
 
 /**
- * Panning (right/middle mouse or Alt+drag) and zooming. Ctrl+wheel zooms around the cursor;
+ * Panning (right/middle mouse or Alt+drag, as a map gesture: ./gesture) and zooming. Ctrl+wheel zooms around the cursor;
  * the listener is non-passive so the browser page itself doesn't zoom too.
  */
 export function useMapNavigation({ containerRef, gridRef, zoomLevel, setZoomLevel, onGridSizeWheel }: UseMapNavigationProps) {
   const [isPanning, setIsPanning] = useState(false)
-  const panStart = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null)
   const zoomRef = useRef(zoomLevel)
   zoomRef.current = zoomLevel
   /** Map point (in unzoomed map pixels) that should stay under the screen point after a zoom. */
@@ -105,47 +105,43 @@ export function useMapNavigation({ containerRef, gridRef, zoomLevel, setZoomLeve
     return () => container.removeEventListener("wheel", onWheel)
   }, [containerRef, zoomAt])
 
+  const panRef = useRef<Gesture | null>(null)
+
+  /** Right/middle button or Alt+left on the map: drag the view. Returns whether a pan started. */
   const startPan = useCallback(
     (e: React.MouseEvent) => {
       const isPanButton = e.button === 1 || e.button === 2 || (e.button === 0 && e.altKey)
       const container = containerRef.current
       if (!isPanButton || !container) return false
-      panStart.current = { x: e.clientX, y: e.clientY, scrollLeft: container.scrollLeft, scrollTop: container.scrollTop }
-      setIsPanning(true)
+      // Even when no pan starts (another gesture is running), keep the browser's own middle-click
+      // autoscroll from taking over.
       e.preventDefault()
+      const from = { x: e.clientX, y: e.clientY, scrollLeft: container.scrollLeft, scrollTop: container.scrollTop }
+      const gesture = startGesture(e, {
+        kind: "pan",
+        button: e.button,
+        onMove: (ev) => {
+          container.scrollLeft = from.scrollLeft - (ev.clientX - from.x)
+          container.scrollTop = from.scrollTop - (ev.clientY - from.y)
+        },
+        onEnd: () => {
+          panRef.current = null
+          setIsPanning(false)
+        },
+      })
+      if (!gesture) return false
+      panRef.current = gesture
+      setIsPanning(true)
       return true
     },
     [containerRef]
   )
 
-  const pan = useCallback(
-    (e: React.MouseEvent) => {
-      const start = panStart.current
-      const container = containerRef.current
-      if (!start || !container) return
-      container.scrollLeft = start.scrollLeft - (e.clientX - start.x)
-      container.scrollTop = start.scrollTop - (e.clientY - start.y)
-      e.preventDefault()
-    },
-    [containerRef]
-  )
-
-  const endPan = useCallback(() => {
-    if (!panStart.current) return
-    panStart.current = null
-    setIsPanning(false)
-  }, [])
-
-  useEffect(() => {
-    window.addEventListener("mouseup", endPan)
-    return () => window.removeEventListener("mouseup", endPan)
-  }, [endPan])
+  useEffect(() => () => panRef.current?.cancel(), [])
 
   return {
     isPanning,
     startPan,
-    pan,
-    endPan,
     zoomIn: useCallback(() => zoomAroundCenter(zoomRef.current + ZOOM_STEP), [zoomAroundCenter]),
     zoomOut: useCallback(() => zoomAroundCenter(zoomRef.current - ZOOM_STEP), [zoomAroundCenter]),
     zoomReset: useCallback(() => {

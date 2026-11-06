@@ -54,9 +54,6 @@ interface GameGridProps {
 
   onGridClick: (e: React.MouseEvent<HTMLDivElement>) => void
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
-  onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
-  onMouseUp: (e: React.MouseEvent<HTMLDivElement>) => void
-  onMouseLeave: (e: React.MouseEvent<HTMLDivElement>) => void
   onItemClick: (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => void
   onResizeStart: (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => void
   onRotateStart: (e: React.MouseEvent<HTMLElement>, item: LayerImage) => void
@@ -104,9 +101,6 @@ export default function GameGrid({
   pings,
   onGridClick,
   onMouseDown,
-  onMouseMove,
-  onMouseUp,
-  onMouseLeave,
   onItemClick,
   onResizeStart,
   onRotateStart,
@@ -142,9 +136,6 @@ export default function GameGrid({
       }}
       onClick={onGridClick}
       onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseLeave}
       onContextMenu={(e) => e.preventDefault()}
     >
       <MapBackground backgroundImage={backgroundImage} playArea={playArea} gridSize={gridSize} gridColor={gridColor} />

@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { LayerImage } from "../../types/layerImage"
-import { swallowNextClick } from "./clickGuard"
+import { startGesture, type Gesture } from "./gesture"
+
+/** Screen pixels the handle must travel before the resize starts (less is an accidental nudge). */
+const RESIZE_THRESHOLD_PX = 10
 
 interface UseItemResizeProps {
   enabled: boolean
@@ -12,52 +15,55 @@ interface UseItemResizeProps {
   resizeItem: (id: string, width: number, height: number) => void
 }
 
-/** Drag a token's or map image's corner handle to resize it (DM only). */
+/**
+ * Drag a token's or map image's corner handle to resize it (DM only). Runs as a map gesture
+ * (./gesture); Escape puts the item back to its original size.
+ */
 export function useItemResize({ enabled, zoomLevel, gridSize, resizeItem }: UseItemResizeProps) {
   const [resizingId, setResizingId] = useState<string | null>(null)
-  const start = useRef<{ x: number; y: number; width: number; height: number; isToken: boolean } | null>(null)
+  const gestureRef = useRef<Gesture | null>(null)
+  const latest = useRef({ zoomLevel, gridSize, resizeItem })
+  latest.current = { zoomLevel, gridSize, resizeItem }
 
   const startResize = useCallback(
     (e: React.MouseEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => {
       if (!enabled) return
       e.preventDefault()
       e.stopPropagation()
-      start.current = { x: e.clientX, y: e.clientY, width: item.width || gridSize, height: item.height || gridSize, isToken }
-      setResizingId(item.id)
+      const id = item.id
+      const from = { x: e.clientX, y: e.clientY, width: item.width || gridSize, height: item.height || gridSize }
+      let started = false
+
+      const gesture = startGesture(e, {
+        kind: "resize",
+        button: e.button,
+        onMove: (ev) => {
+          const { zoomLevel: zoom, gridSize: size, resizeItem: resize } = latest.current
+          if (!started && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < RESIZE_THRESHOLD_PX) return
+          started = true
+          const dx = (ev.clientX - from.x) / zoom
+          const dy = (ev.clientY - from.y) / zoom
+          if (isToken) {
+            resize(id, Math.max(size, Math.floor((from.width + dx) / size) * size), Math.max(size, Math.floor((from.height + dy) / size) * size))
+          } else {
+            resize(id, Math.max(size * 0.5, from.width + dx), Math.max(size * 0.5, from.height + dy))
+          }
+        },
+        onEnd: (commit) => {
+          gestureRef.current = null
+          setResizingId(null)
+          if (started && !commit) latest.current.resizeItem(id, from.width, from.height)
+          return started
+        },
+      })
+      if (!gesture) return
+      gestureRef.current = gesture
+      setResizingId(id)
     },
     [enabled, gridSize]
   )
 
-  useEffect(() => {
-    if (!resizingId) return
-    const onMove = (e: MouseEvent) => {
-      const s = start.current
-      if (!s) return
-      const dx = (e.clientX - s.x) / zoomLevel
-      const dy = (e.clientY - s.y) / zoomLevel
-      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return // ignore tiny accidental movement
-      if (s.isToken) {
-        resizeItem(
-          resizingId,
-          Math.max(gridSize, Math.floor((s.width + dx) / gridSize) * gridSize),
-          Math.max(gridSize, Math.floor((s.height + dy) / gridSize) * gridSize)
-        )
-      } else {
-        resizeItem(resizingId, Math.max(gridSize * 0.5, s.width + dx), Math.max(gridSize * 0.5, s.height + dy))
-      }
-    }
-    const onUp = () => {
-      swallowNextClick()
-      start.current = null
-      setResizingId(null)
-    }
-    window.addEventListener("mousemove", onMove)
-    window.addEventListener("mouseup", onUp)
-    return () => {
-      window.removeEventListener("mousemove", onMove)
-      window.removeEventListener("mouseup", onUp)
-    }
-  }, [resizingId, zoomLevel, gridSize, resizeItem])
+  useEffect(() => () => gestureRef.current?.cancel(), [])
 
   return { resizingId, startResize }
 }

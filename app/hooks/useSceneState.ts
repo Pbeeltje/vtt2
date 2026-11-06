@@ -69,6 +69,8 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
   const baseRef = useRef<SceneState | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveChain = useRef<Promise<void>>(Promise.resolve())
+  /** Bumped by every scene load or switch; a load that finishes after a newer one started is dropped. */
+  const loadSeq = useRef(0)
   const socketRef = useRef(socket)
   socketRef.current = socket
   const isDMRef = useRef(isDM)
@@ -180,7 +182,9 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
    */
   const showScene = useCallback(
     async (row: DMImage | null) => {
+      const seq = ++loadSeq.current
       await flushSave()
+      if (seq !== loadSeq.current) return // another scene was asked for meanwhile
       const state = row ? parseSceneData(row.SceneData) : emptySceneState()
       sceneIdRef.current = row?.Id ?? null
       baseRef.current = row ? state : null
@@ -193,10 +197,13 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
   /** Loads a scene fresh from the server (players may only load the active one). */
   const loadSceneById = useCallback(
     async (sceneId: number) => {
+      const seq = ++loadSeq.current
       try {
         const row = await api<DMImage>(`/api/scenes/${sceneId}`)
         const entry = listEntry(row, row.SceneData ? parseSceneData(row.SceneData) : null)
         setScenes((prev) => (prev.some((s) => s.Id === row.Id) ? prev.map((s) => (s.Id === row.Id ? entry : s)) : [...prev, entry]))
+        // Clicking scenes quickly: show the last one asked for, not the last one to arrive.
+        if (seq !== loadSeq.current) return
         await showScene(row)
       } catch (error) {
         toast({ title: "Scene not loaded", description: errorMessage(error), variant: "destructive" })
@@ -228,8 +235,11 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
     [showScene, loadSceneById]
   )
 
+  /** Forgets everything (logout). Call `flushSave` first: pending edits are dropped here. */
   const resetScenes = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = null
+    loadSeq.current++
     sceneIdRef.current = null
     baseRef.current = null
     commit(emptySceneState())
@@ -350,6 +360,7 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
     updateScene,
     initializeScenes,
     resetScenes,
+    flushSave,
     showScene,
     loadSceneById,
     makeSceneActive,
