@@ -31,6 +31,9 @@ interface DrawingToolbarProps {
   onResetDarkness?: () => void;
   fogBrushDiameter?: number;
   onFogBrushDiameterChange?: (diameter: number) => void;
+  /** Fog brush strokes also fill the area they enclose. */
+  fogFill?: boolean;
+  onFogFillChange?: (fill: boolean) => void;
 }
 
 /** Black plus the player colours, so your own colour (the default pen) is always in the list. */
@@ -60,6 +63,8 @@ export default function DrawingToolbar({
   onResetDarkness,
   fogBrushDiameter = 50,
   onFogBrushDiameterChange,
+  fogFill = true,
+  onFogFillChange,
 }: DrawingToolbarProps) {
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const [isGridColorPickerOpen, setIsGridColorPickerOpen] = useState(false);
@@ -286,6 +291,22 @@ export default function DrawingToolbar({
                 <Minus className="h-3 w-3" />
               </button>
             </div>
+          )}
+          {fogStrokeSelected && onFogFillChange && (
+            <button
+              type="button"
+              className="jade-tab h-6 w-full px-1.5 text-[10px]"
+              data-active={fogFill}
+              aria-pressed={fogFill}
+              onClick={() => onFogFillChange(!fogFill)}
+              title={
+                fogFill
+                  ? "Fill is on: draw a loop and everything inside it is revealed or fogged. Click to turn off."
+                  : "Fill is off: only the brush line is revealed or fogged. Click to fill the area inside a loop."
+              }
+            >
+              FILL {fogFill ? "ON" : "OFF"}
+            </button>
           )}
         </div>
       )}

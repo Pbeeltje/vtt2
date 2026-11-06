@@ -41,6 +41,8 @@ interface MainContentProps {
   onToolChange: (tool: MapInteractionTool) => void
   fogBrushDiameter: number
   onFogBrushDiameterChange: (diameter: number) => void
+  fogFill: boolean
+  onFogFillChange: (fill: boolean) => void
   currentColor: string
   onColorChange: (color: string) => void
   zoomLevel: number
@@ -74,6 +76,8 @@ function MainContent({
   onToolChange,
   fogBrushDiameter,
   onFogBrushDiameterChange,
+  fogFill,
+  onFogFillChange,
   currentColor,
   onColorChange,
   zoomLevel,
@@ -242,6 +246,7 @@ function MainContent({
     gridRef,
     gridSize,
     fogBrushDiameter,
+    fogFill,
     currentTool,
     currentColor,
     zoomLevel,
@@ -563,6 +568,8 @@ function MainContent({
             onResetDarkness={handleResetDarkness}
             fogBrushDiameter={fogBrushDiameter}
             onFogBrushDiameterChange={onFogBrushDiameterChange}
+            fogFill={fogFill}
+            onFogFillChange={onFogFillChange}
           />
         </div>
 
@@ -573,6 +580,7 @@ function MainContent({
           zoomLevel={zoomLevel}
           currentTool={currentTool}
           fogBrushDiameter={fogBrushDiameter}
+          fogFill={fogFill}
           gridSize={gridSize}
           gridColor={gridColor}
           sceneBorderSize={scene.borderSize}

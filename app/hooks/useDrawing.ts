@@ -19,6 +19,7 @@ type Stroke =
       tool: MapInteractionTool
       color: string
       fogBrushDiameter: number
+      fogFill: boolean
       rect: DOMRect
       zoom: number
       points: Point[]
@@ -51,6 +52,8 @@ interface UseDrawingProps {
   gridRef: React.RefObject<HTMLDivElement>
   gridSize: number
   fogBrushDiameter: number
+  /** Fog brush strokes also fill the area they enclose. */
+  fogFill: boolean
   currentTool: MapInteractionTool
   currentColor: string
   zoomLevel: number
@@ -75,6 +78,7 @@ export function useDrawing({
   gridRef,
   gridSize,
   fogBrushDiameter,
+  fogFill,
   currentTool,
   currentColor,
   zoomLevel,
@@ -163,13 +167,16 @@ export function useDrawing({
       const path = smoothPath(simplifyPoints(stroke.points, SIMPLIFY_SCREEN_PX / stroke.zoom))
       if (!path) return
       if (isFogStrokeTool(stroke.tool)) {
+        // Fill closes the loop back to the start, so the enclosed area is covered as well.
+        const fill = stroke.fogFill && stroke.points.length > 2
         addDarkness?.([
           {
             id: newId("darkness"),
-            path,
+            path: fill ? `${path} Z` : path,
             type: stroke.tool === "darknessEraser" ? "erase" : "paint",
             createdAt,
             strokeWidth: stroke.fogBrushDiameter,
+            ...(fill ? { fill: true } : {}),
           },
         ])
       } else {
@@ -211,7 +218,7 @@ export function useDrawing({
           d: cellPathData(ix, iy, gridSize),
         }
       } else {
-        strokeRef.current = { kind: "line", tool: currentTool, color: currentColor, fogBrushDiameter, rect, zoom, points: [p] }
+        strokeRef.current = { kind: "line", tool: currentTool, color: currentColor, fogBrushDiameter, fogFill, rect, zoom, points: [p] }
       }
 
       const onMove = (ev: PointerEvent) => {
@@ -239,7 +246,7 @@ export function useDrawing({
       }
       schedulePreview()
     },
-    [currentTool, currentColor, currentSceneId, currentUserId, fogBrushDiameter, gridRef, gridSize, zoomLevel, onDarknessAdd, addSample, schedulePreview, finish]
+    [currentTool, currentColor, currentSceneId, currentUserId, fogBrushDiameter, fogFill, gridRef, gridSize, zoomLevel, onDarknessAdd, addSample, schedulePreview, finish]
   )
 
   // Leaving the map mid-stroke (scene switch, unmount) drops the stroke.

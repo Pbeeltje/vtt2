@@ -19,6 +19,7 @@ interface GameGridProps {
   zoomLevel: number;
   currentTool: MapInteractionTool;
   fogBrushDiameter: number;
+  fogFill: boolean;
   gridSize: number;
   gridColor: string;
   sceneBorderSize?: number;
@@ -85,6 +86,7 @@ export default function GameGrid({
   zoomLevel,
   currentTool,
   fogBrushDiameter,
+  fogFill,
   gridSize,
   gridColor,
   sceneBorderSize = 0.2,
@@ -402,7 +404,7 @@ export default function GameGrid({
         />
         
         {/* The stroke being drawn. No `d` here: useDrawing writes it every frame without re-rendering. */}
-        <StrokePreview ref={strokePreviewRef} currentTool={currentTool} currentColor={currentColor} fogBrushDiameter={fogBrushDiameter} />
+        <StrokePreview ref={strokePreviewRef} currentTool={currentTool} currentColor={currentColor} fogBrushDiameter={fogBrushDiameter} fogFill={fogFill} />
       </svg>
 
       <PingLayer pings={pings} zoomLevel={zoomLevel} />
@@ -509,20 +511,22 @@ function previewInk(tool: MapInteractionTool, color: string): string {
 
 /** The path useDrawing draws the current stroke into. Its `d` is owned by useDrawing, not React. */
 const StrokePreview = memo(
-  forwardRef<SVGPathElement, { currentTool: MapInteractionTool; currentColor: string; fogBrushDiameter: number }>(function StrokePreview(
-    { currentTool, currentColor, fogBrushDiameter },
+  forwardRef<SVGPathElement, { currentTool: MapInteractionTool; currentColor: string; fogBrushDiameter: number; fogFill: boolean }>(function StrokePreview(
+    { currentTool, currentColor, fogBrushDiameter, fogFill },
     ref
   ) {
     const ink = previewInk(currentTool, currentColor)
     if (isFogCellTool(currentTool)) {
       return <path ref={ref} fill={ink} stroke="none" style={{ pointerEvents: "none" }} />
     }
+    const fogStroke = isFogStrokeTool(currentTool)
     return (
       <path
         ref={ref}
         stroke={ink}
-        strokeWidth={isFogStrokeTool(currentTool) ? fogBrushDiameter : 3}
-        fill="none"
+        strokeWidth={fogStroke ? fogBrushDiameter : 3}
+        // With Fill on, the open loop is filled as if closed: exactly the area the stroke will cover.
+        fill={fogStroke && fogFill ? ink : "none"}
         strokeLinejoin="round"
         strokeLinecap="round"
         style={{ pointerEvents: "none" }}

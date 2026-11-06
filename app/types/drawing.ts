@@ -18,6 +18,8 @@ export interface DarknessPath {
   path?: string
   /** Brush diameter in scene pixels; defaults to 50 for legacy paths. */
   strokeWidth?: number
+  /** Stroke drawn with Fill on: the area it encloses is painted or revealed too, not only the line. */
+  fill?: boolean
   /** Single grid cell in scene coordinates. */
   cellRect?: { x: number; y: number; width: number; height: number }
 }

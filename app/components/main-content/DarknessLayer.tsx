@@ -35,8 +35,10 @@ function drawOp(ctx: CanvasRenderingContext2D, op: DarknessPath) {
   if (op.cellRect) {
     ctx.fillRect(op.cellRect.x, op.cellRect.y, op.cellRect.width, op.cellRect.height)
   } else if (op.path) {
+    const path = new Path2D(op.path)
+    if (op.fill) ctx.fill(path)
     ctx.lineWidth = op.strokeWidth ?? LEGACY_STROKE_WIDTH
-    ctx.stroke(new Path2D(op.path))
+    ctx.stroke(path)
   }
 }
 
