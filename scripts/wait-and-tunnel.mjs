@@ -5,15 +5,15 @@
 import http from "http";
 import fs from "fs";
 import path from "path";
-import { createRequire } from "module";
 import { spawn, execSync } from "child_process";
 
-try {
-  const require = createRequire(import.meta.url);
-  require("dotenv").config({ path: path.join(process.cwd(), ".env.local") });
-  require("dotenv").config({ path: path.join(process.cwd(), ".env") });
-} catch {
-  /* dotenv missing or unreadable */
+// .env.local first so it wins; loadEnvFile never overwrites variables that are already set.
+for (const file of [".env.local", ".env"]) {
+  try {
+    process.loadEnvFile(path.join(process.cwd(), file));
+  } catch {
+    /* file missing or unreadable */
+  }
 }
 
 const port = process.env.PORT || "3000";

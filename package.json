@@ -4,10 +4,10 @@
   "private": true,
   "description": "Virtual tabletop for The Job System",
   "scripts": {
-    "dev": "nodemon",
+    "dev": "tsc --project tsconfig.server.json && concurrently -k -n tsc,server -c gray,green \"tsc --project tsconfig.server.json --watch --preserveWatchOutput\" \"node --watch-path=build/server --watch-path=migrations build/server/server.js\"",
     "dev:share": "concurrently -n app,tunnel -c blue,magenta \"npm run dev\" \"node ./scripts/wait-and-tunnel.mjs\"",
     "build": "next build && tsc --project tsconfig.server.json",
-    "start": "cross-env NODE_ENV=production node .next/server_custom_build/server.js",
+    "start": "cross-env NODE_ENV=production node build/server/server.js",
     "start:share": "concurrently -n app,tunnel -c blue,magenta \"npm start\" \"node ./scripts/wait-and-tunnel.mjs\"",
     "session": "npm run build && npm run start:share",
     "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.server.json",
@@ -19,7 +19,6 @@
   "dependencies": {
     "@libsql/client": "0.14.0",
     "@radix-ui/react-dialog": "1.1.6",
-    "@radix-ui/react-label": "2.1.2",
     "@radix-ui/react-popover": "1.1.6",
     "@radix-ui/react-scroll-area": "1.2.3",
     "@radix-ui/react-select": "2.1.6",
@@ -31,8 +30,6 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cross-env": "7.0.3",
-    "date-fns": "4.1.0",
-    "dotenv": "16.4.7",
     "lucide-react": "0.454.0",
     "next": "15.5.27",
     "react": "18.3.1",
@@ -41,23 +38,23 @@
     "remark-gfm": "4.0.1",
     "socket.io": "4.8.4",
     "socket.io-client": "4.8.4",
-    "tailwind-merge": "2.6.0",
-    "tailwindcss-animate": "1.0.7"
+    "tailwind-merge": "2.6.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
     "@types/bcryptjs": "2.4.6",
     "@types/node": "22.15.17",
     "@types/react": "18.3.18",
     "@types/react-dom": "18.3.5",
     "concurrently": "9.2.4",
-    "nodemon": "3.1.14",
-    "postcss": "8.5.23",
-    "tailwindcss": "3.4.17",
+    "postcss": "8.5.28",
+    "tailwindcss": "4.3.3",
+    "tw-animate-css": "1.4.0",
     "typescript": "5.8.3",
     "vitest": "4.1.11"
   },
   "overrides": {
-    "postcss": "8.5.23",
+    "postcss": "8.5.28",
     "sharp": "0.35.5",
     "shell-quote": "1.11.0"
   }

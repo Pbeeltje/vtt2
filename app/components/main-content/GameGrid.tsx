@@ -244,7 +244,7 @@ export default function GameGrid({
               height: imageDimensions?.height || "100%",
             }}
           >
-            <div className="bg-white/90 backdrop-blur p-4 rounded-lg shadow-lg">
+            <div className="bg-white/90 backdrop-blur-sm p-4 rounded-lg shadow-lg">
               <div className="text-center">
                 <div className="text-2xl mb-2">📁</div>
                 <div className="font-semibold text-blue-700">Drop image here</div>
@@ -505,7 +505,7 @@ const MapImageItem = memo(function MapImageItem({
             onClick={(e) => e.stopPropagation()}
           >
             <div
-              className="w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 hover:bg-blue-100 cursor-grab active:cursor-grabbing shadow"
+              className="w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 hover:bg-blue-100 cursor-grab active:cursor-grabbing shadow-sm"
               onMouseDown={(e) => onRotateStart(e, img)}
               title="Rotate (hold Shift to snap to 15°)"
             />

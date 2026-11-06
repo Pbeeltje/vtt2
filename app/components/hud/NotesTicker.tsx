@@ -168,7 +168,7 @@ function NotesTicker({ isDM, loggedIn }: { isDM: boolean; loggedIn: boolean }) {
               placeholder="Add a note. Enter to post, Esc to cancel"
               maxLength={200}
               disabled={saving}
-              className={`${textStyle} min-w-0 flex-1 bg-transparent outline-none placeholder:normal-case placeholder:tracking-normal placeholder:text-[#7d896f]`}
+              className={`${textStyle} min-w-0 flex-1 bg-transparent outline-hidden placeholder:normal-case placeholder:tracking-normal placeholder:text-[#7d896f]`}
               style={{ color }}
               aria-label="New note"
             />

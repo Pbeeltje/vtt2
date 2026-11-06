@@ -3,7 +3,7 @@
   "compilerOptions": {
     "module": "commonjs",
     "moduleResolution": "node", // Override for CommonJS compatibility
-    "outDir": ".next/server_custom_build",
+    "outDir": "build/server",
     "rootDir": ".", 
     "noEmit": false, // Ensure this allows emitting JS files
     "skipLibCheck": true // Often useful to inherit or set

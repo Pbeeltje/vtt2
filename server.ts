@@ -40,8 +40,8 @@ const { getRequestHandlers } = require('next/dist/server/lib/start-server') as {
 };
 
 function getProjectRoot(): string {
-  // npm run dev compiles here: .next/server_custom_build/server.js
-  if (path.basename(__dirname) === 'server_custom_build') {
+  // Compiled to build/server/server.js, outside .next because `next dev` clears that folder on start.
+  if (path.basename(__dirname) === 'server' && path.basename(path.dirname(__dirname)) === 'build') {
     return path.resolve(__dirname, '..', '..');
   }
   return path.resolve(__dirname);

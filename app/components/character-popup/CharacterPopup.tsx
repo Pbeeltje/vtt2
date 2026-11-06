@@ -101,7 +101,7 @@ export default function CharacterPopup({ character, onClose, onSave, isDM, allUs
               placeholder="Unnamed"
               aria-label="Name"
               title="Name"
-              className="jade-title w-full bg-transparent text-center text-2xl outline-none placeholder:text-[var(--jade-muted)] focus:shadow-[0_1px_0_#e0c25a]"
+              className="jade-title w-full bg-transparent text-center text-2xl outline-hidden placeholder:text-[var(--jade-muted)] focus:shadow-[0_1px_0_#e0c25a]"
             />
           </div>
           <div className="jade-well relative flex h-12 w-48 items-center">
@@ -113,7 +113,7 @@ export default function CharacterPopup({ character, onClose, onSave, isDM, allUs
               }}
               aria-label="Path"
               title="Path"
-              className="jade-title h-full w-full cursor-pointer appearance-none bg-transparent px-7 text-center text-lg text-[#d9d3b8] outline-none"
+              className="jade-title h-full w-full cursor-pointer appearance-none bg-transparent px-7 text-center text-lg text-[#d9d3b8] outline-hidden"
             >
               <option value="Warrior" className="bg-[#0a0d0a]">Warrior</option>
               <option value="Magic User" className="bg-[#0a0d0a]">Magic User</option>

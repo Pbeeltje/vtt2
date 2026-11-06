@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { format } from "date-fns"
 import { Plus, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,6 +16,14 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { confirm } from "@/components/ui/confirm-dialog"
 import { MarkdownContent } from "@/components/MarkdownContent"
 import type { JournalNote } from "@/app/types/journal-note"
+
+/** "Oct 16, 2026 · 14:05" in local time. */
+const formatNoteDate = (iso: string) => {
+  const d = new Date(iso)
+  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })
+  return `${date} · ${time}`
+}
 
 const lastKey = (userId: number) => `vtt-journal-last-note-${userId}`
 
@@ -287,7 +294,7 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
               <SelectContent className="jade">
                 {sortedForSelect.map((n) => (
                   <SelectItem key={n.Id} value={String(n.Id)} className="text-xs">
-                    {format(new Date(n.UpdatedAt), "MMM d, yyyy · HH:mm")} —{" "}
+                    {formatNoteDate(n.UpdatedAt)} —{" "}
                     {n.Title.trim() || "Untitled"}
                   </SelectItem>
                 ))}
@@ -354,7 +361,7 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
                   onChange={(e) => onContentChange(e.target.value)}
                   placeholder="Markdown supported…"
                   disabled={loading}
-                  className="min-h-[calc(100vh-var(--hud-h)-11.5rem)] w-full resize-none bg-transparent p-3 font-mono text-sm outline-none disabled:opacity-60"
+                  className="min-h-[calc(100vh-var(--hud-h)-11.5rem)] w-full resize-none bg-transparent p-3 font-mono text-sm outline-hidden disabled:opacity-60"
                   spellCheck
                 />
               </ScrollArea>

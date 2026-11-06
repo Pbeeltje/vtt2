@@ -29,7 +29,7 @@ export function NumField({ sheet, name, label, className = "", maxLength = 2, fi
       title={label}
       // Tabular digits are exactly 1ch wide, so this hugs the number.
       style={fit ? { width: `${Math.max(1, text.length)}ch` } : undefined}
-      className={`min-w-0 bg-transparent text-center tabular-nums outline-none focus:bg-black/40 focus:shadow-[0_0_0_1px_#e0c25a] ${className}`}
+      className={`min-w-0 bg-transparent text-center tabular-nums outline-hidden focus:bg-black/40 focus:shadow-[0_0_0_1px_#e0c25a] ${className}`}
     />
   );
 }

@@ -89,7 +89,7 @@ export function StatsTab({ sheet, jobs, onSaveJob, onCreateJob }: StatsTabProps)
                 <button
                   type="button"
                   onClick={() => setOpenJobId(job.JobId)}
-                  className="jade-inset flex w-full items-baseline gap-1.5 px-3 py-2 text-left text-sm hover:shadow-[inset_0_0_0_1px_#e0c25a,inset_0_0_12px_#000] focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_1px_#e0c25a,inset_0_0_12px_#000]"
+                  className="jade-inset flex w-full items-baseline gap-1.5 px-3 py-2 text-left text-sm hover:shadow-[inset_0_0_0_1px_#e0c25a,inset_0_0_12px_#000] focus-visible:outline-hidden focus-visible:shadow-[inset_0_0_0_1px_#e0c25a,inset_0_0_12px_#000]"
                   title={`Open ${job.Name}`}
                 >
                   <span className="truncate font-semibold text-[var(--jade-ink-hi)]">{job.Name}</span>
@@ -135,7 +135,7 @@ function SizeField({ sheet }: { sheet: SheetDraft }) {
       }}
       aria-label="Size"
       title={`Size: ${size} (token ${CHARACTER_SIZES[size as keyof typeof CHARACTER_SIZES] ?? 1}x)`}
-      className="h-8 w-[64px] cursor-pointer appearance-none rounded-full bg-transparent text-center text-[13px] outline-none [text-align-last:center] focus:bg-black/40 focus:shadow-[0_0_0_1px_#e0c25a]"
+      className="h-8 w-[64px] cursor-pointer appearance-none rounded-full bg-transparent text-center text-[13px] outline-hidden [text-align-last:center] focus:bg-black/40 focus:shadow-[0_0_0_1px_#e0c25a]"
     >
       {Object.keys(CHARACTER_SIZES).map((name) => (
         <option key={name} value={name} className="bg-[#0a0d0a] text-white">

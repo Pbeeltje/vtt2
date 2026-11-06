@@ -144,7 +144,7 @@ export function JobDetailModal({ job, open, onOpenChange, onSave, onCreate }: Jo
         <DialogPrimitive.Content
           className={cn(
             "flex max-h-[85vh] w-[50vw] min-w-[min(100%,18rem)] max-w-[min(50vw,56rem)] flex-col gap-0 overflow-hidden p-0",
-            "jade jade-well jade-fill fixed left-1/2 top-1/2 z-[210] translate-x-0 translate-y-0 border-0 outline-none",
+            "jade jade-well jade-fill fixed left-1/2 top-1/2 z-[210] translate-x-0 translate-y-0 border-0 outline-hidden",
             "data-[state=open]:animate-none data-[state=closed]:animate-none"
           )}
           style={{

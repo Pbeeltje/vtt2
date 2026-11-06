@@ -549,7 +549,7 @@ function MainContent({
     <div className="flex flex-col h-full w-full overflow-hidden bg-[#050403]">
       <div
         ref={containerRef}
-        className="flex-grow relative overflow-auto"
+        className="grow relative overflow-auto"
         style={{ cursor: navigation.isPanning ? "grabbing" : "grab", userSelect: "none" }}
         onMouseDown={navigation.startPan}
         onMouseMove={navigation.pan}
