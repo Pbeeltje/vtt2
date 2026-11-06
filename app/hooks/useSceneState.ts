@@ -330,8 +330,10 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
   )
 
   const playerPlaceToken = useCallback((token: LayerImage) => playerTokenRequest("POST", { tokenData: token }), [playerTokenRequest])
-  const playerMoveToken = useCallback(
-    (token: LayerImage) => playerTokenRequest("PUT", { tokenData: { id: token.id, x: token.x, y: token.y } }),
+  /** Moves of the player's own tokens (a group drag or nudge), saved in one request. */
+  const playerMoveTokens = useCallback(
+    (moves: Array<{ id: string; x: number; y: number }>) =>
+      moves.length > 0 ? playerTokenRequest("PUT", { tokens: moves.map(({ id, x, y }) => ({ id, x, y })) }) : Promise.resolve(),
     [playerTokenRequest]
   )
   const playerDeleteToken = useCallback(
@@ -354,7 +356,7 @@ export function useSceneState(user: User | null, socket: Socket | null, connecte
     updateSceneSettings,
     clearSceneData,
     playerPlaceToken,
-    playerMoveToken,
+    playerMoveTokens,
     playerDeleteToken,
   }
 }

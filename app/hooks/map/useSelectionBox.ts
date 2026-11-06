@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react"
 import type { LayerImage } from "../../types/layerImage"
 import type { DrawingObject } from "../../types/drawing"
+import { swallowNextClick } from "./clickGuard"
 
 type Point = { x: number; y: number }
 
@@ -106,11 +107,9 @@ export function useSelectionBox({
 
     setSelectedIds(itemIds)
     setSelectedDrawingIds(drawingIds)
-    // Clear on the next tick so the click that ends the drag doesn't deselect everything.
-    setTimeout(() => {
-      setSelectionStart(null)
-      setSelectionEnd(null)
-    }, 10)
+    swallowNextClick()
+    setSelectionStart(null)
+    setSelectionEnd(null)
   }, [selectionStart, selectionEnd, gridSize, currentUserRole, currentUserId, middleLayerImages, topLayerImages, drawings, setSelectedIds, setSelectedDrawingIds])
 
   return { isSelecting, selectionStart, selectionEnd, startSelection, moveSelection, endSelection }

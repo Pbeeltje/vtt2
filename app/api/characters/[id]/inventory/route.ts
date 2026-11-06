@@ -3,12 +3,11 @@ import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { parseId } from "@/lib/api-errors"
 import { requireCharacterAccess } from "@/lib/character-access"
+import { INVENTORY_SLOTS, type CharacterInventory, type Item } from "@/app/types/inventory"
 
 type Params = { params: Promise<{ id: string }> }
 
-const SLOT_COUNT = 16
-
-/** The character's 16 inventory slots, empty ones included. */
+/** The character's inventory slots, empty ones included. */
 export async function GET(_req: Request, { params }: Params) {
   const charId = parseId((await params).id)
   const access = await requireCharacterAccess(charId)
@@ -20,7 +19,7 @@ export async function GET(_req: Request, { params }: Params) {
             WHERE i.CharacterId = ?`,
       args: [charId],
     })
-    const bySlot = new Map<number, { ItemId: number; Name: string; Description: string | null }>()
+    const bySlot = new Map<number, Item>()
     for (const row of invRows.rows) {
       bySlot.set(Number(row.Slotnumber) || 1, {
         ItemId: Number(row.ItemId),
@@ -28,11 +27,12 @@ export async function GET(_req: Request, { params }: Params) {
         Description: row.Description === null ? null : String(row.Description),
       })
     }
-    const slots = Array.from({ length: SLOT_COUNT }, (_, i) => {
+    const slots = Array.from({ length: INVENTORY_SLOTS }, (_, i) => {
       const item = bySlot.get(i + 1)
       return { SlotNumber: i + 1, ItemId: item?.ItemId ?? null, item: item ?? null }
     })
-    return NextResponse.json({ CharacterId: charId, Slots: slots })
+    const inventory: CharacterInventory = { CharacterId: charId!, Slots: slots }
+    return NextResponse.json(inventory)
   } catch (error) {
     console.error("Error in GET inventory:", error)
     return NextResponse.json({ error: "Failed to fetch inventory" }, { status: 500 })
@@ -62,7 +62,7 @@ export async function PUT(req: Request, { params }: Params) {
 
     for (const slot of Slots) {
       const slotNumber = Number(slot?.SlotNumber)
-      if (!Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > SLOT_COUNT) {
+      if (!Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > INVENTORY_SLOTS) {
         return NextResponse.json({ error: "Invalid slot number" }, { status: 400 })
       }
       if (slot.ItemId === null || slot.ItemId === undefined) {

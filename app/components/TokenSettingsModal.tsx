@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
+"use client"
+
+import React, { useState } from "react"
+import { JadeDialog } from "@/components/ui/jade-dialog"
 import type { LayerImage } from "../types/layerImage"
 import { STATUS_EFFECTS, StatusEffectIcon, isStatusEffect, type StatusEffect } from "../lib/status-effects"
 
@@ -20,17 +21,22 @@ interface TokenSettingsModalProps {
   gridSize: number
 }
 
+const DEFAULT_AURA_COLOR = "#87CEEB"
+const MIN_SCALE = 0.1
+const MAX_SCALE = 5
+
 /** Aura and status effect of one token, plus its size when it has no character sheet to take it from. Render it with key={token.id} so it starts from that token's values. */
 export default function TokenSettingsModal({ token, onClose, onSave, gridSize }: TokenSettingsModalProps) {
   const [scale, setScale] = useState((token.width || gridSize) / gridSize)
-  const [auraColor, setAuraColor] = useState(token.auraColor || '#87CEEB')
+  const [auraColor, setAuraColor] = useState(token.auraColor || DEFAULT_AURA_COLOR)
   const [auraRadius, setAuraRadius] = useState(token.auraRadius || 1)
   const [statusEffect, setStatusEffect] = useState<StatusEffect | null>(isStatusEffect(token.statusEffect) ? token.statusEffect : null)
   const [auraEnabled, setAuraEnabled] = useState(Boolean(token.auraColor && token.auraRadius && token.auraRadius > 0))
 
-  const handleSave = () => {
+  const save = (e: React.FormEvent) => {
+    e.preventDefault()
     onSave(token.id, {
-      scale: token.character ? undefined : Math.min(5, Math.max(0.1, scale)),
+      scale: token.character ? undefined : Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale)),
       auraColor: auraEnabled ? auraColor : null,
       auraRadius: auraEnabled ? auraRadius : null,
       statusEffect,
@@ -38,150 +44,143 @@ export default function TokenSettingsModal({ token, onClose, onSave, gridSize }:
     onClose()
   }
 
-  const handleCancel = () => {
-    onClose()
-  }
-
-  const currentSize = Math.round(scale * gridSize)
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-label="Token settings" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-      <div className="bg-white rounded-lg p-6 w-[500px] max-w-[90vw] max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold">Token Settings</h2>
-          {token.character && (
-            <div className="text-right">
-              <div className="text-sm text-gray-500">Character</div>
-              <div className="font-semibold">{token.character.Name}</div>
-            </div>
-          )}
-        </div>
-        
-        {/* Scale Section: character tokens take their size from the sheet */}
+    <JadeDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title="Token settings"
+      description={token.character ? `Status effect and aura of ${token.character.Name}'s token.` : "Size, status effect and aura of this token."}
+      aside={
+        token.character && (
+          <div className="shrink-0 text-right">
+            <div className="jade-sc text-xs text-[var(--jade-muted)]">Character</div>
+            <div className="jade-title text-sm">{token.character.Name}</div>
+          </div>
+        )
+      }
+      className="max-w-md"
+    >
+      <form onSubmit={save} className="mt-5 space-y-4">
+        {/* Character tokens take their size from the sheet. */}
         {!token.character && (
-        <div className="mb-8 p-4 bg-gray-50 rounded-lg">
-          <Label className="text-sm font-medium text-gray-700 mb-3 block">
-            Token Scale
-          </Label>
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              value={scale}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setScale(parseFloat(e.target.value) || 1)}
-              min={0.1}
-              max={5}
-              step={0.1}
-              className="w-20 px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-            <span className="text-sm text-gray-600">×</span>
-            <span className="text-sm text-gray-500">= {currentSize}px</span>
-          </div>
-          <div className="text-xs text-gray-500 mt-2">
-            Range: 0.1× to 5× (10px to {gridSize * 5}px)
-          </div>
-        </div>
+          <Section title="Size">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={scale}
+                onChange={(e) => setScale(parseFloat(e.target.value) || 1)}
+                min={MIN_SCALE}
+                max={MAX_SCALE}
+                step={0.1}
+                className="jade-input h-8 w-20 px-2"
+                aria-label="Scale"
+              />
+              <span className="text-[var(--jade-ink)]">× grid = {Math.round(scale * gridSize)}px</span>
+            </div>
+            <Hint>
+              From {MIN_SCALE}× to {MAX_SCALE}× ({Math.round(MIN_SCALE * gridSize)}px to {MAX_SCALE * gridSize}px)
+            </Hint>
+          </Section>
         )}
 
-        {/* Status Effect Section: one at a time, click the active one again to clear it */}
-        <div className="mb-8 p-4 bg-gray-50 rounded-lg">
-          <Label className="text-sm font-medium text-gray-700 mb-3 block">
-            Status Effect
-          </Label>
-          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Status effect">
+        {/* One at a time; picking the active one again clears it. */}
+        <Section title="Status effect">
+          <div className="flex flex-wrap gap-2.5 p-0.5" role="radiogroup" aria-label="Status effect">
             {(Object.keys(STATUS_EFFECTS) as StatusEffect[]).map((effect) => (
               <button
                 key={effect}
                 type="button"
                 role="radio"
                 aria-checked={statusEffect === effect}
+                data-lit={statusEffect === effect}
                 title={STATUS_EFFECTS[effect].label}
+                aria-label={STATUS_EFFECTS[effect].label}
                 onClick={() => setStatusEffect(statusEffect === effect ? null : effect)}
-                className={`w-10 h-10 rounded-md border-2 flex items-center justify-center bg-white hover:border-gray-400 ${
-                  statusEffect === effect ? "border-blue-500 ring-2 ring-blue-200" : "border-gray-200"
-                }`}
+                className="jade-slot h-10 w-10"
               >
-                <StatusEffectIcon effect={effect} className="w-6 h-6" />
+                {/* As it shows on the token: a white badge. */}
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white">
+                  <StatusEffectIcon effect={effect} className="h-5 w-5" />
+                </span>
               </button>
             ))}
             <button
               type="button"
               role="radio"
               aria-checked={statusEffect === null}
+              data-lit={statusEffect === null}
               onClick={() => setStatusEffect(null)}
-              className={`h-10 px-3 rounded-md border-2 text-sm bg-white hover:border-gray-400 ${
-                statusEffect === null ? "border-blue-500 ring-2 ring-blue-200" : "border-gray-200"
-              }`}
+              className="jade-slot jade-sc h-10 px-3 text-sm"
             >
               None
             </button>
           </div>
-        </div>
+        </Section>
 
-        {/* Aura Section */}
-        <div className="mb-8 p-4 bg-gray-50 rounded-lg">
-          <div className="flex items-center gap-2 mb-3">
-            <input
-              type="checkbox"
-              id="aura-enabled"
-              checked={auraEnabled}
-              onChange={(e) => setAuraEnabled(e.target.checked)}
-              className="w-4 h-4"
-            />
-            <Label htmlFor="aura-enabled" className="text-sm font-medium text-gray-700">
-              Enable Token Aura
-            </Label>
-          </div>
-          
-          <div className="flex items-center gap-4">
+        <Section
+          title={
+            <label className="flex cursor-pointer items-center gap-2">
+              <input type="checkbox" checked={auraEnabled} onChange={(e) => setAuraEnabled(e.target.checked)} className="h-4 w-4 accent-[#e0c25a]" />
+              Aura
+            </label>
+          }
+        >
+          <fieldset disabled={!auraEnabled} className="flex flex-wrap items-center gap-3 disabled:opacity-45">
             <input
               type="color"
               value={auraColor}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAuraColor(e.target.value)}
-              className="w-12 h-12 border-2 border-gray-300 rounded-md cursor-pointer hover:border-gray-400"
-              title="Choose aura color"
-              disabled={!auraEnabled}
+              onChange={(e) => setAuraColor(e.target.value)}
+              className="jade-input h-9 w-12 cursor-pointer p-1 disabled:cursor-default"
+              title="Aura colour"
+              aria-label="Aura colour"
             />
-            <div className="flex items-center gap-2">
-              <Label className="text-sm text-gray-600">Radius:</Label>
+            <label className="flex items-center gap-2 text-[var(--jade-ink)]">
+              Radius
               <input
                 type="number"
                 value={auraRadius}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAuraRadius(Math.max(0, parseFloat(e.target.value) || 1))}
-                min="0"
-                max="5"
-                step="0.5"
-                className="w-16 px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                disabled={!auraEnabled}
+                onChange={(e) => setAuraRadius(Math.max(0, parseFloat(e.target.value) || 1))}
+                min={0}
+                max={5}
+                step={0.5}
+                className="jade-input h-8 w-16 px-2"
               />
-              <span className="text-sm text-gray-500">grid units</span>
-            </div>
-                          <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setAuraColor('#87CEEB')
-                  setAuraRadius(1)
-                }}
-                className="text-xs"
-                disabled={!auraEnabled}
-              >
-                Clear
-              </Button>
-          </div>
-          <div className="text-xs text-gray-500 mt-2">
-            Aura will appear as a transparent circle around the token (30% opacity)
-          </div>
-        </div>
+              cells
+            </label>
+            <button
+              type="button"
+              className="jade-btn h-8 text-sm"
+              onClick={() => {
+                setAuraColor(DEFAULT_AURA_COLOR)
+                setAuraRadius(1)
+              }}
+            >
+              Reset
+            </button>
+          </fieldset>
+          <Hint>A see-through circle around the token.</Hint>
+        </Section>
 
-        <div className="flex gap-3 justify-end pt-4 border-t">
-          <Button variant="outline" onClick={handleCancel}>
+        <div className="flex justify-end gap-3 pt-2">
+          <button type="button" className="jade-btn min-w-20" onClick={onClose}>
             Cancel
-          </Button>
-          <Button onClick={handleSave}>
-            Save Changes
-          </Button>
+          </button>
+          <button type="submit" className="jade-btn min-w-20">
+            Save
+          </button>
         </div>
-      </div>
-    </div>
+      </form>
+    </JadeDialog>
   )
-} 
+}
+
+function Section({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="jade-inset space-y-2 p-3">
+      <h3 className="jade-sc text-xs font-semibold text-[var(--jade-gold-hi)]">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+const Hint = ({ children }: { children: React.ReactNode }) => <p className="text-xs text-[var(--jade-muted)]">{children}</p>

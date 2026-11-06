@@ -25,7 +25,7 @@ interface CharacterPopupProps {
 
 export default function CharacterPopup({ character, onClose, onSave, isDM, allUsers }: CharacterPopupProps) {
   const [selectedUserIdToAssign, setSelectedUserIdToAssign] = useState<number | ''>( '');
-  const { jobs, handleCreateJob, handleJobSubmit } = useJobs(character.CharacterId);
+  const { jobs, createJob, saveJob } = useJobs(character.CharacterId);
 
   const handleAssignCharacter = async () => {
     if (selectedUserIdToAssign === '') { 
@@ -186,11 +186,11 @@ export default function CharacterPopup({ character, onClose, onSave, isDM, allUs
             <h2 className="jade-sc shrink-0 px-5 pt-3 text-sm font-semibold text-[var(--jade-gold-hi)]">{tabs.find((t) => t.value === tab)?.label}</h2>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2">
               <TabsPrimitive.Content value="stats">
-                <StatsTab sheet={sheet} jobs={jobs} onSaveJob={handleJobSubmit} onCreateJob={handleCreateJob} />
+                <StatsTab sheet={sheet} jobs={jobs} onSaveJob={saveJob} onCreateJob={createJob} />
               </TabsPrimitive.Content>
               {/* forceMount: prefetch jobs; Radix keeps present=true so we hide inactive via data-state */}
               <TabsPrimitive.Content value="jobs" forceMount className="data-[state=inactive]:hidden">
-                <JobsTab jobs={jobs} handleCreateJob={handleCreateJob} handleJobSubmit={handleJobSubmit} />
+                <JobsTab jobs={jobs} onCreateJob={createJob} onSaveJob={saveJob} />
               </TabsPrimitive.Content>
               <TabsPrimitive.Content value="inventory">
                 <InventoryTab characterId={character.CharacterId} maxStrength={character.MaxStrength || 0} />

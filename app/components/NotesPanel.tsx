@@ -15,7 +15,9 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { confirm } from "@/components/ui/confirm-dialog"
 import { MarkdownContent } from "@/components/MarkdownContent"
+import { toast } from "@/components/ui/use-toast"
 import type { JournalNote } from "@/app/types/journal-note"
+import { api, errorMessage } from "../lib/api"
 
 /** "Oct 16, 2026 · 14:05" in local time. */
 const formatNoteDate = (iso: string) => {
@@ -27,6 +29,13 @@ const formatNoteDate = (iso: string) => {
 
 const lastKey = (userId: number) => `vtt-journal-last-note-${userId}`
 
+/** Most recently edited first. */
+const newestFirst = (list: JournalNote[]) =>
+  [...list].sort((a, b) => new Date(b.UpdatedAt).getTime() - new Date(a.UpdatedAt).getTime())
+
+const createNote = (title: string) => api<JournalNote>("/api/journal-notes", { method: "POST", body: { title, content: "" } })
+
+const failed = (title: string, error: unknown) => toast({ title, description: errorMessage(error), variant: "destructive" })
 
 type NotesPanelProps = {
   userId: number
@@ -35,6 +44,10 @@ type NotesPanelProps = {
   onOpenChange: (open: boolean) => void
 }
 
+/**
+ * A player's private journal: several markdown notes, autosaved while typing. Each user always
+ * has at least one note; the last one opened is remembered per user.
+ */
 export default function NotesPanel({ userId, open, onOpenChange: setOpen }: NotesPanelProps) {
   const [notes, setNotes] = useState<JournalNote[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -42,51 +55,49 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
   const [draftContent, setDraftContent] = useState("")
   const [loading, setLoading] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const draftTitleRef = useRef("")
-  const draftContentRef = useRef("")
-  const selectedIdRef = useRef<number | null>(null)
+  /** Typed since the last save. */
+  const dirty = useRef(false)
+  // What the (debounced) save sends: the note being edited and its text right now.
+  const editing = useRef<{ id: number | null; title: string; content: string }>({ id: null, title: "", content: "" })
   const journalLoadedRef = useRef(false)
 
-  useEffect(() => {
-    draftTitleRef.current = draftTitle
-    draftContentRef.current = draftContent
-  }, [draftTitle, draftContent])
-
-  useEffect(() => {
-    selectedIdRef.current = selectedId
-  }, [selectedId])
-
-  const flushSave = useCallback(async () => {
-    if (saveTimer.current) {
-      clearTimeout(saveTimer.current)
-      saveTimer.current = null
-    }
-    const id = selectedIdRef.current
-    if (id == null) return
-    const t = draftTitleRef.current
-    const c = draftContentRef.current
-    try {
-      const res = await fetch(`/api/journal-notes/${id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: t, content: c }),
-      })
-      if (res.ok) {
-        const updated = (await res.json()) as JournalNote
-        setNotes((prev) => {
-          const next = prev.map((n) => (n.Id === updated.Id ? updated : n))
-          return [...next].sort(
-            (a, b) => new Date(b.UpdatedAt).getTime() - new Date(a.UpdatedAt).getTime()
-          )
-        })
+  /** Opens a note in the editor (null: none) and remembers it for next time. */
+  const showNote = useCallback(
+    (note: JournalNote | null) => {
+      editing.current = { id: note?.Id ?? null, title: note?.Title ?? "", content: note?.Content ?? "" }
+      dirty.current = false
+      setSelectedId(note?.Id ?? null)
+      setDraftTitle(note?.Title ?? "")
+      setDraftContent(note?.Content ?? "")
+      if (!note) return
+      try {
+        localStorage.setItem(lastKey(userId), String(note.Id))
+      } catch {
+        /* storage unavailable: just don't remember */
       }
-    } catch (e) {
-      console.error("journal save:", e)
+    },
+    [userId]
+  )
+
+  /** Saves the open note now, instead of waiting for the typing pause. */
+  const flushSave = useCallback(async () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = null
+    const { id, title, content } = editing.current
+    if (!dirty.current || id == null) return
+    dirty.current = false
+    try {
+      const updated = await api<JournalNote>(`/api/journal-notes/${id}`, { method: "PATCH", body: { title, content } })
+      setNotes((prev) => newestFirst(prev.map((n) => (n.Id === updated.Id ? updated : n))))
+    } catch (error) {
+      // Still unsaved: the next edit, switch or close tries again.
+      if (editing.current.id === id) dirty.current = true
+      failed("Couldn't save your note", error)
     }
   }, [])
 
   const scheduleSave = useCallback(() => {
+    dirty.current = true
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => void flushSave(), 650)
   }, [flushSave])
@@ -95,55 +106,23 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
     if (journalLoadedRef.current) return
     setLoading(true)
     try {
-      let res = await fetch("/api/journal-notes", { credentials: "include" })
-      if (!res.ok) return
-      let list = (await res.json()) as JournalNote[]
-
-      if (list.length === 0) {
-        const create = await fetch("/api/journal-notes", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: "", content: "" }),
-        })
-        if (create.ok) {
-          const row = (await create.json()) as JournalNote
-          list = [row]
-        }
-      }
-
-      if (list.length === 0) return
-
+      let list = newestFirst(await api<JournalNote[]>("/api/journal-notes"))
+      if (list.length === 0) list = [await createNote("")]
       journalLoadedRef.current = true
       setNotes(list)
-      const stored = (() => {
-        try {
-          return localStorage.getItem(lastKey(userId))
-        } catch {
-          return null
-        }
-      })()
-      const storedId = stored ? parseInt(stored, 10) : NaN
-      const pick =
-        list.find((n) => n.Id === storedId) ??
-        list[0] ??
-        null
-      if (pick) {
-        setSelectedId(pick.Id)
-        setDraftTitle(pick.Title)
-        setDraftContent(pick.Content)
-        draftTitleRef.current = pick.Title
-        draftContentRef.current = pick.Content
-        try {
-          localStorage.setItem(lastKey(userId), String(pick.Id))
-        } catch {
-          /* ignore */
-        }
+      let storedId = NaN
+      try {
+        storedId = parseInt(localStorage.getItem(lastKey(userId)) ?? "", 10)
+      } catch {
+        /* storage unavailable */
       }
+      showNote(list.find((n) => n.Id === storedId) ?? list[0])
+    } catch (error) {
+      failed("Couldn't load your notes", error)
     } finally {
       setLoading(false)
     }
-  }, [userId])
+  }, [userId, showNote])
 
   useEffect(() => {
     journalLoadedRef.current = false
@@ -151,58 +130,25 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
 
   useEffect(() => {
     if (open) void initPanel()
-  }, [open, initPanel])
-
-  useEffect(() => {
-    if (!open) void flushSave()
-  }, [open, flushSave])
+    else void flushSave()
+  }, [open, initPanel, flushSave])
 
   const handleSelectNote = async (value: string) => {
     const nid = parseInt(value, 10)
     if (!Number.isFinite(nid) || nid === selectedId) return
     await flushSave()
-    const n = notes.find((x) => x.Id === nid)
-    if (!n) return
-    setSelectedId(nid)
-    setDraftTitle(n.Title)
-    setDraftContent(n.Content)
-    draftTitleRef.current = n.Title
-    draftContentRef.current = n.Content
-    try {
-      localStorage.setItem(lastKey(userId), String(nid))
-    } catch {
-      /* ignore */
-    }
+    const note = notes.find((x) => x.Id === nid)
+    if (note) showNote(note)
   }
 
   const handleAddNote = async () => {
     await flushSave()
     try {
-      const res = await fetch("/api/journal-notes", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "New note", content: "" }),
-      })
-      if (!res.ok) return
-      const row = (await res.json()) as JournalNote
-      setNotes((prev) =>
-        [row, ...prev].sort(
-          (a, b) => new Date(b.UpdatedAt).getTime() - new Date(a.UpdatedAt).getTime()
-        )
-      )
-      setSelectedId(row.Id)
-      setDraftTitle(row.Title)
-      setDraftContent(row.Content)
-      draftTitleRef.current = row.Title
-      draftContentRef.current = row.Content
-      try {
-        localStorage.setItem(lastKey(userId), String(row.Id))
-      } catch {
-        /* ignore */
-      }
-    } catch (e) {
-      console.error("create note:", e)
+      const note = await createNote("New note")
+      setNotes((prev) => newestFirst([note, ...prev]))
+      showNote(note)
+    } catch (error) {
+      failed("Couldn't add a note", error)
     }
   }
 
@@ -211,71 +157,28 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
     if (!(await confirm({ title: "Delete this note?", description: "This cannot be undone.", confirmLabel: "Delete", destructive: true }))) return
     await flushSave()
     try {
-      const res = await fetch(`/api/journal-notes/${selectedId}`, {
-        method: "DELETE",
-        credentials: "include",
-      })
-      if (!res.ok) return
+      await api(`/api/journal-notes/${selectedId}`, { method: "DELETE" })
       const rest = notes.filter((n) => n.Id !== selectedId)
-      setNotes(rest)
-      if (rest.length === 0) {
-        const create = await fetch("/api/journal-notes", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: "", content: "" }),
-        })
-        if (create.ok) {
-          const row = (await create.json()) as JournalNote
-          setNotes([row])
-          setSelectedId(row.Id)
-          setDraftTitle(row.Title)
-          setDraftContent(row.Content)
-          draftTitleRef.current = row.Title
-          draftContentRef.current = row.Content
-          try {
-            localStorage.setItem(lastKey(userId), String(row.Id))
-          } catch {
-            /* ignore */
-          }
-        } else {
-          setSelectedId(null)
-          setDraftTitle("")
-          setDraftContent("")
-        }
-      } else {
-        const next = rest[0]
-        setSelectedId(next.Id)
-        setDraftTitle(next.Title)
-        setDraftContent(next.Content)
-        draftTitleRef.current = next.Title
-        draftContentRef.current = next.Content
-        try {
-          localStorage.setItem(lastKey(userId), String(next.Id))
-        } catch {
-          /* ignore */
-        }
-      }
-    } catch (e) {
-      console.error("delete note:", e)
+      // Never leave the journal empty.
+      const next = rest[0] ?? (await createNote(""))
+      setNotes(rest.length ? rest : [next])
+      showNote(next)
+    } catch (error) {
+      failed("Couldn't delete the note", error)
     }
   }
 
   const onTitleChange = (v: string) => {
     setDraftTitle(v)
-    draftTitleRef.current = v
+    editing.current.title = v
     scheduleSave()
   }
 
   const onContentChange = (v: string) => {
     setDraftContent(v)
-    draftContentRef.current = v
+    editing.current.content = v
     scheduleSave()
   }
-
-  const sortedForSelect = [...notes].sort(
-    (a, b) => new Date(b.UpdatedAt).getTime() - new Date(a.UpdatedAt).getTime()
-  )
 
   return (
     <>
@@ -286,13 +189,13 @@ export default function NotesPanel({ userId, open, onOpenChange: setOpen }: Note
             <Select
               value={selectedId != null ? String(selectedId) : undefined}
               onValueChange={handleSelectNote}
-              disabled={loading || sortedForSelect.length === 0}
+              disabled={loading || notes.length === 0}
             >
               <SelectTrigger className="h-9 min-w-0 flex-1 text-xs">
                 <SelectValue placeholder={loading ? "Loading…" : "Pick a note"} />
               </SelectTrigger>
               <SelectContent className="jade">
-                {sortedForSelect.map((n) => (
+                {notes.map((n) => (
                   <SelectItem key={n.Id} value={String(n.Id)} className="text-xs">
                     {formatNoteDate(n.UpdatedAt)} —{" "}
                     {n.Title.trim() || "Untitled"}

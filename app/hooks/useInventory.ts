@@ -1,109 +1,83 @@
-// app/hooks/useInventory.ts
-import { useState, useEffect } from 'react';
-import { toast } from "@/components/ui/use-toast";
-import { Item } from '../types/inventory';
+"use client"
 
+import { useCallback, useEffect, useRef, useState } from "react"
+import { toast } from "@/components/ui/use-toast"
+import { api, errorMessage } from "../lib/api"
+import type { CharacterInventory, InventorySlot } from "../types/inventory"
+
+/**
+ * A character's inventory slots, loaded when the character changes. Saving or clearing a slot
+ * patches just that slot with what the server returns.
+ */
 export function useInventory(characterId: number) {
-  const [inventory, setInventory] = useState<any>(null); // Inventory with Slots
-  const [editingSlot, setEditingSlot] = useState<number | null>(null);
-  const [inventoryForm, setInventoryForm] = useState<{ itemId: number | null; slot: number }>({
-    itemId: null,
-    slot: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [slots, setSlots] = useState<InventorySlot[] | null>(null)
+  // A save that finishes after switching characters must not land in the new one's slots.
+  const currentId = useRef(characterId)
+  currentId.current = characterId
 
   useEffect(() => {
-    const fetchInventory = async () => {
-      if (!characterId) {
-        setInventory(null);
-        setLoading(false);
-        return;
+    setSlots(null)
+    if (!characterId) return
+    let cancelled = false
+    api<CharacterInventory>(`/api/characters/${characterId}/inventory`)
+      .then((inventory) => !cancelled && setSlots(inventory.Slots))
+      .catch((error) => {
+        if (cancelled) return
+        setSlots([])
+        toast({ title: "Couldn't load inventory", description: errorMessage(error), variant: "destructive" })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [characterId])
+
+  const putSlot = useCallback((forCharacter: number, slot: InventorySlot) => {
+    if (currentId.current !== forCharacter) return
+    setSlots((prev) => prev && prev.map((s) => (s.SlotNumber === slot.SlotNumber ? slot : s)))
+  }, [])
+
+  /** Empties the slot (deleting its item). Resolves false if that failed. */
+  const clearSlot = useCallback(
+    async (slotNumber: number): Promise<boolean> => {
+      try {
+        putSlot(characterId, await api<InventorySlot>(`/api/characters/${characterId}/inventory/${slotNumber}`, { method: "DELETE" }))
+        toast({ title: "Slot cleared", description: `Slot ${slotNumber} cleared.` })
+        return true
+      } catch (error) {
+        toast({ title: "Couldn't clear the slot", description: errorMessage(error), variant: "destructive" })
+        return false
+      }
+    },
+    [characterId, putSlot]
+  )
+
+  /** Puts an item with this name and note in the slot; both blank empties it. Resolves false if that failed. */
+  const saveSlot = useCallback(
+    async (slotNumber: number, name: string, note: string): Promise<boolean> => {
+      name = name.trim()
+      note = note.trim()
+      if (!name && !note) return clearSlot(slotNumber)
+      if (!name) {
+        toast({ title: "Give the item a name", description: "An item needs a name; the note alone isn't enough.", variant: "destructive" })
+        return false
       }
       try {
-        setLoading(true);
-        setError(null);
-        const url = `/api/characters/${characterId}/inventory`;
-        const response = await fetch(url, { credentials: "include" });
-        if (!response.ok) {
-          throw new Error(`Failed to fetch inventory: ${response.status}`);
-        }
-        const data = await response.json();
-        setInventory(data);
-      } catch (err) {
-        console.error('Error fetching inventory:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch inventory');
-      } finally {
-        setLoading(false);
+        putSlot(
+          characterId,
+          await api<InventorySlot>(`/api/characters/${characterId}/inventory/${slotNumber}`, {
+            method: "PUT",
+            body: { Name: name, Description: note },
+          })
+        )
+        toast({ title: "Item saved", description: `Slot ${slotNumber} saved.` })
+        return true
+      } catch (error) {
+        toast({ title: "Couldn't save the item", description: errorMessage(error), variant: "destructive" })
+        return false
       }
-    };
-    fetchInventory();
-  }, [characterId]);
+    },
+    [characterId, clearSlot, putSlot]
+  )
 
-  const handleInventoryEdit = (slot: number) => {
-    setEditingSlot(slot);
-    const slotObj = inventory?.Slots.find((s: any) => s.SlotNumber === slot) || { ItemId: null, SlotNumber: slot };
-    setInventoryForm({ itemId: slotObj.ItemId, slot: slotObj.SlotNumber });
-  };
-
-  const handleInventoryFormChange = (field: keyof typeof inventoryForm, value: string | number | null) => {
-    setInventoryForm({
-      ...inventoryForm,
-      [field]: field === 'slot' ? parseInt(value as string) || 0 : value,
-    });
-  };
-
-  const handleInventorySubmit = async (slot: number) => {
-    if (!inventory || !inventoryForm) return;
-    try {
-      const updatedSlots = inventory.Slots.map((s: any) =>
-        s.SlotNumber === slot ? { ...s, ItemId: inventoryForm.itemId } : s
-      );
-      const response = await fetch(`/api/characters/${characterId}/inventory`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ Slots: updatedSlots }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Failed to update inventory: ${response.statusText} - ${errorData.details || ''}`);
-      }
-      // Re-fetch inventory to get updated item details
-      const updatedInventory = await (await fetch(`/api/characters/${characterId}/inventory`)).json();
-      setInventory(updatedInventory);
-      setEditingSlot(null);
-      setInventoryForm({ itemId: null, slot: 0 });
-      toast({ title: "Inventory Updated", description: `Slot ${slot} saved successfully.` });
-    } catch (error: any) {
-      console.error("Error updating inventory:", error);
-      toast({ title: "Error", description: error.message || "Failed to update inventory.", variant: "destructive" });
-    }
-  };
-
-  const handleClearSlot = async (slot: number) => {
-    if (!inventory) return;
-    try {
-      const updatedSlots = inventory.Slots.map((s: any) =>
-        s.SlotNumber === slot ? { ...s, ItemId: null } : s
-      );
-      const response = await fetch(`/api/characters/${characterId}/inventory`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ Slots: updatedSlots }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Failed to clear slot: ${response.statusText} - ${errorData.details || ''}`);
-      }
-      // Re-fetch inventory to get updated item details
-      const updatedInventory = await (await fetch(`/api/characters/${characterId}/inventory`)).json();
-      setInventory(updatedInventory);
-      toast({ title: "Slot Cleared", description: `Slot ${slot} cleared.` });
-    } catch (error: any) {
-      console.error("Error clearing slot:", error);
-      toast({ title: "Error", description: error.message || "Failed to clear slot.", variant: "destructive" });
-    }
-  };
-
-  return { inventory, editingSlot, inventoryForm, handleInventoryEdit, handleInventoryFormChange, handleInventorySubmit, handleClearSlot, loading, error, setInventory };
+  return { slots, saveSlot, clearSlot }
 }

@@ -1,142 +1,122 @@
 import Image from "next/image"
+import { forwardRef, memo, useMemo } from "react"
+import { ImageUp } from "lucide-react"
 import type { LayerImage } from "../../types/layerImage"
 import type { DrawingObject } from "../../types/drawing"
-import TokenRenderer from "./TokenRenderer"
+import TokenRenderer, { type TokenHandlers } from "./TokenRenderer"
 import DarknessLayer, { type DarknessPath } from "./DarknessLayer"
 import TextBalloon from "../TextBalloon"
 import PingLayer from "./PingLayer"
 import type { MapPing } from "../../hooks/usePings"
-import { forwardRef, memo, useState } from "react"
+import type { TextBalloonData } from "../../hooks/useChat"
 import { thumbUrl } from "@/lib/upload-url"
 import { useStableCallback } from "../../hooks/useStableCallback"
 import type { MapInteractionTool } from "../../types/mapTool"
 import { isAnyFogTool, isFogCellTool, isFogStrokeTool } from "../../types/mapTool"
+import type { PlayArea, Point } from "../../lib/map-items"
+import { MAP_ITEM_ATTR, MAP_Z } from "./map-layers"
+
+/** Size of the map without a background image (fog still needs an area to cover). */
+const EMPTY_MAP = { width: 1920, height: 1080 }
+
+const HATCHING = "repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 8px)"
 
 interface GameGridProps {
-  gridRef: React.RefObject<HTMLDivElement>;
-  backgroundImage: string | null;
-  imageDimensions: { width: number; height: number } | null;
-  zoomLevel: number;
-  currentTool: MapInteractionTool;
-  fogBrushDiameter: number;
-  fogFill: boolean;
-  gridSize: number;
-  gridColor: string;
-  sceneBorderSize?: number;
-  middleLayerImages: LayerImage[];
-  topLayerImages: LayerImage[];
-  selectedIds: string[];
-  selectedDrawingIds: string[];
-  drawings: DrawingObject[];
+  gridRef: React.RefObject<HTMLDivElement>
+  backgroundImage: string | null
+  /** The map image plus its border; null while there's no (loaded) background. */
+  playArea: PlayArea | null
+  zoomLevel: number
+  currentTool: MapInteractionTool
+  fogBrushDiameter: number
+  fogFill: boolean
+  gridSize: number
+  gridColor: string
+  isDM: boolean
+  middleLayerImages: LayerImage[]
+  topLayerImages: LayerImage[]
+  /** Where the items being dragged are shown until they are dropped. */
+  dragPositions: ReadonlyMap<string, Point> | null
+  selectedIds: string[]
+  selectedDrawingIds: string[]
+  drawings: DrawingObject[]
   /** The stroke being drawn; useDrawing sets its path data directly, outside React. */
-  strokePreviewRef: React.RefObject<SVGPathElement>;
-  currentColor: string;
-  resizingId: string | null;
-  // Darkness layer props
-  darknessPaths: DarknessPath[];
-  isDarknessLayerVisible: boolean;
-  currentUserRole?: string | null;
-  // Selection box props
-  isSelecting?: boolean;
-  selectionStart?: { x: number; y: number } | null;
-  selectionEnd?: { x: number; y: number } | null;
-  
-  // Event handlers
-  onDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
-  onFileDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onFileDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onGridClick: (e: React.MouseEvent<HTMLDivElement>) => void;
-  onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
-  onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void;
-  onMouseUp: (e: React.MouseEvent<HTMLDivElement>) => void;
-  onMouseLeave: (e: React.MouseEvent<HTMLDivElement>) => void;
-  onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
-  onItemDragStart: (e: React.DragEvent<HTMLDivElement>, item: LayerImage, isToken: boolean) => void;
-  onItemDrag: (e: React.DragEvent<HTMLDivElement>) => void;
-  onItemDragEnd: () => void;
-  onItemClick: (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => void;
-  onResizeStart: (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => void;
-  onRotateStart: (e: React.MouseEvent<HTMLElement>, item: LayerImage) => void;
-  onDrawingClick: (e: React.MouseEvent<SVGPathElement>, drawing: DrawingObject) => void;
-  onTokenDoubleClick: (item: LayerImage) => void;
-  onStatusClick: (type: 'guard' | 'strength' | 'mp', character: any, characterId: number) => void;
-  onDarknessChange: (paths: DarknessPath[]) => void;
-  onResizeProp: (propId: string, scale: number) => void;
-  onOpenTokenSettings: (token: LayerImage) => void;
-  // Text balloon props
-  textBalloons?: Array<{
-    id: string;
-    message: string;
-    characterName: string;
-    x: number;
-    y: number;
-    tokenWidth: number;
-    tokenHeight: number;
-    timestamp: number;
-  }>;
-  onCloseTextBalloon?: (balloonId: string) => void;
-  pings?: MapPing[];
+  strokePreviewRef: React.RefObject<SVGPathElement>
+  currentColor: string
+  darknessPaths: DarknessPath[]
+  isDarknessLayerVisible: boolean
+  /** The rubber-band selection being dragged, in map pixels. */
+  selectionRect: { x: number; y: number; width: number; height: number } | null
+  /** An image file is being dragged over the map (DM): show where it goes. */
+  isFileOver: boolean
+  textBalloons: TextBalloonData[]
+  pings: MapPing[]
+
+  onGridClick: (e: React.MouseEvent<HTMLDivElement>) => void
+  onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
+  onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
+  onMouseUp: (e: React.MouseEvent<HTMLDivElement>) => void
+  onMouseLeave: (e: React.MouseEvent<HTMLDivElement>) => void
+  onItemClick: (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => void
+  onResizeStart: (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => void
+  onRotateStart: (e: React.MouseEvent<HTMLElement>, item: LayerImage) => void
+  onDrawingClick: (e: React.MouseEvent<SVGPathElement>, drawing: DrawingObject) => void
+  onTokenDoubleClick: TokenHandlers["onTokenDoubleClick"]
+  onStatusClick: TokenHandlers["onStatusClick"]
+  onOpenTokenSettings: TokenHandlers["onOpenTokenSettings"]
 }
 
+/** `item` where it is shown: at its drag position while being dragged. */
+function shownAt(item: LayerImage, dragPositions: ReadonlyMap<string, Point> | null): LayerImage {
+  const p = dragPositions?.get(item.id)
+  return p ? { ...item, x: p.x, y: p.y } : item
+}
+
+/**
+ * The playing field. Layers, bottom to top: the map (background, grid lines, hatched border), map
+ * images, tokens, text balloons, drawings, fog of war, pings. The map is drawn at 1:1 scene pixels
+ * and scaled by the zoom as a whole, so every layer shares one coordinate space.
+ */
 export default function GameGrid({
   gridRef,
   backgroundImage,
-  imageDimensions,
+  playArea,
   zoomLevel,
   currentTool,
   fogBrushDiameter,
   fogFill,
   gridSize,
   gridColor,
-  sceneBorderSize = 0.2,
+  isDM,
   middleLayerImages,
   topLayerImages,
+  dragPositions,
   selectedIds,
   selectedDrawingIds,
   drawings,
   strokePreviewRef,
   currentColor,
-  resizingId,
   darknessPaths,
   isDarknessLayerVisible,
-  currentUserRole,
-  isSelecting,
-  selectionStart,
-  selectionEnd,
-  onDragOver,
-  onDrop,
-  onFileDragOver,
-  onFileDrop,
+  selectionRect,
+  isFileOver,
+  textBalloons,
+  pings,
   onGridClick,
   onMouseDown,
   onMouseMove,
   onMouseUp,
   onMouseLeave,
-  onContextMenu,
-  onItemDragStart,
-  onItemDrag,
-  onItemDragEnd,
   onItemClick,
   onResizeStart,
   onRotateStart,
   onDrawingClick,
   onTokenDoubleClick,
   onStatusClick,
-  onDarknessChange,
-  onResizeProp,
   onOpenTokenSettings,
-  textBalloons = [],
-  onCloseTextBalloon,
-  pings = [],
 }: GameGridProps) {
-  const [isDraggingFile, setIsDraggingFile] = useState(false)
-
-  // The parent makes new handlers on most renders (every mouse move while drawing or dragging);
-  // stable ones let unchanged tokens, images and drawings skip re-rendering.
-  const itemDragStart = useStableCallback(onItemDragStart)
-  const itemDrag = useStableCallback(onItemDrag)
-  const itemDragEnd = useStableCallback(onItemDragEnd)
+  // The parent makes new handlers on most renders (every frame of a drag or selection); stable
+  // ones let unchanged tokens, images and drawings skip re-rendering.
   const itemClick = useStableCallback(onItemClick)
   const resizeStart = useStableCallback(onResizeStart)
   const rotateStart = useStableCallback(onRotateStart)
@@ -145,217 +125,55 @@ export default function GameGrid({
   const statusClick = useStableCallback(onStatusClick)
   const openTokenSettings = useStableCallback(onOpenTokenSettings)
 
-  // Calculate border dimensions
-  const borderWidth = imageDimensions ? Math.round(imageDimensions.width * sceneBorderSize) : 0;
-  const borderHeight = imageDimensions ? Math.round(imageDimensions.height * sceneBorderSize) : 0;
-  
-  // Calculate total play area dimensions (image + borders)
-  const totalWidth = imageDimensions ? imageDimensions.width + (borderWidth * 2) : 0;
-  const totalHeight = imageDimensions ? imageDimensions.height + (borderHeight * 2) : 0;
+  const selected = useMemo(() => new Set(selectedIds), [selectedIds])
+  const tokens = useMemo(() => topLayerImages.map((t) => shownAt(t, dragPositions)), [topLayerImages, dragPositions])
+  const isPainting = currentTool === "brush" || isAnyFogTool(currentTool)
 
   return (
     <div
       ref={gridRef}
       className="relative"
       style={{
-        cursor:
-          currentTool === "brush" || isAnyFogTool(currentTool) ? "crosshair" : "default",
+        cursor: dragPositions ? "grabbing" : isPainting ? "crosshair" : "default",
         transform: `scale(${zoomLevel})`,
         transformOrigin: "0 0",
-        width: totalWidth || "100%",
-        height: totalHeight || "100%",
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        
-        // Handle both image drops and file drops
-        onDragOver(e);
-        onFileDragOver?.(e);
-        
-        // Check if this is a file drag
-        const files = e.dataTransfer.files;
-        if (files && files.length > 0) {
-          setIsDraggingFile(true);
-        }
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        // The outer scroll container also listens for drops; don't let it handle this one again.
-        e.stopPropagation();
-        // Check if this is a file drop (from file explorer) or image drop (from UI)
-        const files = e.dataTransfer.files;
-        const jsonData = e.dataTransfer.getData("application/json");
-        const isExistingItem = e.dataTransfer.getData("isExistingItem");
-        
-        // If this is an existing item being dragged around, ignore the drop
-        // (the position update is handled by the drag handlers)
-        if (isExistingItem === "true") {
-          return;
-        }
-        
-        // If we have JSON data (from UI drag), treat as UI image drop
-        // Even if there are files, prioritize the JSON data
-        if (jsonData) {
-          setIsDraggingFile(false);
-          onDrop(e);
-        } else if (files && files.length > 0 && onFileDrop) {
-          // This is a file drop from file explorer (no JSON data)
-          setIsDraggingFile(false);
-          onFileDrop(e);
-        }
-      }}
-      onDragLeave={(e) => {
-        // Only set to false if we're leaving the entire grid area
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-          setIsDraggingFile(false);
-        }
+        width: playArea?.width ?? "100%",
+        height: playArea?.height ?? "100%",
       }}
       onClick={onGridClick}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseLeave}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Background image container - covers entire play area (image + borders) */}
-      <div
-        className="absolute"
-        style={{
-          width: totalWidth || "100%",
-          height: totalHeight || "100%",
-          left: 0,
-          top: 0,
-          zIndex: 3,
-          backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
-          backgroundSize: "contain",
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: "center",
-          backgroundClip: "content-box",
-          padding: `${borderHeight}px ${borderWidth}px`,
-        }}
-      >
-        {/* File drag overlay - only shows on the main image area */}
-        {isDraggingFile && (
-          <div 
-            className="absolute bg-blue-500/20 border-2 border-dashed border-blue-500 flex items-center justify-center z-50 pointer-events-none"
-            style={{
-              left: 0,
-              top: 0,
-              width: imageDimensions?.width || "100%",
-              height: imageDimensions?.height || "100%",
-            }}
-          >
-            <div className="bg-white/90 backdrop-blur-sm p-4 rounded-lg shadow-lg">
-              <div className="text-center">
-                <div className="text-2xl mb-2">📁</div>
-                <div className="font-semibold text-blue-700">Drop image here</div>
-                <div className="text-sm text-gray-600">Image will be uploaded and placed on the map</div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      <MapBackground backgroundImage={backgroundImage} playArea={playArea} gridSize={gridSize} gridColor={gridColor} />
 
-      {/* Grid overlay - covers the entire play area, on top of background */}
-      <div
-        className="absolute pointer-events-none"
-        style={{
-          backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
-          backgroundSize: `${gridSize}px ${gridSize}px`,
-          width: totalWidth || "100%",
-          height: totalHeight || "100%",
-          left: 0,
-          top: 0,
-          zIndex: 5,
-        }}
-      />
+      {isFileOver && isDM && <FileDropHint playArea={playArea} />}
 
-      {/* Hatching overlay for border area (all four sides) */}
-      {imageDimensions && (borderWidth > 0 || borderHeight > 0) && (
-        <>
-          {/* Top border */}
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              left: 0,
-              top: 0,
-              width: totalWidth,
-              height: borderHeight,
-              zIndex: 10,
-              backgroundImage: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 8px)',
-            }}
-          />
-          {/* Bottom border */}
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              left: 0,
-              top: borderHeight + imageDimensions.height,
-              width: totalWidth,
-              height: borderHeight,
-              zIndex: 10,
-              backgroundImage: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 8px)',
-            }}
-          />
-          {/* Left border */}
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              left: 0,
-              top: borderHeight,
-              width: borderWidth,
-              height: imageDimensions.height,
-              zIndex: 10,
-              backgroundImage: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 8px)',
-            }}
-          />
-          {/* Right border */}
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              left: borderWidth + imageDimensions.width,
-              top: borderHeight,
-              width: borderWidth,
-              height: imageDimensions.height,
-              zIndex: 10,
-              backgroundImage: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 2px, transparent 2px, transparent 8px)',
-            }}
-          />
-        </>
-      )}
-      
-      {/* Middle layer images */}
       {middleLayerImages.map((img) => (
         <MapImageItem
           key={img.id}
-          img={img}
+          img={shownAt(img, dragPositions)}
           gridSize={gridSize}
-          selected={selectedIds.includes(img.id)}
-          canRotate={currentUserRole === "DM"}
-          onItemDragStart={itemDragStart}
-          onItemDrag={itemDrag}
-          onItemDragEnd={itemDragEnd}
+          selected={selected.has(img.id)}
+          canEdit={isDM}
           onItemClick={itemClick}
           onResizeStart={resizeStart}
           onRotateStart={rotateStart}
         />
       ))}
 
-      {/* Top layer tokens */}
       <TokenRenderer
-        tokens={topLayerImages}
+        tokens={tokens}
         gridSize={gridSize}
-        selectedIds={selectedIds}
-        onItemDragStart={itemDragStart}
-        onItemDrag={itemDrag}
-        onItemDragEnd={itemDragEnd}
+        selected={selected}
         onItemClick={itemClick}
         onTokenDoubleClick={tokenDoubleClick}
         onStatusClick={statusClick}
         onOpenTokenSettings={openTokenSettings}
       />
 
-      {/* Text balloons - Above tokens */}
       {textBalloons.map((balloon) => (
         <TextBalloon
           key={balloon.id}
@@ -363,46 +181,28 @@ export default function GameGrid({
           x={balloon.x}
           y={balloon.y}
           tokenWidth={balloon.tokenWidth}
-          tokenHeight={balloon.tokenHeight}
-          onClose={() => onCloseTextBalloon?.(balloon.id)}
         />
       ))}
 
-      {/* Darkness Layer - Above tokens, below drawings */}
       {isDarknessLayerVisible && (
         <DarknessLayer
-          width={totalWidth || 1920}
-          height={totalHeight || 1080}
+          width={playArea?.width ?? EMPTY_MAP.width}
+          height={playArea?.height ?? EMPTY_MAP.height}
           darknessPaths={darknessPaths}
-          isDM={currentUserRole === "DM"}
+          isDM={isDM}
           zoomLevel={zoomLevel}
         />
       )}
-      
-      {/* Selection box overlay */}
-      {isSelecting && selectionStart && selectionEnd && (
+
+      {selectionRect && (
         <div
-          className="absolute border-2 border-blue-500 bg-blue-200/20 pointer-events-none"
-          style={{
-            left: Math.min(selectionStart.x, selectionEnd.x),
-            top: Math.min(selectionStart.y, selectionEnd.y),
-            width: Math.abs(selectionEnd.x - selectionStart.x),
-            height: Math.abs(selectionEnd.y - selectionStart.y),
-            zIndex: 35,
-          }}
+          className="pointer-events-none absolute border-2 border-[var(--jade-gold-hi)] bg-[#e0c25a]/15"
+          style={{ left: selectionRect.x, top: selectionRect.y, width: selectionRect.width, height: selectionRect.height, zIndex: MAP_Z.selectionBox }}
         />
       )}
-      
-      {/* Drawing layer - Above darkness layer */}
-      <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 40, pointerEvents: 'none' }}>
-        {/* Regular drawings */}
-        <DrawingPaths
-          drawings={drawings}
-          selectedDrawingIds={selectedDrawingIds}
-          selectable={currentTool === 'cursor'}
-          onDrawingClick={drawingClick}
-        />
-        
+
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" style={{ zIndex: MAP_Z.drawings }}>
+        <DrawingPaths drawings={drawings} selectedDrawingIds={selectedDrawingIds} selectable={currentTool === "cursor"} onDrawingClick={drawingClick} />
         {/* The stroke being drawn. No `d` here: useDrawing writes it every frame without re-rendering. */}
         <StrokePreview ref={strokePreviewRef} currentTool={currentTool} currentColor={currentColor} fogBrushDiameter={fogBrushDiameter} fogFill={fogFill} />
       </svg>
@@ -410,49 +210,108 @@ export default function GameGrid({
       <PingLayer pings={pings} zoomLevel={zoomLevel} />
     </div>
   )
-} 
+}
+
+/** The map image, the hatched border around it and the grid lines. Only changes with the scene. */
+const MapBackground = memo(function MapBackground({
+  backgroundImage,
+  playArea,
+  gridSize,
+  gridColor,
+}: {
+  backgroundImage: string | null
+  playArea: PlayArea | null
+  gridSize: number
+  gridColor: string
+}) {
+  const borderRects = useMemo(() => {
+    if (!playArea || (playArea.borderX === 0 && playArea.borderY === 0)) return []
+    const { width, mapWidth, mapHeight, borderX, borderY } = playArea
+    return [
+      { left: 0, top: 0, width, height: borderY },
+      { left: 0, top: borderY + mapHeight, width, height: borderY },
+      { left: 0, top: borderY, width: borderX, height: mapHeight },
+      { left: borderX + mapWidth, top: borderY, width: borderX, height: mapHeight },
+    ]
+  }, [playArea])
+
+  return (
+    <>
+      <div
+        className="absolute inset-0"
+        style={{
+          zIndex: MAP_Z.background,
+          backgroundImage: backgroundImage ? `url(${backgroundImage})` : "none",
+          backgroundSize: "contain",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "center",
+          backgroundClip: "content-box",
+          padding: playArea ? `${playArea.borderY}px ${playArea.borderX}px` : 0,
+        }}
+      />
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          zIndex: MAP_Z.gridLines,
+          backgroundImage: `linear-gradient(to right, ${gridColor} 1px, transparent 1px), linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)`,
+          backgroundSize: `${gridSize}px ${gridSize}px`,
+        }}
+      />
+      {borderRects.map((rect, i) => (
+        <div key={i} className="pointer-events-none absolute" style={{ ...rect, zIndex: MAP_Z.border, backgroundImage: HATCHING }} />
+      ))}
+    </>
+  )
+})
+
+/** Shown over the map image while the DM drags an image file in from the computer. */
+function FileDropHint({ playArea }: { playArea: PlayArea | null }) {
+  return (
+    <div
+      className="pointer-events-none absolute flex items-center justify-center border-2 border-dashed border-[var(--jade-gold-hi)] bg-black/35"
+      style={{
+        left: playArea?.borderX ?? 0,
+        top: playArea?.borderY ?? 0,
+        width: playArea?.mapWidth ?? "100%",
+        height: playArea?.mapHeight ?? "100%",
+        zIndex: MAP_Z.fileDropHint,
+      }}
+    >
+      <div className="jade jade-well jade-fill px-6 py-4 text-center">
+        <ImageUp className="mx-auto mb-2 h-7 w-7 text-[var(--jade-gold-hi)] drop-shadow-[1px_1px_0_#000]" aria-hidden />
+        <div className="jade-title">Drop image here</div>
+        <div className="jade-outline text-sm text-[var(--jade-ink)]">It will be uploaded and placed on the map</div>
+      </div>
+    </div>
+  )
+}
+
 interface MapImageItemProps {
   img: LayerImage
   gridSize: number
   selected: boolean
-  canRotate: boolean
-  onItemDragStart: GameGridProps["onItemDragStart"]
-  onItemDrag: GameGridProps["onItemDrag"]
-  onItemDragEnd: GameGridProps["onItemDragEnd"]
+  /** Resize and rotate handles (DM only). */
+  canEdit: boolean
   onItemClick: GameGridProps["onItemClick"]
   onResizeStart: GameGridProps["onResizeStart"]
   onRotateStart: GameGridProps["onRotateStart"]
 }
 
-/** One middle-layer image; re-renders only when it (or its selection) changes. */
-const MapImageItem = memo(function MapImageItem({
-  img,
-  gridSize,
-  selected,
-  canRotate,
-  onItemDragStart,
-  onItemDrag,
-  onItemDragEnd,
-  onItemClick,
-  onResizeStart,
-  onRotateStart,
-}: MapImageItemProps) {
+/** One middle-layer image; re-renders only when it (or its selection) changes. Moved by useItemDrag. */
+const MapImageItem = memo(function MapImageItem({ img, gridSize, selected, canEdit, onItemClick, onResizeStart, onRotateStart }: MapImageItemProps) {
   const width = img.width || gridSize * 2
   const height = img.height || gridSize * 2
   return (
     <div
+      {...{ [MAP_ITEM_ATTR]: img.id }}
       className="absolute"
-      style={{ left: img.x, top: img.y, zIndex: 35 }}
-      draggable={true}
-      onDragStart={(e) => onItemDragStart(e, img, false)}
-      onDrag={onItemDrag}
-      onDragEnd={onItemDragEnd}
+      style={{ left: img.x, top: img.y, zIndex: MAP_Z.image }}
       onClick={(e) => onItemClick(e, img)}
     >
       {/* Everything inside turns with the image, handles included */}
       <div
         data-rotate-box
-        className={`relative ${selected ? "outline outline-2 outline-blue-500" : ""}`}
+        className={`relative ${selected ? "outline outline-2 outline-[var(--jade-gold-hi)]" : ""}`}
         style={{
           // No fixed size: the box wraps the image as rendered (its natural aspect ratio),
           // so the outline and the rotation centre match what you see.
@@ -462,40 +321,31 @@ const MapImageItem = memo(function MapImageItem({
       >
         <Image
           src={thumbUrl(img.url, Math.max(width, height))}
-          alt="Middle layer image"
+          alt="Map image"
           width={width}
           height={height}
           className="block"
-          style={{ objectFit: 'contain' }}
+          style={{ objectFit: "contain" }}
+          draggable={false}
         />
-        {/* Resize handle - only show when selected */}
-        {selected && (
-          <div
-            className="absolute top-1 right-1 w-2 h-2 bg-blue-500 hover:bg-blue-600 cursor-se-resize z-50 rounded-sm border border-white transition-colors duration-150"
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onResizeStart(e, img);
-            }}
-            onClick={(e) => e.stopPropagation()}
-            draggable={false}
-            title="Resize image"
-          />
-        )}
-        {/* Rotate handle - a stalk above the top edge with a grip at the end (DM only) */}
-        {selected && canRotate && (
-          <div
-            className="absolute left-1/2 bottom-full -translate-x-1/2 flex flex-col items-center z-50"
-            draggable={false}
-            onClick={(e) => e.stopPropagation()}
-          >
+        {selected && canEdit && (
+          <>
             <div
-              className="w-3.5 h-3.5 rounded-full bg-white border-2 border-blue-500 hover:bg-blue-100 cursor-grab active:cursor-grabbing shadow-sm"
-              onMouseDown={(e) => onRotateStart(e, img)}
-              title="Rotate (hold Shift to snap to 15°)"
+              className="absolute right-1 top-1 z-50 h-2.5 w-2.5 cursor-se-resize border border-[#0a0d0a] bg-[var(--jade-gold-hi)] hover:bg-[#fff3b0]"
+              onMouseDown={(e) => onResizeStart(e, img)}
+              onClick={(e) => e.stopPropagation()}
+              title="Resize image"
             />
-            <div className="w-0.5 h-5 bg-blue-500 pointer-events-none" />
-          </div>
+            {/* Rotate handle: a stalk above the top edge with a grip at the end */}
+            <div className="absolute bottom-full left-1/2 z-50 flex -translate-x-1/2 flex-col items-center" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="h-3.5 w-3.5 cursor-grab rounded-full border-2 border-[var(--jade-gold-hi)] bg-[#151b14] shadow-[0_0_0_1px_#0a0d0a] hover:bg-[#4a3d14] active:cursor-grabbing"
+                onMouseDown={(e) => onRotateStart(e, img)}
+                title="Rotate (hold Shift to snap to 15°)"
+              />
+              <div className="pointer-events-none h-5 w-0.5 bg-[var(--jade-gold-hi)] shadow-[0_0_0_1px_#0a0d0a]" />
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -549,20 +399,23 @@ const DrawingPaths = memo(function DrawingPaths({
 }) {
   return (
     <>
-      {drawings.map((drawing) => (
-        <path
-          key={drawing.id}
-          d={drawing.path}
-          stroke={selectedDrawingIds.includes(drawing.id) ? "blue" : drawing.color}
-          strokeWidth={selectedDrawingIds.includes(drawing.id) ? "5" : "3"}
-          fill="none"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          onClick={(e) => onDrawingClick(e, drawing)}
-          className={`${selectable ? 'cursor-pointer' : ''}`}
-          style={{ pointerEvents: selectable ? 'stroke' : 'none' }}
-        />
-      ))}
+      {drawings.map((drawing) => {
+        const isSelected = selectedDrawingIds.includes(drawing.id)
+        return (
+          <path
+            key={drawing.id}
+            d={drawing.path}
+            stroke={isSelected ? "#e0c25a" : drawing.color}
+            strokeWidth={isSelected ? 5 : 3}
+            fill="none"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            onClick={(e) => onDrawingClick(e, drawing)}
+            className={selectable ? "cursor-pointer" : ""}
+            style={{ pointerEvents: selectable ? "stroke" : "none" }}
+          />
+        )
+      })}
     </>
   )
 })

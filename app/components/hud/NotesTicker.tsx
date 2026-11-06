@@ -4,6 +4,8 @@ import { memo, useEffect, useRef, useState } from "react"
 import { Feather, Pause, Play } from "lucide-react"
 import type { Note } from "../../types/note"
 import { toPlainText } from "@/lib/chat-text"
+import { toast } from "@/components/ui/use-toast"
+import { api, errorMessage } from "../../lib/api"
 
 const SAFE_COLOR = /^#[0-9a-f]{3,8}$/i
 const DEFAULT_COLOR = "#dc2626"
@@ -27,14 +29,14 @@ function NotesTicker({ isDM, loggedIn }: { isDM: boolean; loggedIn: boolean }) {
       setNotes([])
       return
     }
-    void (async () => {
-      try {
-        const res = await fetch("/api/notes")
-        if (res.ok) setNotes((await res.json()) as Note[])
-      } catch (error) {
-        console.error("Error fetching notes:", error)
-      }
-    })()
+    let cancelled = false
+    api<Note[]>("/api/notes")
+      .then((list) => !cancelled && setNotes(list))
+      // The band just stays empty; new notes still arrive over the socket.
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [loggedIn])
 
   // Home forwards the socket's notes_updated as a window event.
@@ -63,19 +65,10 @@ function NotesTicker({ isDM, loggedIn }: { isDM: boolean; loggedIn: boolean }) {
     }
     setSaving(true)
     try {
-      const res = await fetch("/api/notes", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: draft.trim(), color }),
-      })
-      if (res.ok) {
-        setNotes((await res.json()) as Note[])
-        close()
-      } else {
-        console.error("Error saving note:", await res.json().catch(() => null))
-      }
+      setNotes(await api<Note[]>("/api/notes", { method: "PUT", body: { content: draft.trim(), color } }))
+      close()
     } catch (error) {
-      console.error("Error saving note:", error)
+      toast({ title: "Couldn't post the note", description: errorMessage(error), variant: "destructive" })
     } finally {
       setSaving(false)
     }
@@ -89,13 +82,11 @@ function NotesTicker({ isDM, loggedIn }: { isDM: boolean; loggedIn: boolean }) {
     }
     setSaving(true)
     try {
-      const res = await fetch("/api/notes", { method: "DELETE", headers: { "Content-Type": "application/json" } })
-      if (res.ok) {
-        setNotes([])
-        close()
-      }
+      await api("/api/notes", { method: "DELETE" })
+      setNotes([])
+      close()
     } catch (error) {
-      console.error("Error clearing notes:", error)
+      toast({ title: "Couldn't clear the notes", description: errorMessage(error), variant: "destructive" })
     } finally {
       setSaving(false)
     }

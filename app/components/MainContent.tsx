@@ -1,22 +1,23 @@
 "use client"
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "@/components/ui/use-toast"
+import { confirm } from "@/components/ui/confirm-dialog"
 import { clientToGridLogical } from "@/lib/utils"
 import { tokenCharacterId, type SceneState } from "@/lib/scene-model"
 import type { LayerImage } from "../types/layerImage"
 import type { Character } from "../types/character"
 import type { DMImage } from "../types/image"
 import type { DarknessPath, DrawingObject } from "../types/drawing"
+import type { MapInteractionTool } from "../types/mapTool"
+import { isAnyFogTool, isCanvasStrokeTool, isFogCellTool } from "../types/mapTool"
 import DrawingToolbar from "./DrawingToolbar"
 import GameGrid from "./main-content/GameGrid"
 import ZoomControls from "./main-content/ZoomControls"
-import StatusModal from "./main-content/StatusModal"
+import StatusModal, { type StatusModalState } from "./main-content/StatusModal"
+import type { StatusField } from "./main-content/TokenRenderer"
+import { mapItemIdAt } from "./main-content/map-layers"
 import TokenSettingsModal, { type TokenSettings } from "./TokenSettingsModal"
-import type { MapInteractionTool } from "../types/mapTool"
-import { isAnyFogTool, isCanvasStrokeTool, isFogCellTool } from "../types/mapTool"
-import { useMainContent } from "../hooks/useMainContent"
-import { useDragAndDrop } from "../hooks/useDragAndDrop"
 import { useDrawing } from "../hooks/useDrawing"
 import type { NewDrawingData } from "../hooks/useDrawings"
 import type { TextBalloonData } from "../hooks/useChat"
@@ -26,11 +27,23 @@ import { useSelectionBox } from "../hooks/map/useSelectionBox"
 import { useMapKeyboard } from "../hooks/map/useMapKeyboard"
 import { useItemResize } from "../hooks/map/useItemResize"
 import { useItemRotate } from "../hooks/map/useItemRotate"
-import { confirm } from "@/components/ui/confirm-dialog"
+import { useItemDrag } from "../hooks/map/useItemDrag"
+import { isSwallowedClick } from "../hooks/map/clickGuard"
+import { useMapDrop } from "../hooks/map/useMapDrop"
+import { usePlayArea } from "../hooks/map/usePlayArea"
+import { fitToGrid, movedPosition, withPositions, type PlacedItem, type Point } from "../lib/map-items"
+import type { TokenCharacter } from "../lib/tokens"
 
-type StatusField = "guard" | "strength" | "mp"
 const STATUS_COLUMN: Record<StatusField, "Guard" | "Strength" | "Mp"> = { guard: "Guard", strength: "Strength", mp: "Mp" }
 const STATUS_MAX: Record<StatusField, "MaxGuard" | "MaxStrength" | "MaxMp"> = { guard: "MaxGuard", strength: "MaxStrength", mp: "MaxMp" }
+
+/** Grid size limits and step (Shift+wheel, DM). */
+const GRID_SIZE_MIN = 20
+const GRID_SIZE_MAX = 200
+const GRID_SIZE_STEP = 5
+
+/** Drawings can be clicked (selected) too; a press on one isn't a press on empty map. */
+const isOnMapThing = (target: EventTarget | null) => mapItemIdAt(target) !== null || (target as Element | null)?.closest?.("path") != null
 
 interface MainContentProps {
   backgroundImage: string | null
@@ -54,13 +67,13 @@ interface MainContentProps {
   onDrawingAdd: (data: NewDrawingData) => void
   onDrawingsDelete: (ids: string[]) => void
   onPlayerPlaceToken: (token: LayerImage) => void
-  onPlayerMoveToken: (token: LayerImage) => void
+  /** A player's own tokens moved (saved by the server, all in one request). */
+  onPlayerMoveTokens: (moves: Array<{ id: string; x: number; y: number }>) => void
   onPlayerDeleteToken: (tokenId: string) => void
   onOpenCharacterSheet: (character: { CharacterId?: number }) => void
   onUpdateCharacter: (characterId: number, changes: Partial<Character>) => void
   onUploadImage: (category: string, file: File) => Promise<DMImage | null>
   textBalloons: TextBalloonData[]
-  onCloseTextBalloon: (balloonId: string) => void
   pings: MapPing[]
   /** Shift+click on an empty spot: ping there, in map coordinates. */
   onPing: (x: number, y: number) => void
@@ -68,6 +81,11 @@ interface MainContentProps {
   onSelectedCharacterChange?: (characterId: number | null) => void
 }
 
+/**
+ * The map screen: the playing field (GameGrid) with its toolbars, and everything you do on it with
+ * the mouse and keyboard. Each interaction lives in its own hook; this component routes the mouse
+ * to them and turns their results into scene edits.
+ */
 function MainContent({
   backgroundImage,
   scene,
@@ -89,13 +107,12 @@ function MainContent({
   onDrawingAdd,
   onDrawingsDelete,
   onPlayerPlaceToken,
-  onPlayerMoveToken,
+  onPlayerMoveTokens,
   onPlayerDeleteToken,
   onOpenCharacterSheet,
   onUpdateCharacter,
   onUploadImage,
   textBalloons,
-  onCloseTextBalloon,
   pings,
   onPing,
   onSelectedCharacterChange,
@@ -105,13 +122,17 @@ function MainContent({
   const middleLayerImages = scene.elements.middleLayer
   const topLayerImages = scene.elements.topLayer
 
+  const gridRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [selectedDrawingIds, setSelectedDrawingIds] = useState<string[]>([])
+  const [statusModal, setStatusModal] = useState<StatusModalState | null>(null)
+  const [settingsToken, setSettingsToken] = useState<LayerImage | null>(null)
+
+  const playArea = usePlayArea(backgroundImage, scene.scale, scene.borderSize)
+
   // --- Scene edits ------------------------------------------------------------------------
 
-  const setLayers = useCallback(
-    (middleLayer: LayerImage[], topLayer: LayerImage[]) =>
-      onUpdateScene((s) => ({ ...s, elements: { middleLayer, topLayer } })),
-    [onUpdateScene]
-  )
   /** Changes items by id using the latest state (safe for several quick edits in a row). */
   const mapItems = useCallback(
     (fn: (item: LayerImage, isToken: boolean) => LayerImage) =>
@@ -124,115 +145,61 @@ function MainContent({
       })),
     [onUpdateScene]
   )
-  const setDarknessPaths = useCallback(
-    (paths: DarknessPath[]) => onUpdateScene((s) => ({ ...s, darknessPaths: paths })),
-    [onUpdateScene]
-  )
+  const setDarknessPaths = useCallback((paths: DarknessPath[]) => onUpdateScene((s) => ({ ...s, darknessPaths: paths })), [onUpdateScene])
   const setGridColor = useCallback((color: string) => onUpdateScene((s) => ({ ...s, gridColor: color })), [onUpdateScene])
   const toggleDarknessLayer = useCallback(
     () => onUpdateScene((s) => ({ ...s, isDarknessLayerVisible: !s.isDarknessLayerVisible })),
     [onUpdateScene]
   )
 
-  const {
-    gridRef,
-    containerRef,
-    selectedIds,
-    setSelectedIds,
-    draggingIds,
-    setDraggingIds,
-    dragOffset,
-    setDragOffset,
-    imageDimensions,
-    selectedDrawingIds,
-    setSelectedDrawingIds,
-    statusModal,
-    setStatusModal,
-    generateUniqueId,
-    snapToGrid,
-    updateItemPosition,
-  } = useMainContent({
-    backgroundImage,
-    middleLayerImages,
-    topLayerImages,
-    gridSize,
-    sceneScale: scene.scale,
-    zoomLevel,
-    setZoomLevel,
-    sceneBorderSize: scene.borderSize,
-  })
+  /** Who may change an item: the DM anything, a player only their own character tokens. */
+  const canEdit = useCallback(
+    (item: LayerImage, isToken: boolean) => isDM || (isToken && item.character?.userId === currentUserId),
+    [isDM, currentUserId]
+  )
 
-  const [settingsToken, setSettingsToken] = useState<LayerImage | null>(null)
-
-  // --- Dropping things on the map ---------------------------------------------------------
-
-  /** A token or image dropped from the sidebar. Players' own tokens go through the server. */
-  const handleImageDrop = useCallback(
-    (item: LayerImage) => {
-      if (item.character || item.category === "Token") {
-        if (!isDM) {
-          if (item.character?.userId !== currentUserId) {
-            toast({ title: "Not your character", description: "You can only place your own tokens.", variant: "destructive" })
-            return
-          }
-          onUpdateScene((s) => ({ ...s, elements: { ...s.elements, topLayer: [...s.elements.topLayer, item] } }))
-          onPlayerPlaceToken(item)
-          return
-        }
-        onUpdateScene((s) => ({ ...s, elements: { ...s.elements, topLayer: [...s.elements.topLayer, item] } }))
-      } else if (isDM) {
-        onUpdateScene((s) => ({ ...s, elements: { ...s.elements, middleLayer: [...s.elements.middleLayer, item] } }))
+  /**
+   * Moves items to new positions in one scene update. The DM's moves are autosaved; a player's go to
+   * the server (only their own tokens ever get here).
+   */
+  const moveItems = useCallback(
+    (positions: Map<string, Point>, moved: PlacedItem[]) => {
+      onUpdateScene((s) => ({
+        ...s,
+        elements: { middleLayer: withPositions(s.elements.middleLayer, positions), topLayer: withPositions(s.elements.topLayer, positions) },
+      }))
+      if (!isDM) {
+        onPlayerMoveTokens(moved.filter((m) => m.isToken).map(({ item }) => ({ id: item.id, ...positions.get(item.id)! })))
       }
     },
-    [isDM, currentUserId, onUpdateScene, onPlayerPlaceToken]
+    [onUpdateScene, isDM, onPlayerMoveTokens]
   )
 
-  const { handleDrop, handleDragOver, handleItemDragStart, handleItemDrag, handleItemDragEnd } = useDragAndDrop({
+  // --- Things dropped on the map ----------------------------------------------------------
+
+  const placeItem = useCallback(
+    (item: LayerImage, layer: "top" | "middle") =>
+      onUpdateScene((s) => ({
+        ...s,
+        elements:
+          layer === "top"
+            ? { ...s.elements, topLayer: [...s.elements.topLayer, item] }
+            : { ...s.elements, middleLayer: [...s.elements.middleLayer, item] },
+      })),
+    [onUpdateScene]
+  )
+
+  const drop = useMapDrop({
     gridRef,
-    gridSize,
     zoomLevel,
-    currentSceneId,
+    gridSize,
+    isDM,
     currentUserId,
-    currentUserRole,
-    middleLayerImages,
-    topLayerImages,
-    selectedIds,
-    setSelectedIds,
-    draggingIds,
-    setDraggingIds,
-    dragOffset,
-    setDragOffset,
-    generateUniqueId,
-    updateItemPosition,
-    onUpdateImages: setLayers,
-    onPlayerUpdateTokenPosition: onPlayerMoveToken,
-    onDrop: handleImageDrop,
+    currentSceneId,
+    onPlace: placeItem,
+    onPlayerPlaceToken,
+    onUploadImage,
   })
-
-  /** Image files dragged in from the computer (DM): upload, then place where dropped. */
-  const handleFileDragOver = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault()
-      e.dataTransfer.dropEffect = isDM ? "copy" : "none"
-    },
-    [isDM]
-  )
-
-  const handleFileDrop = useCallback(
-    async (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault()
-      const file = e.dataTransfer.files?.[0]
-      const rect = gridRef.current?.getBoundingClientRect()
-      if (!isDM || !file) return
-      const point = rect ? clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel) : { x: 0, y: 0 }
-      const uploaded = await onUploadImage("Image", file)
-      if (!uploaded) return
-      const placed: LayerImage = { id: `${uploaded.Id}-${Date.now()}`, url: uploaded.Link, x: point.x, y: point.y, width: 100, height: 100, category: "Image" }
-      onUpdateScene((s) => ({ ...s, elements: { ...s.elements, middleLayer: [...s.elements.middleLayer, placed] } }))
-      toast({ title: "Image on map", description: `${uploaded.Name ?? "Image"} added to the scene and image list.` })
-    },
-    [isDM, gridRef, zoomLevel, onUploadImage, onUpdateScene]
-  )
 
   // --- Drawing and fog --------------------------------------------------------------------
 
@@ -260,9 +227,7 @@ function MainContent({
 
   const handleResetDarkness = useCallback(async () => {
     const ok = await confirm({ title: "Reset fog of war?", description: "This removes all revealed areas and fills the map with fog again.", confirmLabel: "Reset fog", destructive: true })
-    if (ok) {
-      setDarknessPaths([])
-    }
+    if (ok) setDarknessPaths([])
   }, [setDarknessPaths])
 
   const handleDeleteAllDrawings = useCallback(async () => {
@@ -278,19 +243,22 @@ function MainContent({
     if (!isDarknessLayerVisible && isAnyFogTool(currentTool)) onToolChange("cursor")
   }, [isDarknessLayerVisible, currentTool, onToolChange])
 
-  // --- Navigation, selection, resizing ----------------------------------------------------
+  // --- Navigation, selection, moving, resizing --------------------------------------------
 
   const changeGridSize = useCallback(
     (direction: 1 | -1) => {
-      const newSize = Math.min(200, Math.max(20, gridSize + direction * 5))
+      const newSize = Math.min(GRID_SIZE_MAX, Math.max(GRID_SIZE_MIN, gridSize + direction * GRID_SIZE_STEP))
       if (newSize === gridSize) return
       onUpdateScene((s) => ({
         ...s,
         gridSize: newSize,
-        elements: { middleLayer: snapToGrid(s.elements.middleLayer, newSize), topLayer: snapToGrid(s.elements.topLayer, newSize) },
+        elements: {
+          middleLayer: fitToGrid(s.elements.middleLayer, s.gridSize, newSize),
+          topLayer: fitToGrid(s.elements.topLayer, s.gridSize, newSize),
+        },
       }))
     },
-    [gridSize, onUpdateScene, snapToGrid]
+    [gridSize, onUpdateScene]
   )
 
   const navigation = useMapNavigation({
@@ -314,11 +282,23 @@ function MainContent({
     setSelectedDrawingIds,
   })
 
+  const { dragPositions, startItemDrag } = useItemDrag({
+    gridRef,
+    zoomLevel,
+    gridSize,
+    middleLayerImages,
+    topLayerImages,
+    selectedIds,
+    setSelectedIds,
+    canMove: canEdit,
+    onMove: moveItems,
+  })
+
   const resizeItem = useCallback(
     (id: string, width: number, height: number) => mapItems((item) => (item.id === id ? { ...item, width, height } : item)),
     [mapItems]
   )
-  const { resizingId, startResize } = useItemResize({ enabled: isDM, zoomLevel, gridSize, resizeItem })
+  const { startResize } = useItemResize({ enabled: isDM, zoomLevel, gridSize, resizeItem })
 
   const rotateItem = useCallback(
     (id: string, rotation: number) => mapItems((item) => (item.id === id ? { ...item, rotation } : item)),
@@ -328,20 +308,19 @@ function MainContent({
 
   const handleGridClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      const target = e.target as HTMLElement
-      const onItem = target.closest(".token-image, [draggable=\"true\"]")
-      if (!onItem && !e.shiftKey && currentTool !== "brush" && !isAnyFogTool(currentTool) && !selection.isSelecting) {
+      if (isSwallowedClick()) return
+      if (!mapItemIdAt(e.target) && !e.shiftKey && currentTool !== "brush" && !isAnyFogTool(currentTool)) {
         setSelectedIds([])
         setSelectedDrawingIds([])
       }
     },
-    [currentTool, selection.isSelecting, setSelectedIds, setSelectedDrawingIds]
+    [currentTool]
   )
 
   const handleItemClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>, item: LayerImage) => {
       e.stopPropagation()
-      if (currentTool === "brush" || isAnyFogTool(currentTool)) return
+      if (isSwallowedClick() || currentTool === "brush" || isAnyFogTool(currentTool)) return
       if (e.shiftKey) {
         setSelectedIds((prev) => (prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]))
       } else {
@@ -349,7 +328,7 @@ function MainContent({
       }
       setSelectedDrawingIds([])
     },
-    [currentTool, setSelectedIds, setSelectedDrawingIds]
+    [currentTool]
   )
 
   // --- The round menu acts for the selected token's character ----------------------------
@@ -361,11 +340,6 @@ function MainContent({
   useEffect(() => onSelectedCharacterChange?.(selectedCharacterId), [selectedCharacterId, onSelectedCharacterChange])
 
   // --- Keyboard: delete and arrow-key nudge -----------------------------------------------
-
-  const canEdit = useCallback(
-    (item: LayerImage, isToken: boolean) => isDM || (isToken && item.character?.userId === currentUserId),
-    [isDM, currentUserId]
-  )
 
   const deleteSelection = useCallback((): boolean => {
     if (selectedDrawingIds.length > 0) {
@@ -398,21 +372,20 @@ function MainContent({
     if (!isDM) allowedTokens.forEach((t) => onPlayerDeleteToken(t.id))
     setSelectedIds([])
     return true
-  }, [selectedDrawingIds, selectedIds, drawings, topLayerImages, middleLayerImages, isDM, currentUserId, canEdit, onDrawingsDelete, onUpdateScene, onPlayerDeleteToken, setSelectedDrawingIds, setSelectedIds])
+  }, [selectedDrawingIds, selectedIds, drawings, topLayerImages, middleLayerImages, isDM, currentUserId, canEdit, onDrawingsDelete, onUpdateScene, onPlayerDeleteToken])
 
   const nudgeSelection = useCallback(
     (dx: number, dy: number): boolean => {
-      const movable = [...topLayerImages, ...middleLayerImages].filter(
-        (item) => selectedIds.includes(item.id) && canEdit(item, topLayerImages.includes(item))
-      )
+      const movable: PlacedItem[] = [
+        ...topLayerImages.map((item) => ({ item, isToken: true })),
+        ...middleLayerImages.map((item) => ({ item, isToken: false })),
+      ].filter(({ item, isToken }) => selectedIds.includes(item.id) && canEdit(item, isToken))
       if (movable.length === 0) return false
-      const ids = movable.map((i) => i.id)
-      const { middleLayer, topLayer } = updateItemPosition(ids, dx * gridSize, dy * gridSize)
-      setLayers(middleLayer, topLayer)
-      if (!isDM) topLayer.filter((t) => ids.includes(t.id)).forEach((t) => onPlayerMoveToken(t))
+      const positions = new Map(movable.map((m) => [m.item.id, movedPosition(m, dx * gridSize, dy * gridSize, gridSize)]))
+      moveItems(positions, movable)
       return true
     },
-    [topLayerImages, middleLayerImages, selectedIds, canEdit, updateItemPosition, gridSize, setLayers, isDM, onPlayerMoveToken]
+    [topLayerImages, middleLayerImages, selectedIds, canEdit, gridSize, moveItems]
   )
 
   useMapKeyboard({ onDelete: deleteSelection, onNudge: nudgeSelection })
@@ -432,20 +405,16 @@ function MainContent({
     [isDM, currentUserId, onOpenCharacterSheet]
   )
 
-  const handleStatusClick = useCallback(
-    (type: StatusField, character: NonNullable<LayerImage["character"]>, characterId: number) => {
-      if (!characterId) return
-      setStatusModal({
-        isOpen: true,
-        type,
-        currentValue: Number(character[STATUS_COLUMN[type]] ?? 0),
-        maxValue: Number(character[STATUS_MAX[type]] ?? 0),
-        characterId,
-        character,
-      })
-    },
-    [setStatusModal]
-  )
+  const handleStatusClick = useCallback((type: StatusField, character: TokenCharacter, characterId: number) => {
+    if (!characterId) return
+    setStatusModal({
+      type,
+      characterId,
+      characterName: character.Name,
+      current: Number(character[STATUS_COLUMN[type]] ?? 0),
+      max: Number(character[STATUS_MAX[type]] ?? 0),
+    })
+  }, [])
 
   // Saved on the character; the server then refreshes its tokens for everyone.
   const handleStatusUpdate = useCallback(
@@ -454,24 +423,7 @@ function MainContent({
       onUpdateCharacter(statusModal.characterId, { [STATUS_COLUMN[statusModal.type]]: value })
       setStatusModal(null)
     },
-    [statusModal, onUpdateCharacter, setStatusModal]
-  )
-
-  const handleResizeProp = useCallback(
-    (propId: string, factor: number) => {
-      const min = Math.floor(gridSize * 0.5)
-      const max = Math.floor(gridSize * 4)
-      mapItems((item) =>
-        item.id !== propId
-          ? item
-          : {
-              ...item,
-              width: Math.max(min, Math.min(max, Math.floor((item.width || gridSize) * factor))),
-              height: Math.max(min, Math.min(max, Math.floor((item.height || gridSize) * factor))),
-            }
-      )
-    },
-    [gridSize, mapItems]
+    [statusModal, onUpdateCharacter]
   )
 
   const handleSaveTokenSettings = useCallback(
@@ -491,13 +443,15 @@ function MainContent({
   )
 
   // --- Mouse routing on the grid ----------------------------------------------------------
+  // Left button: Shift on empty map pings; paint tools draw (over items too); on an item it
+  // picks the item up; on empty map it starts a selection box. Other buttons and Alt+drag pan,
+  // which the scroll container handles as the event bubbles up to it.
 
   const isPaintTool = isCanvasStrokeTool(currentTool) || isFogCellTool(currentTool)
 
   const handleGridMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement
-    // Shift+click on a token or drawing still adds it to the selection; anywhere else it pings.
-    if (e.button === 0 && e.shiftKey && !e.altKey && !target.closest(".token-image, [draggable=\"true\"], path")) {
+    if (e.button !== 0 || e.altKey) return
+    if (e.shiftKey && !isOnMapThing(e.target)) {
       const rect = gridRef.current?.getBoundingClientRect()
       if (rect) {
         const point = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel)
@@ -506,51 +460,43 @@ function MainContent({
       e.stopPropagation()
       return
     }
-    if (isPaintTool && e.button === 0 && !e.altKey) {
+    if (isPaintTool) {
       startDrawing(e)
       e.stopPropagation()
-    } else if (e.button === 0 && !e.altKey) {
-      if (!target.closest(".token-image, [draggable=\"true\"], path")) selection.startSelection(e)
-    } else {
-      navigation.startPan(e)
+      return
     }
+    const itemId = mapItemIdAt(e.target)
+    if (itemId) startItemDrag(e, itemId)
+    else if (!isOnMapThing(e.target)) selection.startSelection(e)
   }
 
-  // A stroke, once started, is driven by window pointer events inside useDrawing.
   const handleGridMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (selection.isSelecting) {
-      selection.moveSelection(e)
-      e.stopPropagation()
-    } else if (navigation.isPanning) {
-      navigation.pan(e)
-    }
+    if (!selection.isSelecting) return
+    selection.moveSelection(e)
+    e.stopPropagation()
   }
 
-  const handleGridMouseUp = () => {
+  const endSelection = () => {
     if (selection.isSelecting) selection.endSelection()
-    else navigation.endPan()
   }
 
-  const handleGridMouseLeave = () => {
-    if (selection.isSelecting) selection.endSelection()
-    navigation.endPan()
-  }
+  const { selectionStart: a, selectionEnd: b } = selection
+  const selectionRect =
+    selection.isSelecting && a && b ? { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) } : null
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden bg-[#050403]">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-[#050403]">
       <div
         ref={containerRef}
-        className="grow relative overflow-auto"
+        className="relative grow overflow-auto"
         style={{ cursor: navigation.isPanning ? "grabbing" : "grab", userSelect: "none" }}
         onMouseDown={navigation.startPan}
         onMouseMove={navigation.pan}
         onMouseUp={navigation.endPan}
         onMouseLeave={navigation.endPan}
-        onDrop={(e) => {
-          e.preventDefault()
-          handleDrop(e)
-        }}
-        onDragOver={handleDragOver}
+        onDragOver={drop.onDragOver}
+        onDragLeave={drop.onDragLeave}
+        onDrop={drop.onDrop}
       >
         <div className="fixed left-4 top-4 z-30">
           <ZoomControls zoomLevel={zoomLevel} onZoomIn={navigation.zoomIn} onZoomOut={navigation.zoomOut} onZoomReset={navigation.zoomReset} />
@@ -576,71 +522,47 @@ function MainContent({
         <GameGrid
           gridRef={gridRef}
           backgroundImage={backgroundImage}
-          imageDimensions={imageDimensions}
+          playArea={playArea}
           zoomLevel={zoomLevel}
           currentTool={currentTool}
           fogBrushDiameter={fogBrushDiameter}
           fogFill={fogFill}
           gridSize={gridSize}
           gridColor={gridColor}
-          sceneBorderSize={scene.borderSize}
+          isDM={isDM}
           middleLayerImages={middleLayerImages}
           topLayerImages={topLayerImages}
+          dragPositions={dragPositions}
           selectedIds={selectedIds}
           selectedDrawingIds={selectedDrawingIds}
           drawings={drawings}
           strokePreviewRef={strokePreviewRef}
           currentColor={currentColor}
-          resizingId={resizingId}
           darknessPaths={darknessPaths}
           isDarknessLayerVisible={isDarknessLayerVisible}
-          currentUserRole={currentUserRole}
-          isSelecting={selection.isSelecting}
-          selectionStart={selection.selectionStart}
-          selectionEnd={selection.selectionEnd}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          onFileDragOver={handleFileDragOver}
-          onFileDrop={handleFileDrop}
+          selectionRect={selectionRect}
+          isFileOver={drop.isFileOver}
+          textBalloons={textBalloons}
+          pings={pings}
           onGridClick={handleGridClick}
           onMouseDown={handleGridMouseDown}
           onMouseMove={handleGridMouseMove}
-          onMouseUp={handleGridMouseUp}
-          onMouseLeave={handleGridMouseLeave}
-          onContextMenu={(e) => e.preventDefault()}
-          onItemDragStart={handleItemDragStart}
-          onItemDrag={handleItemDrag}
-          onItemDragEnd={handleItemDragEnd}
+          onMouseUp={endSelection}
+          onMouseLeave={endSelection}
           onItemClick={handleItemClick}
           onResizeStart={(e, item) => startResize(e, item, topLayerImages.some((t) => t.id === item.id))}
           onRotateStart={startRotate}
           onDrawingClick={handleDrawingClick}
           onTokenDoubleClick={handleTokenDoubleClick}
           onStatusClick={handleStatusClick}
-          onDarknessChange={setDarknessPaths}
-          onResizeProp={handleResizeProp}
           onOpenTokenSettings={setSettingsToken}
-          textBalloons={textBalloons}
-          onCloseTextBalloon={onCloseTextBalloon}
-          pings={pings}
         />
       </div>
 
-      <StatusModal
-        statusModal={statusModal}
-        onClose={() => setStatusModal(null)}
-        onUpdate={handleStatusUpdate}
-        onValueChange={(value) => setStatusModal((prev) => (prev ? { ...prev, currentValue: value } : null))}
-      />
+      <StatusModal state={statusModal} onClose={() => setStatusModal(null)} onSave={handleStatusUpdate} />
 
       {settingsToken && (
-        <TokenSettingsModal
-          key={settingsToken.id}
-          token={settingsToken}
-          onClose={() => setSettingsToken(null)}
-          onSave={handleSaveTokenSettings}
-          gridSize={gridSize}
-        />
+        <TokenSettingsModal key={settingsToken.id} token={settingsToken} onClose={() => setSettingsToken(null)} onSave={handleSaveTokenSettings} gridSize={gridSize} />
       )}
     </div>
   )

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { LayerImage } from "../../types/layerImage"
+import { swallowNextClick } from "./clickGuard"
 
 interface UseItemResizeProps {
   enabled: boolean
@@ -46,6 +47,7 @@ export function useItemResize({ enabled, zoomLevel, gridSize, resizeItem }: UseI
       }
     }
     const onUp = () => {
+      swallowNextClick()
       start.current = null
       setResizingId(null)
     }

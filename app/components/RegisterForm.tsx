@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
+import { api, errorMessage } from "../lib/api";
+import { loginUser } from "@/lib/auth-actions";
 
 type RegisterFormProps = {
   onRegister: (username: string) => void;
@@ -23,8 +25,7 @@ export default function RegisterForm({ onRegister }: RegisterFormProps) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/register/config");
-        const data = (await res.json()) as { requiresInviteCode?: boolean };
+        const data = await api<{ requiresInviteCode?: boolean }>("/api/register/config");
         if (!cancelled) {
           setRequiresInvite(Boolean(data.requiresInviteCode));
           if (!data.requiresInviteCode) {
@@ -54,20 +55,12 @@ export default function RegisterForm({ onRegister }: RegisterFormProps) {
     }
     setIsLoading(true);
     try {
-      const res = await fetch("/api/register/verify-invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inviteCode: trimmed }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : "Invalid invite code");
-      }
+      await api("/api/register/verify-invite", { method: "POST", body: { inviteCode: trimmed } });
       setInvitePhaseDone(true);
     } catch (err) {
       toast({
         title: "Invite code",
-        description: err instanceof Error ? err.message : "Check with your host",
+        description: errorMessage(err, "Check with your host"),
         variant: "destructive",
       });
     } finally {
@@ -79,31 +72,22 @@ export default function RegisterForm({ onRegister }: RegisterFormProps) {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const response = await fetch("/api/register", {
+      await api("/api/register", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username,
-          password,
-          inviteCode: requiresInvite ? inviteCode.trim() : undefined,
-        }),
+        body: { username, password, inviteCode: requiresInvite ? inviteCode.trim() : undefined },
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Registration failed");
+      // Registering doesn't start a session: log straight in with the same details.
+      const login = await loginUser(username, password);
+      if (!login.success) {
+        toast({ title: "Registration successful", description: "Your account is ready: log in to continue." });
+        return;
       }
-
+      toast({ title: "Registration successful", description: "Welcome!" });
       onRegister(username);
-      toast({
-        title: "Registration successful",
-        description: "Welcome!",
-      });
     } catch (error) {
       toast({
         title: "Registration failed",
-        description: error instanceof Error ? error.message : "Unexpected error",
+        description: errorMessage(error, "Unexpected error"),
         variant: "destructive",
       });
     } finally {

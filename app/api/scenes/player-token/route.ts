@@ -104,29 +104,47 @@ export async function DELETE(req: Request) {
   }
 }
 
+/** More than any player owns; a group drag moves all of them in one request. */
+const MAX_MOVES = 50
+
+type TokenMove = { id: string; x: number; y: number }
+
+/** `{ tokens: [{ id, x, y }, ...] }`, or the older single `{ tokenData: { id, x, y } }`. */
+function parseMoves(body: { tokens?: unknown; tokenData?: unknown }): TokenMove[] | string {
+  const raw = Array.isArray(body.tokens) ? body.tokens : body.tokenData ? [body.tokenData] : null
+  if (!raw || raw.length === 0 || raw.length > MAX_MOVES) return "Token data is required"
+  for (const move of raw) {
+    if (!move || typeof move !== "object" || typeof move.id !== "string") return "Token data is required"
+    if (!isCoordinate(move.x) || !isCoordinate(move.y)) return "Invalid token position"
+  }
+  return raw.map((move: TokenMove) => ({ id: move.id, x: move.x, y: move.y }))
+}
+
 export async function PUT(req: Request) {
   try {
     const user = await requireAuth("player")
-    const { sceneId: rawSceneId, tokenData } = await req.json()
-    const sceneId = await activeSceneOrError(rawSceneId)
+    const body = await req.json()
+    const sceneId = await activeSceneOrError(body?.sceneId)
     if (sceneId instanceof NextResponse) return sceneId
-    if (!tokenData || typeof tokenData.id !== "string") {
-      return NextResponse.json({ error: "Token data is required" }, { status: 400 })
-    }
-    if (!isCoordinate(tokenData.x) || !isCoordinate(tokenData.y)) {
-      return NextResponse.json({ error: "Invalid token position" }, { status: 400 })
-    }
+    const moves = parseMoves(body ?? {})
+    if (typeof moves === "string") return NextResponse.json({ error: moves }, { status: 400 })
 
-    // Check ownership of the token as stored on the server, not the one sent by the client.
+    // Check ownership of the tokens as stored on the server, not as sent by the client. All or nothing.
     const owned = await ownedCharacterIds(user.id)
     const result = await updateScene(sceneId, (state) => {
-      const stored = state.elements.topLayer.find((t) => t.id === tokenData.id)
-      if (!stored) return { error: "Token not found", status: 404 }
-      const characterId = tokenCharacterId(stored)
-      if (characterId === null || !owned.has(characterId)) {
-        return { error: "You can only move your own character tokens", status: 403 }
+      const byId = new Map(moves.map((move) => [move.id, move]))
+      for (const id of byId.keys()) {
+        const stored = state.elements.topLayer.find((t) => t.id === id)
+        if (!stored) return { error: "Token not found", status: 404 }
+        const characterId = tokenCharacterId(stored)
+        if (characterId === null || !owned.has(characterId)) {
+          return { error: "You can only move your own character tokens", status: 403 }
+        }
       }
-      const topLayer = state.elements.topLayer.map((t) => (t.id === tokenData.id ? { ...t, x: tokenData.x, y: tokenData.y } : t))
+      const topLayer = state.elements.topLayer.map((t) => {
+        const move = byId.get(t.id)
+        return move ? { ...t, x: move.x, y: move.y } : t
+      })
       return { ...state, elements: { ...state.elements, topLayer } }
     })
     return respond(req, sceneId, result)

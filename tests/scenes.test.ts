@@ -250,6 +250,40 @@ describe("player tokens", () => {
     expect(del.status).toBe(403)
   })
 
+  it("moves several of a player's tokens at once, but none if one of them isn't theirs", async () => {
+    const { POST, PUT } = await playerTokenRoute()
+    await actAs(alice)
+    const second = await POST(jsonRequest("/api/scenes/player-token", "POST", {
+      sceneId,
+      tokenData: { id: "aria-2", url: "/a.png", x: 0, y: 50, characterId: aliceHero },
+    }))
+    expect(second.status).toBe(200)
+
+    const both = await PUT(jsonRequest("/api/scenes/player-token", "PUT", {
+      sceneId,
+      tokens: [{ id: "aria-1", x: 100, y: 100 }, { id: "aria-2", x: 150, y: 100 }],
+    }))
+    expect(both.status).toBe(200)
+    const moved = (await both.json()).state.elements.topLayer
+    expect(moved.find((t: { id: string }) => t.id === "aria-1")).toMatchObject({ x: 100, y: 100 })
+    expect(moved.find((t: { id: string }) => t.id === "aria-2")).toMatchObject({ x: 150, y: 100 })
+
+    await actAs(bob)
+    const bram = await POST(jsonRequest("/api/scenes/player-token", "POST", {
+      sceneId,
+      tokenData: { id: "bram-1", url: "/b.png", x: 0, y: 0, characterId: bobHero },
+    }))
+    expect(bram.status).toBe(200)
+    const mixed = await PUT(jsonRequest("/api/scenes/player-token", "PUT", {
+      sceneId,
+      tokens: [{ id: "bram-1", x: 200, y: 200 }, { id: "aria-1", x: 200, y: 250 }],
+    }))
+    expect(mixed.status).toBe(403)
+
+    const bad = await PUT(jsonRequest("/api/scenes/player-token", "PUT", { sceneId, tokens: [{ id: "bram-1", x: "far", y: 0 }] }))
+    expect(bad.status).toBe(400)
+  })
+
   it("only works on the active scene", async () => {
     const other = await createScene("Elsewhere", null)
     await actAs(bob)

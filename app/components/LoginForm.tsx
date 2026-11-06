@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "@/components/ui/use-toast"
 import { loginUser } from "@/lib/auth-actions"
+import { errorMessage } from "../lib/api"
 
 interface LoginFormProps {
   onLogin: (username: string, role: string) => void
@@ -23,20 +24,16 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
     try {
       const result = await loginUser(username, password)
       if (result.success) {
-        onLogin(username, result.role || "player")
-        const userRole = result.role || "player"; // Provide a fallback in case, though types should prevent
-        toast({
-          title: "Login Successful",
-          description: `Welcome back, ${username}! You are logged in as a ${userRole}.`,
-        })
+        const role = result.role || "player"
+        onLogin(username, role)
+        toast({ title: "Login Successful", description: `Welcome back, ${username}! You are logged in as a ${role}.` })
       } else {
         throw new Error(result.error || "Login failed")
       }
     } catch (error) {
-      console.error("Login error:", error)
       toast({
         title: "Login Failed",
-        description: error instanceof Error ? error.message : "An unexpected error occurred during login",
+        description: errorMessage(error, "An unexpected error occurred during login"),
         variant: "destructive",
       })
     } finally {

@@ -2,13 +2,14 @@ import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { parseId } from "@/lib/api-errors"
 import { requireCharacterAccess } from "@/lib/character-access"
+import { INVENTORY_SLOTS, type InventorySlot } from "@/app/types/inventory"
 
 type Params = { params: Promise<{ id: string; slotNumber: string }> }
 
 async function slotParams(params: Params["params"]) {
   const { id, slotNumber } = await params
   const slot = parseId(slotNumber)
-  return { charId: parseId(id), slotNumber: slot !== null && slot <= 16 ? slot : null }
+  return { charId: parseId(id), slotNumber: slot !== null && slot <= INVENTORY_SLOTS ? slot : null }
 }
 
 async function itemInSlot(charId: number, slotNumber: number): Promise<number | null> {
@@ -19,7 +20,9 @@ async function itemInSlot(charId: number, slotNumber: number): Promise<number | 
   return result.rows[0] ? Number(result.rows[0].ItemId) : null
 }
 
-/** Creates or renames the item in one slot. */
+const emptySlot = (slotNumber: number): InventorySlot => ({ SlotNumber: slotNumber, ItemId: null, item: null })
+
+/** Creates or renames the item in one slot; returns the slot as it is now. */
 export async function PUT(req: Request, { params }: Params) {
   const { charId, slotNumber } = await slotParams(params)
   const access = await requireCharacterAccess(charId)
@@ -36,30 +39,30 @@ export async function PUT(req: Request, { params }: Params) {
     }
     const description = typeof Description === "string" ? Description.trim() : ""
 
-    const existingItemId = await itemInSlot(charId!, slotNumber)
-    if (existingItemId !== null) {
+    const name = Name.trim()
+    let itemId = await itemInSlot(charId!, slotNumber)
+    if (itemId !== null) {
       await db.execute({
         sql: "UPDATE item SET Name = ?, Description = ? WHERE ItemId = ?",
-        args: [Name.trim(), description, existingItemId],
+        args: [name, description, itemId],
       })
     } else {
       const created = await db.execute({
         sql: "INSERT INTO item (Name, Description, Slotnumber) VALUES (?, ?, ?) RETURNING ItemId",
-        args: [Name.trim(), description, slotNumber],
+        args: [name, description, slotNumber],
       })
-      await db.execute({
-        sql: "INSERT INTO inventory (CharacterId, ItemId) VALUES (?, ?)",
-        args: [charId, Number(created.rows[0].ItemId)],
-      })
+      itemId = Number(created.rows[0].ItemId)
+      await db.execute({ sql: "INSERT INTO inventory (CharacterId, ItemId) VALUES (?, ?)", args: [charId, itemId] })
     }
-    return NextResponse.json({ success: true })
+    const slot: InventorySlot = { SlotNumber: slotNumber, ItemId: itemId, item: { ItemId: itemId, Name: name, Description: description } }
+    return NextResponse.json(slot)
   } catch (error) {
     console.error("Error in PUT inventory slot:", error)
     return NextResponse.json({ error: "Failed to update inventory slot" }, { status: 500 })
   }
 }
 
-/** Removes and deletes the item in one slot. */
+/** Removes and deletes the item in one slot; returns the now-empty slot. */
 export async function DELETE(_req: Request, { params }: Params) {
   const { charId, slotNumber } = await slotParams(params)
   const access = await requireCharacterAccess(charId)
@@ -77,7 +80,7 @@ export async function DELETE(_req: Request, { params }: Params) {
         "write"
       )
     }
-    return NextResponse.json({ success: true })
+    return NextResponse.json(emptySlot(slotNumber))
   } catch (error) {
     console.error("Error in DELETE inventory slot:", error)
     return NextResponse.json({ error: "Failed to delete inventory slot" }, { status: 500 })

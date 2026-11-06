@@ -40,7 +40,7 @@ const CharacterListItem = memo(function CharacterListItem({
   const hasImage = Boolean(character.TokenUrl || character.PortraitUrl)
   const canDrag = isDM || (categoryOf(character) === "Party" && character.userId === currentUser)
 
-  // The map reads these to create a token (see useDragAndDrop).
+  // The map reads these to create a token (see useMapDrop).
   const handleDragStart = (e: React.DragEvent<HTMLLIElement>) => {
     e.dataTransfer.setData("application/json", JSON.stringify({ imageId: String(character.CharacterId), url: characterTokenUrl(character), category: "Token" }))
     e.dataTransfer.setData("characterId", String(character.CharacterId))

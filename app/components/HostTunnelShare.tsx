@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { Copy, Globe, Loader2, Square, X } from "lucide-react";
+import { api, ApiError, errorMessage } from "../lib/api";
 
 const DISMISS_KEY = "vtt-dismiss-tunnel-share-popup";
 
@@ -31,21 +32,14 @@ export function HostTunnelShare({ visible, openRequest = 0 }: { visible: boolean
   const refresh = useCallback(async () => {
     if (!visible) return;
     try {
-      const res = await fetch("/api/tunnel", { credentials: "include" });
-      if (res.status === 403) {
-        setChecked(true);
-        setEnabled(false);
-        return;
-      }
-      const data = (await res.json()) as TunnelGet;
-      setChecked(true);
+      const data = await api<TunnelGet>("/api/tunnel");
       setEnabled(!!data.enabled);
-      if (data.enabled) {
-        setUrl(data.url ?? null);
-      }
+      if (data.enabled) setUrl(data.url ?? null);
     } catch {
-      setChecked(true);
+      // 403 (not the host) or unreachable: no sharing from here.
       setEnabled(false);
+    } finally {
+      setChecked(true);
     }
   }, [visible]);
 
@@ -78,22 +72,13 @@ export function HostTunnelShare({ visible, openRequest = 0 }: { visible: boolean
   const start = async () => {
     setStarting(true);
     try {
-      const res = await fetch("/api/tunnel", { method: "POST", credentials: "include" });
-      const data = await res.json();
-      if (!res.ok) {
-        toast({
-          title: "Tunnel failed",
-          description: typeof data.error === "string" ? data.error : res.statusText,
-          variant: "destructive",
-        });
-        return;
-      }
+      const data = await api<{ url?: string }>("/api/tunnel", { method: "POST" });
       if (typeof data.url === "string") {
         setUrl(data.url);
         toast({ title: "Share link ready", description: "Copy the URL and send it to your players." });
       }
-    } catch {
-      toast({ title: "Tunnel failed", description: "Network error.", variant: "destructive" });
+    } catch (error) {
+      toast({ title: "Tunnel failed", description: error instanceof ApiError ? error.message : "Network error.", variant: "destructive" });
     } finally {
       setStarting(false);
     }
@@ -101,11 +86,11 @@ export function HostTunnelShare({ visible, openRequest = 0 }: { visible: boolean
 
   const stop = async () => {
     try {
-      await fetch("/api/tunnel", { method: "DELETE", credentials: "include" });
+      await api("/api/tunnel", { method: "DELETE" });
       setUrl(null);
       toast({ title: "Tunnel stopped" });
-    } catch {
-      toast({ title: "Stop failed", variant: "destructive" });
+    } catch (error) {
+      toast({ title: "Stop failed", description: errorMessage(error), variant: "destructive" });
     }
   };
 

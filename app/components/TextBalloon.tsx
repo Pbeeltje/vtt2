@@ -1,47 +1,24 @@
-import React from 'react'
-
 interface TextBalloonProps {
   message: string
+  /** The speaking token's top-left corner and width, in map pixels. */
   x: number
   y: number
   tokenWidth: number
-  tokenHeight: number
-  onClose: () => void
 }
 
-export default function TextBalloon({ message, x, y, tokenWidth, tokenHeight, onClose }: TextBalloonProps) {
-  // Position the balloon above the token
-  const balloonX = x + tokenWidth / 2
-  const balloonY = y - 60 // 60px above the token
-
+/** What a character just said in chat, over its token. useChat removes it after a few seconds. */
+export default function TextBalloon({ message, x, y, tokenWidth }: TextBalloonProps) {
   return (
     <div
-      className="absolute pointer-events-none z-50"
-      style={{
-        left: balloonX,
-        top: balloonY,
-        transform: 'translateX(-50%)',
-      }}
+      className="pointer-events-none absolute z-50"
+      // Anchored by its bottom edge, so longer messages grow upwards instead of over the token.
+      style={{ left: x + tokenWidth / 2, top: y - 12, transform: "translate(-50%, -100%)" }}
     >
-      {/* Balloon background */}
-      <div className="bg-yellow-50 rounded-xl px-4 py-3 shadow-lg min-w-[100px] max-w-xs">
-        <div className="text-sm text-gray-800 break-words">
-          {message}
-        </div>
-        
-        {/* Balloon tail pointing down to the token */}
-        <div 
-          className="absolute top-full left-1/2 transform -translate-x-1/2"
-          style={{
-            width: 0,
-            height: 0,
-            borderLeft: '8px solid transparent',
-            borderRight: '8px solid transparent',
-            borderTop: '8px solid #fefce8',
-            filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.1))',
-          }}
-        />
+      <div className="relative min-w-[100px] max-w-xs bg-[#efe9cf] px-4 py-2.5 shadow-[0_0_0_1.5px_#0a0d0a,0_4px_10px_rgba(0,0,0,.6)]">
+        <div className="break-words font-[family-name:var(--font-spectral)] text-sm leading-snug text-[#1a1f18]">{message}</div>
+        {/* The tail, pointing down at the token. */}
+        <div className="absolute left-1/2 top-full -mt-[5px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-[#efe9cf] shadow-[1.5px_1.5px_0_#0a0d0a]" />
       </div>
     </div>
   )
-} 
+}

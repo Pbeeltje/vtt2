@@ -1,73 +1,85 @@
-import { Button } from "@/components/ui/button"
+"use client"
 
-interface StatusModalProps {
-  statusModal: {
-    isOpen: boolean;
-    type: 'guard' | 'strength' | 'mp';
-    currentValue: number;
-    maxValue: number;
-    characterId: number;
-    character: any;
-  } | null;
-  onClose: () => void;
-  onUpdate: (value: number) => void;
-  onValueChange: (value: number) => void;
+import { useState } from "react"
+import { Minus, Plus } from "lucide-react"
+import { JadeDialog } from "@/components/ui/jade-dialog"
+import type { StatusField } from "./TokenRenderer"
+
+/** Which character stat is being edited, and its value when the dialog opened. */
+export interface StatusModalState {
+  type: StatusField
+  characterId: number
+  characterName: string
+  current: number
+  max: number
 }
 
-export default function StatusModal({ 
-  statusModal, 
-  onClose, 
-  onUpdate, 
-  onValueChange 
-}: StatusModalProps) {
-  if (!statusModal) return null;
+interface StatusModalProps {
+  state: StatusModalState | null
+  onClose: () => void
+  onSave: (value: number) => void
+}
 
-  const getStatusLabel = () => {
-    switch (statusModal.type) {
-      case 'guard': return 'Guard'
-      case 'strength': return 'Strength'
-      case 'mp': return 'MP'
-      default: return 'Status'
-    }
-  }
+const LABEL: Record<StatusField, string> = { guard: "Guard", strength: "Strength", mp: "MP" }
+
+/** Sets a token's Guard, Strength or MP from the map. */
+export default function StatusModal({ state, onClose, onSave }: StatusModalProps) {
+  return (
+    <JadeDialog
+      open={state !== null}
+      onOpenChange={(open) => !open && onClose()}
+      title={state ? `${LABEL[state.type]}: ${state.characterName}` : ""}
+      description={state ? `Set ${state.characterName}'s ${LABEL[state.type]}, out of ${state.max}.` : ""}
+      className="max-w-xs"
+    >
+      {state && <StatusForm key={`${state.characterId}-${state.type}`} state={state} onClose={onClose} onSave={onSave} />}
+    </JadeDialog>
+  )
+}
+
+function StatusForm({ state, onClose, onSave }: { state: StatusModalState } & Omit<StatusModalProps, "state">) {
+  const [draft, setDraft] = useState(String(state.current))
+  const value = Math.max(0, parseInt(draft, 10) || 0)
+  const step = (by: number) => setDraft(String(Math.max(0, value + by)))
+  // Clicking − or + leaves the cursor in the number, so Enter still saves.
+  const keepFocus = (e: React.MouseEvent) => e.preventDefault()
 
   return (
-    <div 
-      className="fixed inset-0 bg-black/50 flex justify-center items-center z-[100]" role="dialog" aria-modal="true" 
-      onClick={onClose}
+    <form
+      className="mt-5"
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSave(value)
+      }}
     >
-      <div 
-        className="bg-white p-6 rounded-lg shadow-lg z-[101]" 
-        onClick={e => e.stopPropagation()}
-      >
-        <h3 className="text-lg font-semibold mb-4">
-          Update {getStatusLabel()}
-        </h3>
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center space-x-2">
-            <input
-              type="number" 
-              min="0"
-              value={statusModal.currentValue === 0 ? '' : statusModal.currentValue}
-              onChange={(e) => {
-                const value = e.target.value === '' ? '' : parseInt(e.target.value);
-                onValueChange(value === '' ? 0 : value);
-              }}
-              className="w-24 px-2 py-1 border rounded" 
-              autoFocus
-            />
-            <span>/ {statusModal.maxValue}</span>
-          </div>
-          <div className="flex justify-end">
-            <Button 
-              onClick={() => onUpdate(statusModal.currentValue)} 
-              className="bg-blue-500 hover:bg-blue-600 text-white"
-            >
-              Save
-            </Button>
-          </div>
-        </div>
+      <div className="flex items-center justify-center gap-2">
+        <button type="button" className="jade-btn w-8 px-0" onMouseDown={keepFocus} onClick={() => step(-1)} title="One less" aria-label="One less">
+          <Minus className="h-4 w-4" />
+        </button>
+        <input
+          type="number"
+          min={0}
+          inputMode="numeric"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          className="jade-input h-9 w-20 text-center text-lg"
+          aria-label={LABEL[state.type]}
+          autoFocus
+        />
+        <button type="button" className="jade-btn w-8 px-0" onMouseDown={keepFocus} onClick={() => step(1)} title="One more" aria-label="One more">
+          <Plus className="h-4 w-4" />
+        </button>
+        <span className="jade-outline pl-1 text-lg text-[var(--jade-ink)]">/ {state.max}</span>
       </div>
-    </div>
+      <div className="mt-6 flex justify-end gap-3">
+        <button type="button" className="jade-btn min-w-20" onClick={onClose}>
+          Cancel
+        </button>
+        <button type="submit" className="jade-btn min-w-20">
+          Save
+        </button>
+      </div>
+    </form>
   )
-} 
+}

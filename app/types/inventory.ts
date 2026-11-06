@@ -1,18 +1,21 @@
-// types/inventory.ts
-export interface Inventory {
-  InventoryId: number;
-  CharacterId: number;
-}
+// What /api/characters/[id]/inventory returns: a character's fixed set of numbered slots.
 
-export interface InventoryItem {
-  InventoryItemId: number;
-  InventoryId: number;
-  SlotNumber: number;
-  ItemId: number | null;
-}
+/** Slots per character; slot numbers run 1..INVENTORY_SLOTS. */
+export const INVENTORY_SLOTS = 16
 
 export interface Item {
-  ItemId: number;
-  Name: string;
-  Description: string | null;
+  ItemId: number
+  Name: string
+  Description: string | null
+}
+
+export interface InventorySlot {
+  SlotNumber: number
+  ItemId: number | null
+  item: Item | null
+}
+
+export interface CharacterInventory {
+  CharacterId: number
+  Slots: InventorySlot[]
 }

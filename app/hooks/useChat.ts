@@ -173,5 +173,5 @@ export function useChat(socket: Socket | null, findToken: (characterName: string
     setTextBalloons([])
   }, [])
 
-  return { messages, hasMore, loadLatest, loadOlder, sendMessage, roll, rollTest, reset, textBalloons, closeBalloon }
+  return { messages, hasMore, loadLatest, loadOlder, sendMessage, roll, rollTest, reset, textBalloons }
 }

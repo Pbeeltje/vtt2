@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/use-toast";
+import { api, saveCharacter, errorMessage } from "../lib/api";
 import type { User } from "../types/user";
 import type { Character } from "../types/character";
 import { Plus, X, Shield, Crown } from "lucide-react";
@@ -92,14 +93,7 @@ export default function DmPlayerAccounts({
 
     try {
       await runLoading(`pw-${target.id}`, async () => {
-        const res = await fetch(`/api/users/${target.id}/password`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ newPassword: pair.a }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) throw new Error(data.error || "Reset failed");
+        await api(`/api/users/${target.id}/password`, { method: "PUT", body: { newPassword: pair.a } });
         toast({
           title: "Password updated",
           description: `Tell ${target.username} their new password.`,
@@ -113,7 +107,7 @@ export default function DmPlayerAccounts({
     } catch (e) {
       toast({
         title: "Reset failed",
-        description: e instanceof Error ? e.message : "Unknown error",
+        description: errorMessage(e),
         variant: "destructive",
       });
     }
@@ -123,14 +117,7 @@ export default function DmPlayerAccounts({
     const next = makeDm ? "DM" : "player";
     try {
       await runLoading(`role-${target.id}`, async () => {
-        const res = await fetch(`/api/users/${target.id}/role`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ role: next }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) throw new Error(data.error || "Role update failed");
+        await api(`/api/users/${target.id}/role`, { method: "PATCH", body: { role: next } });
         await onRefetchUsers();
         toast({
           title: makeDm ? "Admin granted" : "Admin revoked",
@@ -143,23 +130,14 @@ export default function DmPlayerAccounts({
     } catch (e) {
       toast({
         title: "Role update failed",
-        description: e instanceof Error ? e.message : "Unknown error",
+        description: errorMessage(e),
         variant: "destructive",
       });
     }
   };
 
   const putCharacterUserId = async (characterId: number, userId: number) => {
-    const res = await fetch(`/api/characters/${characterId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ userId }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error((data as { error?: string }).error || "Update failed");
-    }
+    await saveCharacter(characterId, { userId });
     await onRefetchCharacters();
   };
 
@@ -172,7 +150,7 @@ export default function DmPlayerAccounts({
     } catch (e) {
       toast({
         title: "Unassign failed",
-        description: e instanceof Error ? e.message : "Unknown error",
+        description: errorMessage(e),
         variant: "destructive",
       });
     }
@@ -191,7 +169,7 @@ export default function DmPlayerAccounts({
     } catch (e) {
       toast({
         title: "Assign failed",
-        description: e instanceof Error ? e.message : "Unknown error",
+        description: errorMessage(e),
         variant: "destructive",
       });
     }

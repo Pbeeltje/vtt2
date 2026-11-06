@@ -14,9 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownContent } from "@/components/MarkdownContent";
-import type { Job, JobFormPayload } from "../../hooks/useJobs";
+import { MAX_JOB_TIER, type Job, type JobForm } from "../../types/job";
 import { cn } from "@/lib/utils";
-import { MAX_JOB_TIER } from "@/lib/jobs";
 import { X } from "lucide-react";
 
 type JobDetailModalProps = {
@@ -24,15 +23,15 @@ type JobDetailModalProps = {
   job: Job | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (jobId: number, form: JobFormPayload) => Promise<boolean>;
-  onCreate: (form: JobFormPayload) => Promise<boolean>;
+  onSave: (jobId: number, form: JobForm) => Promise<boolean>;
+  onCreate: (form: JobForm) => Promise<boolean>;
 };
 
 export function JobDetailModal({ job, open, onOpenChange, onSave, onCreate }: JobDetailModalProps) {
   const isCreate = open && job === null;
 
   const [isEditing, setIsEditing] = useState(false);
-  const [draft, setDraft] = useState<JobFormPayload>({
+  const [draft, setDraft] = useState<JobForm>({
     name: "",
     description: null,
     tier: 1,

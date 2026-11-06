@@ -1,10 +1,10 @@
 "use client"
 
 import * as React from "react"
-import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { AlertTriangle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { JadeDialog } from "./jade-dialog"
 
 export type ConfirmOptions = {
   title: string
@@ -63,46 +63,26 @@ export function ConfirmDialogHost() {
   const destructive = shown?.destructive ?? false
 
   return (
-    <DialogPrimitive.Root open={pending !== null} onOpenChange={(open) => !open && settle(false)}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[300] bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content
-          className={cn(
-            "jade fixed left-1/2 top-1/2 z-[310] w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 outline-hidden",
-            "duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
-          )}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <i className="jade-knot absolute -top-2 left-4 right-4 z-10 h-4" aria-hidden />
-          <div className="jade-well jade-fill px-6 pb-5 pt-7">
-            <div className="flex items-start gap-3">
-              {destructive && <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[var(--jade-hit)] drop-shadow-[1px_1px_0_#000]" aria-hidden />}
-              <div className="min-w-0 space-y-2">
-                <DialogPrimitive.Title className="jade-title text-lg leading-tight">{shown?.title}</DialogPrimitive.Title>
-                {shown?.description ? (
-                  <DialogPrimitive.Description className="jade-outline text-sm text-[var(--jade-ink)]">{shown.description}</DialogPrimitive.Description>
-                ) : (
-                  <DialogPrimitive.Description className="sr-only">Confirm or cancel</DialogPrimitive.Description>
-                )}
-              </div>
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button type="button" className="jade-btn min-w-20" onClick={() => settle(false)}>
-                {shown?.cancelLabel ?? "Cancel"}
-              </button>
-              <button
-                type="button"
-                autoFocus
-                className={cn("jade-btn min-w-20", destructive && "jade-btn-danger")}
-                onClick={() => settle(true)}
-              >
-                {shown?.confirmLabel ?? "OK"}
-              </button>
-            </div>
-          </div>
-          <i className="jade-knot jade-knot-under absolute -bottom-2 left-4 right-4 z-10 h-4" aria-hidden />
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+    <JadeDialog
+      open={pending !== null}
+      onOpenChange={(open) => !open && settle(false)}
+      title={
+        <span className="flex items-start gap-3">
+          {destructive && <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[var(--jade-hit)] drop-shadow-[1px_1px_0_#000]" aria-hidden />}
+          {shown?.title}
+        </span>
+      }
+      description={shown?.description || "Confirm or cancel"}
+      showDescription={Boolean(shown?.description)}
+    >
+      <div className="mt-6 flex justify-end gap-3">
+        <button type="button" className="jade-btn min-w-20" onClick={() => settle(false)}>
+          {shown?.cancelLabel ?? "Cancel"}
+        </button>
+        <button type="button" autoFocus className={cn("jade-btn min-w-20", destructive && "jade-btn-danger")} onClick={() => settle(true)}>
+          {shown?.confirmLabel ?? "OK"}
+        </button>
+      </div>
+    </JadeDialog>
   )
 }

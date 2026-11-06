@@ -1,7 +1,7 @@
 // components/character-popup/StatsTab.tsx
 import type { Character } from '../../types/character';
 import { useState } from 'react';
-import type { Job, JobFormPayload } from '../../hooks/useJobs';
+import type { Job, JobForm } from '../../types/job';
 import { EditableField } from './EditableField';
 import { JobDetailModal } from './JobDetailModal';
 import { NumField } from './NumField';
@@ -11,8 +11,8 @@ import { CHARACTER_SIZES, DEFAULT_CHARACTER_SIZE } from '../../lib/tokens';
 interface StatsTabProps {
   sheet: SheetDraft;
   jobs: Job[];
-  onSaveJob: (jobId: number, form: JobFormPayload) => Promise<boolean>;
-  onCreateJob: (form: JobFormPayload) => Promise<boolean>;
+  onSaveJob: (jobId: number, form: JobForm) => Promise<boolean>;
+  onCreateJob: (form: JobForm) => Promise<boolean>;
 }
 
 /** Every number on the sheet as a fillable medallion, then the description and jobs (click one to open it). */

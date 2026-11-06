@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 export const MIN_ZOOM = 0.5
 export const MAX_ZOOM = 3
 const ZOOM_STEP = 0.1
+const ZOOM_STORAGE_KEY = "dmScreenZoomLevel"
 
 const clampZoom = (z: number) => Math.round(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z)) * 100) / 100
 
@@ -30,6 +31,24 @@ export function useMapNavigation({ containerRef, gridRef, zoomLevel, setZoomLeve
   const anchor = useRef<{ mapX: number; mapY: number; clientX: number; clientY: number } | null>(null)
   const onGridSizeWheelRef = useRef(onGridSizeWheel)
   onGridSizeWheelRef.current = onGridSizeWheel
+
+  // The zoom is remembered per browser.
+  useEffect(() => {
+    try {
+      const saved = parseFloat(localStorage.getItem(ZOOM_STORAGE_KEY) ?? "")
+      if (saved >= MIN_ZOOM && saved <= MAX_ZOOM) setZoomLevel(saved)
+    } catch {
+      /* storage unavailable */
+    }
+  }, [setZoomLevel])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ZOOM_STORAGE_KEY, String(zoomLevel))
+    } catch {
+      /* storage unavailable */
+    }
+  }, [zoomLevel])
 
   const zoomAt = useCallback(
     (clientX: number, clientY: number, nextZoom: number) => {

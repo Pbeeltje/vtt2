@@ -207,7 +207,11 @@ describe("inventory and jobs", () => {
     const slot = (n: number, cid = id) => ({ params: Promise.resolve({ id: String(cid), slotNumber: String(n) }) })
 
     await actAs(alice)
-    expect((await slotRoute.PUT(jsonRequest("/x", "PUT", { Name: "Rope" }), slot(3))).status).toBe(200)
+    const created = await slotRoute.PUT(jsonRequest("/x", "PUT", { Name: " Rope ", Description: "50 ft" }), slot(3))
+    expect(created.status).toBe(200)
+    expect(await created.json()).toMatchObject({ SlotNumber: 3, item: { Name: "Rope", Description: "50 ft" } })
+    expect((await slotRoute.PUT(jsonRequest("/x", "PUT", { Name: "" }), slot(4))).status).toBe(400)
+    expect((await slotRoute.PUT(jsonRequest("/x", "PUT", { Name: "Too far" }), slot(17))).status).toBe(400)
     const inv = await (await invRoute.GET(jsonRequest("/x", "GET"), params(id))).json()
     const rope = inv.Slots[2]
     expect(rope.item).toMatchObject({ Name: "Rope" })
@@ -223,6 +227,12 @@ describe("inventory and jobs", () => {
     expect((await invRoute.PUT(jsonRequest("/x", "PUT", { Slots: [{ SlotNumber: 5, ItemId: null }] }), params(id))).status).toBe(200)
     const cleared = await (await invRoute.GET(jsonRequest("/x", "GET"), params(id))).json()
     expect(cleared.Slots.every((s: { item: unknown }) => s.item === null)).toBe(true)
+
+    await slotRoute.PUT(jsonRequest("/x", "PUT", { Name: "Lamp" }), slot(2))
+    const deleted = await slotRoute.DELETE(jsonRequest("/x", "DELETE"), slot(2))
+    expect(await deleted.json()).toEqual({ SlotNumber: 2, ItemId: null, item: null })
+    const empty = await (await invRoute.GET(jsonRequest("/x", "GET"), params(id))).json()
+    expect(empty.Slots[1].item).toBeNull()
   })
 
   it("validates job tiers and deletes jobs", async () => {

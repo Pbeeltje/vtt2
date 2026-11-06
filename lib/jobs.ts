@@ -1,16 +1,9 @@
-// A character's jobs (free-text for now; Phase 2 adds a job catalog).
+// Server side of a character's jobs: database rows to Job, and request validation.
+import { MAX_JOB_TIER, type Job, type JobForm } from "@/app/types/job"
 
-export interface JobRow {
-  JobId: number
-  CharacterId: number
-  Name: string
-  Tier: number
-  Description: string | null
-}
+export { MAX_JOB_TIER }
 
-export const MAX_JOB_TIER = 3
-
-export function toJobRow(row: Record<string, unknown>): JobRow {
+export function toJobRow(row: Record<string, unknown>): Job {
   return {
     JobId: Number(row.JobId),
     CharacterId: Number(row.CharacterId),
@@ -21,7 +14,7 @@ export function toJobRow(row: Record<string, unknown>): JobRow {
 }
 
 /** Validates a job create/update body ({ name, tier, description }); returns an error message on failure. */
-export function parseJobBody(body: unknown): { name: string; tier: number; description: string | null } | string {
+export function parseJobBody(body: unknown): JobForm | string {
   if (!body || typeof body !== "object") return "Invalid job data"
   const b = body as Record<string, unknown>
   const name = typeof b.name === "string" ? b.name.trim() : ""

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { LayerImage } from "../../types/layerImage"
+import { swallowNextClick } from "./clickGuard"
 
 interface UseItemRotateProps {
   enabled: boolean
@@ -45,6 +46,7 @@ export function useItemRotate({ enabled, rotateItem }: UseItemRotateProps) {
       rotateItem(rotatingId, ((Math.round(degrees) % 360) + 360) % 360)
     }
     const onUp = () => {
+      swallowNextClick()
       center.current = null
       setRotatingId(null)
     }

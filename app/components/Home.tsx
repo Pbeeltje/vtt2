@@ -347,13 +347,12 @@ export default function Home() {
               onDrawingAdd={drawings.addDrawing}
               onDrawingsDelete={drawings.deleteDrawings}
               onPlayerPlaceToken={scenes.playerPlaceToken}
-              onPlayerMoveToken={scenes.playerMoveToken}
+              onPlayerMoveTokens={scenes.playerMoveTokens}
               onPlayerDeleteToken={scenes.playerDeleteToken}
               onOpenCharacterSheet={openSheet}
               onUpdateCharacter={handleUpdateCharacter}
               onUploadImage={uploadImage}
               textBalloons={chat.textBalloons}
-              onCloseTextBalloon={chat.closeBalloon}
               pings={pings}
               onPing={ping}
               onSelectedCharacterChange={setSelectedCharacterId}
