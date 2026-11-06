@@ -17,6 +17,8 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   poweredByHeader: false,
+  // Hide the floating Next.js "N" dev badge; it sits over the map. Build errors still show an overlay.
+  devIndicators: false,
   async headers() {
     return [
       { source: '/((?!uploads/).*)', headers: securityHeaders },

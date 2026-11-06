@@ -50,9 +50,9 @@ function BottomBar({
         <div className="min-w-0 flex-1">
           <PresenceRow online={online} currentUserId={user.id} onOpenProfile={onOpenProfile} />
         </div>
-        <PhaseColumn phase={phase} onSetPhase={onSetPhase} />
+        <PhaseColumn phase={phase} onSetPhase={onSetPhase} canControl={isDM} />
         <div className="absolute -top-[22px] right-3">
-          <RoundMenu items={menuItems} phase={phase} onNextPhase={onNextPhase} />
+          <RoundMenu items={menuItems} phase={phase} onNextPhase={onNextPhase} canControlPhase={isDM} />
         </div>
       </div>
     </div>

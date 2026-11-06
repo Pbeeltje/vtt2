@@ -1,148 +1,107 @@
-import React, { memo, useMemo } from 'react';
+"use client"
 
-export interface DarknessPath {
-  id: string;
-  type: "erase" | "paint";
-  createdAt: string;
-  /** Stroke-based edit (omit when using cellRect). */
-  path?: string;
-  /** Brush diameter in scene pixels; defaults to 50 for legacy paths. */
-  strokeWidth?: number;
-  /** Single grid cell in scene coordinates. */
-  cellRect?: { x: number; y: number; width: number; height: number };
-}
+import { memo, useEffect, useRef } from "react"
+import { darknessRenderOrder } from "@/lib/scene-model"
+import type { DarknessPath } from "../../types/drawing"
+
+export type { DarknessPath }
+
+/** Backing-store cap (about 64 MB of RGBA), so a huge map at high zoom can't exhaust memory. */
+const MAX_CANVAS_PIXELS = 16_000_000
+/** Brush diameter of fog strokes saved before the diameter was stored. */
+const LEGACY_STROKE_WIDTH = 50
 
 interface DarknessLayerProps {
-  width: number;
-  height: number;
-  darknessPaths: DarknessPath[];
-  isVisible: boolean;
-  currentUserRole?: string | null;
+  /** The whole play area (map plus border), in scene pixels: the space fog ops are drawn in. */
+  width: number
+  height: number
+  darknessPaths: DarknessPath[]
+  /** The DM sees the fog at half strength so the map stays readable underneath. */
+  isDM: boolean
+  zoomLevel: number
 }
 
-/** The mask's paint/erase shapes, in the order they were made. */
-function maskNodes(darknessPaths: DarknessPath[]) {
-  /** Paint vs erase must interleave by time; if all paints render after all erases, fog paint blocks later reveals forever. */
-  const orderedPaths = [...darknessPaths].sort((a, b) => {
-    const t = (a.createdAt || "").localeCompare(b.createdAt || "");
-    if (t !== 0) return t;
-    return a.id.localeCompare(b.id);
-  });
-
-  return orderedPaths.map((p) => {
-    const ink = p.type === "erase" ? "black" : "white";
-    if (p.cellRect) {
-      return (
-        <rect
-          key={p.id}
-          x={p.cellRect.x}
-          y={p.cellRect.y}
-          width={p.cellRect.width}
-          height={p.cellRect.height}
-          fill={ink}
-        />
-      );
-    }
-    if (!p.path) return null;
-    return (
-      <path
-        key={p.id}
-        d={p.path}
-        stroke={ink}
-        strokeWidth={p.strokeWidth ?? 50}
-        fill="none"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    );
-  });
+/** Device pixels per scene pixel: sharp at the current zoom, within the memory cap. Quarter steps, so a zoom nudge rarely redraws. */
+function canvasResolution(width: number, height: number, zoomLevel: number): number {
+  const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1
+  const wanted = dpr * Math.max(1, zoomLevel || 1)
+  const cap = Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, width * height))
+  return Math.max(0.25, Math.floor(Math.min(wanted, cap) * 4) / 4)
 }
 
-function DarknessLayer({
-  width,
-  height,
-  darknessPaths,
-  isVisible,
-  currentUserRole,
-}: DarknessLayerProps) {
-  const isDM = currentUserRole === 'DM';
-  // Only rebuilt when the fog itself changes, not on every map re-render.
-  const maskOperationNodes = useMemo(() => maskNodes(darknessPaths), [darknessPaths]);
-
-  // Don't render anything if not visible
-  if (!isVisible) return null;
-
-  // For players, show solid black overlay with erased areas creating transparent holes
-  if (!isDM) {
-    return (
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ 
-          zIndex: 45,
-          width: '100%',
-          height: '100%'
-        }}
-      >
-        <svg
-          className="absolute inset-0 w-full h-full"
-          width={width}
-          height={height}
-          style={{ pointerEvents: 'none' }}
-        >
-          <defs>
-            <mask id="darkness-mask-player">
-              {/* White background = visible darkness */}
-              <rect width="100%" height="100%" fill="white" />
-              {/* Chronological: black = reveal, white = fog; newest wins per pixel */}
-              {maskOperationNodes}
-            </mask>
-          </defs>
-          
-          {/* Base darkness layer */}
-          <rect 
-            width="100%" 
-            height="100%" 
-            fill="black" 
-            mask="url(#darkness-mask-player)"
-          />
-        </svg>
-      </div>
-    );
+function drawOp(ctx: CanvasRenderingContext2D, op: DarknessPath) {
+  // Paint lays fog down; erase cuts it away, revealing the map. Later ops win.
+  ctx.globalCompositeOperation = op.type === "erase" ? "destination-out" : "source-over"
+  if (op.cellRect) {
+    ctx.fillRect(op.cellRect.x, op.cellRect.y, op.cellRect.width, op.cellRect.height)
+  } else if (op.path) {
+    const path = new Path2D(op.path)
+    if (op.fill) ctx.fill(path)
+    ctx.lineWidth = op.strokeWidth ?? LEGACY_STROKE_WIDTH
+    ctx.stroke(path)
   }
+}
 
-  // For DM, show semi-transparent overlay with the same logic
+/** `next` only adds ops after `drawn`, all of them later in render order than `last`: draw just those. */
+function appendedOps(drawn: DarknessPath[], next: DarknessPath[], last: DarknessPath | null): DarknessPath[] | null {
+  if (next.length < drawn.length) return null
+  for (let i = 0; i < drawn.length; i++) if (next[i] !== drawn[i]) return null
+  const added = next.slice(drawn.length).sort(darknessRenderOrder)
+  if (last && added.length > 0 && darknessRenderOrder(added[0], last) < 0) return null
+  return added
+}
+
+/**
+ * Fog of war, painted on one canvas. The canvas starts all fog and replays the fog ops oldest
+ * first. It only redraws when the fog, the map size or the resolution changes; a stroke that adds
+ * ops on top is drawn on its own, without replaying the rest.
+ */
+function DarknessLayer({ width, height, darknessPaths, isDM, zoomLevel }: DarknessLayerProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const drawnRef = useRef<{ ops: DarknessPath[]; last: DarknessPath | null } | null>(null)
+  const resolution = canvasResolution(width, height, zoomLevel)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext("2d")
+    if (!canvas || !ctx) return
+    const pxWidth = Math.max(1, Math.round(width * resolution))
+    const pxHeight = Math.max(1, Math.round(height * resolution))
+    const sameSize = canvas.width === pxWidth && canvas.height === pxHeight
+    const drawn = drawnRef.current
+
+    const added = sameSize && drawn ? appendedOps(drawn.ops, darknessPaths, drawn.last) : null
+    let ops: DarknessPath[]
+    if (added) {
+      ops = added
+    } else {
+      // Full redraw. Setting the size clears the canvas and resets the context.
+      canvas.width = pxWidth
+      canvas.height = pxHeight
+      ctx.setTransform(resolution, 0, 0, resolution, 0, 0)
+      ctx.globalCompositeOperation = "source-over"
+      ctx.fillStyle = "#000"
+      ctx.fillRect(0, 0, width, height)
+      ops = [...darknessPaths].sort(darknessRenderOrder)
+    }
+    ctx.fillStyle = "#000"
+    ctx.strokeStyle = "#000"
+    ctx.lineCap = "round"
+    ctx.lineJoin = "round"
+    for (const op of ops) drawOp(ctx, op)
+    ctx.globalCompositeOperation = "source-over"
+    const newest = ops.length > 0 ? ops[ops.length - 1] : null
+    drawnRef.current = { ops: darknessPaths, last: added ? newest ?? drawn?.last ?? null : newest }
+  }, [darknessPaths, width, height, resolution])
+
   return (
-    <div
-      className="absolute inset-0 pointer-events-none"
-      style={{ 
-        zIndex: 45,
-        width: '100%',
-        height: '100%'
-      }}
-    >
-      <svg
-        className="absolute inset-0 w-full h-full"
-        width={width}
-        height={height}
-        style={{ pointerEvents: 'none' }}
-      >
-        <defs>
-          <mask id="darkness-mask-dm">
-            {/* White background = visible darkness */}
-            <rect width="100%" height="100%" fill="white" />
-            {maskOperationNodes}
-          </mask>
-        </defs>
-        
-        {/* Base darkness layer (semi-transparent for DM) */}
-        <rect 
-          width="100%" 
-          height="100%" 
-          fill="rgba(0,0,0,0.5)" 
-          mask="url(#darkness-mask-dm)"
-        />
-      </svg>
-    </div>
-  );
-} 
-export default memo(DarknessLayer);
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute left-0 top-0"
+      style={{ width, height, zIndex: 45, opacity: isDM ? 0.5 : 1 }}
+      aria-hidden
+    />
+  )
+}
+
+export default memo(DarknessLayer)

@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react"
 import type { LayerImage } from "../../types/layerImage"
-import type { DrawingObject } from "../../components/DrawingLayer"
+import type { DrawingObject } from "../../types/drawing"
 
 type Point = { x: number; y: number }
 

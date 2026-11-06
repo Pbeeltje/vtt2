@@ -7,13 +7,12 @@ import { tokenCharacterId, type SceneState } from "@/lib/scene-model"
 import type { LayerImage } from "../types/layerImage"
 import type { Character } from "../types/character"
 import type { DMImage } from "../types/image"
-import type { DrawingObject } from "./DrawingLayer"
+import type { DarknessPath, DrawingObject } from "../types/drawing"
 import DrawingToolbar from "./DrawingToolbar"
 import GameGrid from "./main-content/GameGrid"
 import ZoomControls from "./main-content/ZoomControls"
 import StatusModal from "./main-content/StatusModal"
 import TokenSettingsModal, { type TokenSettings } from "./TokenSettingsModal"
-import type { DarknessPath } from "./main-content/DarknessLayer"
 import type { MapInteractionTool } from "../types/mapTool"
 import { isAnyFogTool, isCanvasStrokeTool, isFogCellTool } from "../types/mapTool"
 import { useMainContent } from "../hooks/useMainContent"
@@ -42,6 +41,8 @@ interface MainContentProps {
   onToolChange: (tool: MapInteractionTool) => void
   fogBrushDiameter: number
   onFogBrushDiameterChange: (diameter: number) => void
+  fogFill: boolean
+  onFogFillChange: (fill: boolean) => void
   currentColor: string
   onColorChange: (color: string) => void
   zoomLevel: number
@@ -75,6 +76,8 @@ function MainContent({
   onToolChange,
   fogBrushDiameter,
   onFogBrushDiameterChange,
+  fogFill,
+  onFogFillChange,
   currentColor,
   onColorChange,
   zoomLevel,
@@ -145,10 +148,6 @@ function MainContent({
     setSelectedDrawingIds,
     statusModal,
     setStatusModal,
-    isDrawing,
-    setIsDrawing,
-    currentPath,
-    setCurrentPath,
     generateUniqueId,
     snapToGrid,
     updateItemPosition,
@@ -237,25 +236,26 @@ function MainContent({
 
   // --- Drawing and fog --------------------------------------------------------------------
 
-  const { startDrawing, draw, endDrawing, handleDrawingClick } = useDrawing({
+  /** A finished fog stroke: appended to the latest fog in one update. */
+  const addDarknessOps = useCallback(
+    (ops: DarknessPath[]) => onUpdateScene((s) => ({ ...s, darknessPaths: [...s.darknessPaths, ...ops] })),
+    [onUpdateScene]
+  )
+
+  const { previewRef: strokePreviewRef, startDrawing, handleDrawingClick } = useDrawing({
     gridRef,
     gridSize,
     fogBrushDiameter,
+    fogFill,
     currentTool,
     currentColor,
     zoomLevel,
     currentSceneId,
     currentUserId,
     currentUserRole,
-    isDrawing,
-    setIsDrawing,
-    currentPath,
-    setCurrentPath,
-    selectedDrawingIds,
     setSelectedDrawingIds,
     onDrawingAdd,
-    darknessPaths,
-    onDarknessChange: setDarknessPaths,
+    onDarknessAdd: addDarknessOps,
   })
 
   const handleResetDarkness = useCallback(async () => {
@@ -516,11 +516,9 @@ function MainContent({
     }
   }
 
+  // A stroke, once started, is driven by window pointer events inside useDrawing.
   const handleGridMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDrawing && isPaintTool) {
-      draw(e)
-      e.stopPropagation()
-    } else if (selection.isSelecting) {
+    if (selection.isSelecting) {
       selection.moveSelection(e)
       e.stopPropagation()
     } else if (navigation.isPanning) {
@@ -528,20 +526,13 @@ function MainContent({
     }
   }
 
-  const handleGridMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDrawing && isPaintTool) {
-      endDrawing(e)
-      e.stopPropagation()
-    } else if (selection.isSelecting) {
-      selection.endSelection()
-    } else {
-      navigation.endPan()
-    }
+  const handleGridMouseUp = () => {
+    if (selection.isSelecting) selection.endSelection()
+    else navigation.endPan()
   }
 
-  const handleGridMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDrawing) endDrawing(e)
-    else if (selection.isSelecting) selection.endSelection()
+  const handleGridMouseLeave = () => {
+    if (selection.isSelecting) selection.endSelection()
     navigation.endPan()
   }
 
@@ -577,6 +568,8 @@ function MainContent({
             onResetDarkness={handleResetDarkness}
             fogBrushDiameter={fogBrushDiameter}
             onFogBrushDiameterChange={onFogBrushDiameterChange}
+            fogFill={fogFill}
+            onFogFillChange={onFogFillChange}
           />
         </div>
 
@@ -587,6 +580,7 @@ function MainContent({
           zoomLevel={zoomLevel}
           currentTool={currentTool}
           fogBrushDiameter={fogBrushDiameter}
+          fogFill={fogFill}
           gridSize={gridSize}
           gridColor={gridColor}
           sceneBorderSize={scene.borderSize}
@@ -595,8 +589,7 @@ function MainContent({
           selectedIds={selectedIds}
           selectedDrawingIds={selectedDrawingIds}
           drawings={drawings}
-          isDrawing={isDrawing}
-          currentPath={currentPath}
+          strokePreviewRef={strokePreviewRef}
           currentColor={currentColor}
           resizingId={resizingId}
           darknessPaths={darknessPaths}

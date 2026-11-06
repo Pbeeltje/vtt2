@@ -20,6 +20,8 @@ interface RoundMenuProps {
   items: RoundMenuItem[]
   phase: PhaseName | null
   onNextPhase: () => void
+  /** Only the DM advances or starts the encounter; for players the centre button is inert. */
+  canControlPhase: boolean
 }
 
 const SIZE = 150
@@ -29,7 +31,7 @@ const INNER = 40
 const RADIUS = (INNER + SIZE / 2) / 2
 
 /** The Icewind Dale style wheel: character actions around the rim, the PQAR phase button in the middle. */
-function RoundMenu({ items, phase, onNextPhase }: RoundMenuProps) {
+function RoundMenu({ items, phase, onNextPhase, canControlPhase }: RoundMenuProps) {
   const info = phaseInfo(phase)
   const n = Math.max(items.length, 1)
   return (
@@ -87,13 +89,22 @@ function RoundMenu({ items, phase, onNextPhase }: RoundMenuProps) {
       <button
         type="button"
         onClick={onNextPhase}
-        className="absolute left-1/2 top-1/2 grid h-[54px] w-[54px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-center"
+        disabled={!canControlPhase}
+        className="absolute left-1/2 top-1/2 grid h-[54px] w-[54px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-center disabled:cursor-default"
         style={{
           background: "radial-gradient(circle at 40% 32%, #f6f0c8 0 5%, #c8a632 22%, #5a4510 70%)",
           boxShadow: "0 0 0 2px #0a0d0a, 0 0 0 4px #8e9a80, 0 0 0 5px #0a0d0a, inset 0 -5px 8px rgba(0,0,0,.45)",
         }}
-        title={info ? `${info.name} phase. Click for the next phase` : "Start an encounter (Prepare phase)"}
-        aria-label={info ? `Next phase (now ${info.name})` : "Start an encounter"}
+        title={
+          !canControlPhase
+            ? info
+              ? `${info.name} phase (the DM runs the encounter)`
+              : "No encounter (the DM starts encounters)"
+            : info
+              ? `${info.name} phase. Click for the next phase`
+              : "Start an encounter (Prepare phase)"
+        }
+        aria-label={!canControlPhase ? (info ? `${info.name} phase` : "No encounter") : info ? `Next phase (now ${info.name})` : "Start an encounter"}
       >
         <span>
           <b className="block font-[family-name:var(--font-spectral)] text-[22px] font-bold leading-none text-[#1d1606] [text-shadow:0_1px_0_rgba(255,255,255,.4)]">

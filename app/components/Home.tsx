@@ -62,6 +62,7 @@ export default function Home() {
   const [jobsCharacterId, setJobsCharacterId] = useState<number | null>(null)
   const [currentTool, setCurrentTool] = useState<MapInteractionTool>("cursor")
   const [fogBrushDiameter, setFogBrushDiameter] = useState(50)
+  const [fogFill, setFogFill] = useState(true)
   const [currentColor, setCurrentColor] = useState("#000000")
   const [zoomLevel, setZoomLevel] = useState(1)
   const [activeRightMenuTab, setActiveRightMenuTab] = useState("chat")
@@ -333,6 +334,8 @@ export default function Home() {
               onToolChange={setCurrentTool}
               fogBrushDiameter={fogBrushDiameter}
               onFogBrushDiameterChange={setFogBrushDiameter}
+              fogFill={fogFill}
+              onFogFillChange={setFogFill}
               currentColor={currentColor}
               onColorChange={setCurrentColor}
               zoomLevel={zoomLevel}

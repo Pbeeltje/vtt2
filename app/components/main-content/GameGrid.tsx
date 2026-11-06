@@ -1,16 +1,16 @@
 import Image from "next/image"
 import type { LayerImage } from "../../types/layerImage"
-import type { DrawingObject } from '../DrawingLayer'
+import type { DrawingObject } from "../../types/drawing"
 import TokenRenderer from "./TokenRenderer"
 import DarknessLayer, { type DarknessPath } from "./DarknessLayer"
 import TextBalloon from "../TextBalloon"
 import PingLayer from "./PingLayer"
 import type { MapPing } from "../../hooks/usePings"
-import { memo, useState } from "react"
+import { forwardRef, memo, useState } from "react"
 import { thumbUrl } from "@/lib/upload-url"
 import { useStableCallback } from "../../hooks/useStableCallback"
 import type { MapInteractionTool } from "../../types/mapTool"
-import { isAnyFogTool, isFogStrokeTool } from "../../types/mapTool"
+import { isAnyFogTool, isFogCellTool, isFogStrokeTool } from "../../types/mapTool"
 
 interface GameGridProps {
   gridRef: React.RefObject<HTMLDivElement>;
@@ -19,6 +19,7 @@ interface GameGridProps {
   zoomLevel: number;
   currentTool: MapInteractionTool;
   fogBrushDiameter: number;
+  fogFill: boolean;
   gridSize: number;
   gridColor: string;
   sceneBorderSize?: number;
@@ -27,8 +28,8 @@ interface GameGridProps {
   selectedIds: string[];
   selectedDrawingIds: string[];
   drawings: DrawingObject[];
-  isDrawing: boolean;
-  currentPath: string;
+  /** The stroke being drawn; useDrawing sets its path data directly, outside React. */
+  strokePreviewRef: React.RefObject<SVGPathElement>;
   currentColor: string;
   resizingId: string | null;
   // Darkness layer props
@@ -85,6 +86,7 @@ export default function GameGrid({
   zoomLevel,
   currentTool,
   fogBrushDiameter,
+  fogFill,
   gridSize,
   gridColor,
   sceneBorderSize = 0.2,
@@ -93,8 +95,7 @@ export default function GameGrid({
   selectedIds,
   selectedDrawingIds,
   drawings,
-  isDrawing,
-  currentPath,
+  strokePreviewRef,
   currentColor,
   resizingId,
   darknessPaths,
@@ -370,11 +371,11 @@ export default function GameGrid({
       {/* Darkness Layer - Above tokens, below drawings */}
       {isDarknessLayerVisible && (
         <DarknessLayer
-          width={imageDimensions?.width || 1920}
-          height={imageDimensions?.height || 1080}
+          width={totalWidth || 1920}
+          height={totalHeight || 1080}
           darknessPaths={darknessPaths}
-          isVisible={isDarknessLayerVisible}
-          currentUserRole={currentUserRole}
+          isDM={currentUserRole === "DM"}
+          zoomLevel={zoomLevel}
         />
       )}
       
@@ -402,24 +403,8 @@ export default function GameGrid({
           onDrawingClick={drawingClick}
         />
         
-        {/* Current drawing path preview */}
-        {isDrawing && currentPath && (
-          <path 
-            d={currentPath} 
-            stroke={
-              currentTool === "darknessEraser" ? "rgba(255,255,255,0.5)" :
-              currentTool === "darknessBrush" ? "rgba(0,0,0,0.4)" :
-              currentColor
-            }
-            strokeWidth={
-              isFogStrokeTool(currentTool) ? String(fogBrushDiameter) : "3"
-            }
-            fill="none" 
-            strokeLinejoin="round" 
-            strokeLinecap="round"
-            style={{ pointerEvents: 'none' }}
-          />
-        )}
+        {/* The stroke being drawn. No `d` here: useDrawing writes it every frame without re-rendering. */}
+        <StrokePreview ref={strokePreviewRef} currentTool={currentTool} currentColor={currentColor} fogBrushDiameter={fogBrushDiameter} fogFill={fogFill} />
       </svg>
 
       <PingLayer pings={pings} zoomLevel={zoomLevel} />
@@ -516,6 +501,39 @@ const MapImageItem = memo(function MapImageItem({
     </div>
   )
 })
+
+/** Preview colours: fog reveal shows light, fog paint dark, a drawing in its own colour. */
+function previewInk(tool: MapInteractionTool, color: string): string {
+  if (tool === "darknessEraser" || tool === "darknessEraserCell") return "rgba(255,255,255,0.5)"
+  if (tool === "darknessBrush" || tool === "darknessBrushCell") return "rgba(0,0,0,0.4)"
+  return color
+}
+
+/** The path useDrawing draws the current stroke into. Its `d` is owned by useDrawing, not React. */
+const StrokePreview = memo(
+  forwardRef<SVGPathElement, { currentTool: MapInteractionTool; currentColor: string; fogBrushDiameter: number; fogFill: boolean }>(function StrokePreview(
+    { currentTool, currentColor, fogBrushDiameter, fogFill },
+    ref
+  ) {
+    const ink = previewInk(currentTool, currentColor)
+    if (isFogCellTool(currentTool)) {
+      return <path ref={ref} fill={ink} stroke="none" style={{ pointerEvents: "none" }} />
+    }
+    const fogStroke = isFogStrokeTool(currentTool)
+    return (
+      <path
+        ref={ref}
+        stroke={ink}
+        strokeWidth={fogStroke ? fogBrushDiameter : 3}
+        // With Fill on, the open loop is filled as if closed: exactly the area the stroke will cover.
+        fill={fogStroke && fogFill ? ink : "none"}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        style={{ pointerEvents: "none" }}
+      />
+    )
+  })
+)
 
 /** The saved drawings; skipped while only the stroke being drawn changes. */
 const DrawingPaths = memo(function DrawingPaths({
