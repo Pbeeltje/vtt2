@@ -1,7 +1,7 @@
 // The scene's map state (DMImage.SceneData JSON), shared by the API routes and the browser.
 // No Node or React imports: both sides use these helpers.
 import type { LayerImage } from "../app/types/layerImage"
-import type { DarknessPath } from "../app/components/main-content/DarknessLayer"
+import type { DarknessPath } from "../app/types/drawing"
 
 export const DEFAULT_GRID_SIZE = 50
 export const DEFAULT_GRID_COLOR = "rgba(0,0,0,0.1)"
@@ -58,7 +58,7 @@ export function normalizeSceneState(data: unknown): SceneState {
 }
 
 /** The order DarknessLayer draws fog ops in: oldest first, ties broken by id. */
-function darknessRenderOrder(a: DarknessPath, b: DarknessPath): number {
+export function darknessRenderOrder(a: DarknessPath, b: DarknessPath): number {
   const t = (a.createdAt || "").localeCompare(b.createdAt || "")
   if (t !== 0) return t
   return String(a.id ?? "").localeCompare(String(b.id ?? ""))

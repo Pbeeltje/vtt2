@@ -53,9 +53,6 @@ export const useMainContent = ({
     character: any;
   } | null>(null)
 
-  // Drawing state
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [currentPath, setCurrentPath] = useState<string>("")
 
   // Effects
   useEffect(() => {
@@ -201,10 +198,6 @@ export const useMainContent = ({
     setSelectedDrawingIds,
     statusModal,
     setStatusModal,
-    isDrawing,
-    setIsDrawing,
-    currentPath,
-    setCurrentPath,
     
     // Utility functions
     generateUniqueId,

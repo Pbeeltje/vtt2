@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { Socket } from "socket.io-client"
 import { toast } from "@/components/ui/use-toast"
 import { api, errorMessage } from "../lib/api"
-import type { DrawingObject } from "../components/DrawingLayer"
+import type { DrawingObject } from "../types/drawing"
 
 export type NewDrawingData = Omit<DrawingObject, "id" | "createdAt" | "createdBy" | "sceneId">
 

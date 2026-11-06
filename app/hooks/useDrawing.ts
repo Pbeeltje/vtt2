@@ -1,49 +1,50 @@
-import { useCallback, useRef } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { clientToGridLogical } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
-import type { NewDrawingData } from './useDrawings'
-import type { DarknessPath } from '../components/main-content/DarknessLayer'
+import type { NewDrawingData } from "./useDrawings"
+import type { DarknessPath, DrawingObject } from "../types/drawing"
 import type { MapInteractionTool } from "../types/mapTool"
 import { isFogCellTool, isFogStrokeTool, isCanvasStrokeTool } from "../types/mapTool"
+import { cellPathData, gridCellsAlongLine, simplifyPoints, smoothPath, type Point } from "../lib/stroke"
 
-/** Grid indices from (gx0,gy0) to (gx1,gy1), inclusive; fills gaps when dragging fast. */
-function gridCellsAlongLine(gx0: number, gy0: number, gx1: number, gy1: number): Array<[number, number]> {
-  const cells: Array<[number, number]> = []
-  let x = gx0
-  let y = gy0
-  const dx = Math.abs(gx1 - gx0)
-  const dy = Math.abs(gy1 - gy0)
-  const sx = gx0 < gx1 ? 1 : gx0 > gx1 ? -1 : 0
-  const sy = gy0 < gy1 ? 1 : gy0 > gy1 ? -1 : 0
-  let err = dx - dy
-  for (;;) {
-    cells.push([x, y])
-    if (x === gx1 && y === gy1) break
-    const e2 = 2 * err
-    if (e2 > -dy) {
-      err -= dy
-      x += sx
+/** Samples closer than this many screen pixels to the last kept one are noise, not shape. */
+const MIN_SAMPLE_SCREEN_PX = 1.5
+/** How far (screen pixels) the saved line may stray from the drawn one when simplified. */
+const SIMPLIFY_SCREEN_PX = 0.6
+
+/** The stroke in progress. Lives in a ref: moving the pointer never re-renders React. */
+type Stroke =
+  | {
+      kind: "line"
+      tool: MapInteractionTool
+      color: string
+      fogBrushDiameter: number
+      rect: DOMRect
+      zoom: number
+      points: Point[]
     }
-    if (e2 < dx) {
-      err += dx
-      y += sy
+  | {
+      kind: "cells"
+      tool: MapInteractionTool
+      gridSize: number
+      rect: DOMRect
+      zoom: number
+      visited: Set<string>
+      cells: Array<[number, number]>
+      last: { ix: number; iy: number }
+      /** Preview path data, grown one square at a time. */
+      d: string
     }
-  }
-  return cells
+
+function newId(prefix: string) {
+  // Not crypto.randomUUID(): it only exists on https/localhost, and LAN players use http.
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 }
 
-function makeFogCellPath(
-  ix: number,
-  iy: number,
-  gridSize: number,
-  tool: MapInteractionTool
-): DarknessPath {
-  return {
-    id: `darkness-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
-    type: tool === "darknessEraserCell" ? "erase" : "paint",
-    createdAt: new Date().toISOString(),
-    cellRect: { x: ix * gridSize, y: iy * gridSize, width: gridSize, height: gridSize },
-  }
+/** Coalesced samples of a pointer move (all the points a fast mouse reported since the last frame). */
+function samplesOf(e: PointerEvent): Array<{ clientX: number; clientY: number }> {
+  const coalesced = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : []
+  return coalesced.length > 0 ? coalesced : [e]
 }
 
 interface UseDrawingProps {
@@ -56,19 +57,21 @@ interface UseDrawingProps {
   currentSceneId?: number | null
   currentUserId?: number | null
   currentUserRole?: string | null
-  isDrawing: boolean
-  setIsDrawing: React.Dispatch<React.SetStateAction<boolean>>
-  currentPath: string
-  setCurrentPath: React.Dispatch<React.SetStateAction<string>>
-  selectedDrawingIds: string[]
   setSelectedDrawingIds: React.Dispatch<React.SetStateAction<string[]>>
   onDrawingAdd: (data: NewDrawingData) => void | Promise<void>
-  // Darkness functionality
-  darknessPaths?: DarknessPath[]
-  onDarknessChange?: (paths: DarknessPath[]) => void
+  /** New fog ops, appended to the scene's fog in one update when the stroke ends. */
+  onDarknessAdd?: (ops: DarknessPath[]) => void
 }
 
-export const useDrawing = ({
+/**
+ * Freehand drawing and fog painting on the map.
+ *
+ * A stroke starts on the grid's mousedown; from then on window pointer events drive it, so it
+ * keeps going past the grid's edge and ends wherever the button is released (Escape cancels).
+ * While drawing, the preview `<path>` (`previewRef`) is updated directly, once per frame, and the
+ * finished stroke is committed once: a smoothed, simplified drawing, or one batch of fog ops.
+ */
+export function useDrawing({
   gridRef,
   gridSize,
   fogBrushDiameter,
@@ -78,216 +81,188 @@ export const useDrawing = ({
   currentSceneId,
   currentUserId,
   currentUserRole,
-  isDrawing,
-  setIsDrawing,
-  currentPath,
-  setCurrentPath,
-  selectedDrawingIds,
   setSelectedDrawingIds,
   onDrawingAdd,
-  darknessPaths,
-  onDarknessChange,
-}: UseDrawingProps) => {
-  const fogCellInitialRef = useRef<DarknessPath[]>([])
-  const fogCellAddedRef = useRef<DarknessPath[]>([])
-  const fogCellVisitedRef = useRef<Set<string>>(new Set())
-  const fogCellLastIdxRef = useRef<{ ix: number; iy: number } | null>(null)
+  onDarknessAdd,
+}: UseDrawingProps) {
+  const previewRef = useRef<SVGPathElement>(null)
+  const strokeRef = useRef<Stroke | null>(null)
+  const frameRef = useRef<number | null>(null)
+  const detachRef = useRef<(() => void) | null>(null)
+  // Commit with the latest callbacks, whatever render the stroke started in.
+  const commitTargets = useRef({ onDrawingAdd, onDarknessAdd })
+  commitTargets.current = { onDrawingAdd, onDarknessAdd }
 
-  const resetFogCellDrag = useCallback(() => {
-    fogCellInitialRef.current = []
-    fogCellAddedRef.current = []
-    fogCellVisitedRef.current = new Set()
-    fogCellLastIdxRef.current = null
+  const renderPreview = useCallback(() => {
+    frameRef.current = null
+    const stroke = strokeRef.current
+    const preview = previewRef.current
+    if (!stroke || !preview) return
+    preview.setAttribute("d", stroke.kind === "line" ? smoothPath(stroke.points) : stroke.d)
   }, [])
 
-  const startDrawing = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isCanvasStrokeTool(currentTool) && !isFogCellTool(currentTool)) {
-      return;
-    }
+  const schedulePreview = useCallback(() => {
+    if (frameRef.current === null) frameRef.current = requestAnimationFrame(renderPreview)
+  }, [renderPreview])
 
-    if (!currentSceneId) {
-      console.warn('[StartDrawing] Aborted: currentSceneId prop is null/undefined.');
-      alert('Scene is not fully loaded yet. Please wait a moment and try drawing again.');
-      return;
-    }
-    
-    if (currentUserId === null || currentUserId === undefined) {
-      console.warn('[StartDrawing] Aborted: currentUserId prop is null or undefined.');
-      alert('User information is not loaded yet. Please wait a moment and try drawing again.');
-      return;
-    }
-    
-    if (e.button !== 0 || e.altKey) return;
-
-    const rect = gridRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const { x, y } = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel);
-
-    if (isFogCellTool(currentTool)) {
-      if (onDarknessChange && darknessPaths) {
-        const ix = Math.floor(x / gridSize)
-        const iy = Math.floor(y / gridSize)
-        const key = `${ix},${iy}`
-        fogCellInitialRef.current = [...darknessPaths]
-        fogCellAddedRef.current = []
-        fogCellVisitedRef.current = new Set([key])
-        fogCellLastIdxRef.current = { ix, iy }
-        const first = makeFogCellPath(ix, iy, gridSize, currentTool)
-        fogCellAddedRef.current.push(first)
-        onDarknessChange([...fogCellInitialRef.current, ...fogCellAddedRef.current])
-        setIsDrawing(true)
-        setCurrentPath("")
-      }
-      e.preventDefault()
+  const addSample = useCallback((clientX: number, clientY: number) => {
+    const stroke = strokeRef.current
+    if (!stroke) return
+    const p = clientToGridLogical(clientX, clientY, stroke.rect, stroke.zoom)
+    if (stroke.kind === "line") {
+      const last = stroke.points[stroke.points.length - 1]
+      const min = MIN_SAMPLE_SCREEN_PX / stroke.zoom
+      if (last && (p.x - last.x) ** 2 + (p.y - last.y) ** 2 < min * min) return
+      stroke.points.push(p)
       return
     }
+    const ix = Math.floor(p.x / stroke.gridSize)
+    const iy = Math.floor(p.y / stroke.gridSize)
+    if (ix === stroke.last.ix && iy === stroke.last.iy) return
+    for (const [cx, cy] of gridCellsAlongLine(stroke.last.ix, stroke.last.iy, ix, iy)) {
+      const key = `${cx},${cy}`
+      if (stroke.visited.has(key)) continue
+      stroke.visited.add(key)
+      stroke.cells.push([cx, cy])
+      stroke.d += cellPathData(cx, cy, stroke.gridSize)
+    }
+    stroke.last = { ix, iy }
+  }, [])
 
-    resetFogCellDrag()
-    setIsDrawing(true);
-    setCurrentPath(`M${x},${y}`);
-    e.preventDefault();
-  }, [currentTool, zoomLevel, currentSceneId, currentUserId, gridSize, darknessPaths, onDarknessChange, resetFogCellDrag]);
-    
-  const draw = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDrawing) return
+  /** Ends the stroke; commits it unless cancelled. */
+  const finish = useCallback(
+    (commit: boolean) => {
+      const stroke = strokeRef.current
+      strokeRef.current = null
+      detachRef.current?.()
+      detachRef.current = null
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
+      previewRef.current?.removeAttribute("d")
+      if (!stroke || !commit) return
 
-    if (isFogCellTool(currentTool)) {
-      if (!onDarknessChange) return
-      const rect = gridRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const { x, y } = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel)
-      const ix1 = Math.floor(x / gridSize)
-      const iy1 = Math.floor(y / gridSize)
-      const last = fogCellLastIdxRef.current
-      if (!last) return
-      if (last.ix === ix1 && last.iy === iy1) {
-        e.preventDefault()
+      const { onDrawingAdd: addDrawing, onDarknessAdd: addDarkness } = commitTargets.current
+      const createdAt = new Date().toISOString()
+      if (stroke.kind === "cells") {
+        if (!addDarkness || stroke.cells.length === 0) return
+        const type = stroke.tool === "darknessEraserCell" ? "erase" : "paint"
+        const base = newId("darkness")
+        addDarkness(
+          stroke.cells.map(([ix, iy], i) => ({
+            id: `${base}-${i}`,
+            type,
+            createdAt,
+            cellRect: { x: ix * stroke.gridSize, y: iy * stroke.gridSize, width: stroke.gridSize, height: stroke.gridSize },
+          }))
+        )
         return
       }
-      const segment = gridCellsAlongLine(last.ix, last.iy, ix1, iy1)
-      let anyNew = false
-      for (const [ix, iy] of segment) {
-        const k = `${ix},${iy}`
-        if (fogCellVisitedRef.current.has(k)) continue
-        fogCellVisitedRef.current.add(k)
-        fogCellAddedRef.current.push(makeFogCellPath(ix, iy, gridSize, currentTool))
-        anyNew = true
-      }
-      fogCellLastIdxRef.current = { ix: ix1, iy: iy1 }
-      if (anyNew) {
-        onDarknessChange([...fogCellInitialRef.current, ...fogCellAddedRef.current])
-      }
-      e.preventDefault()
-      return
-    }
 
-    if (!isCanvasStrokeTool(currentTool)) return
-
-    const rect = gridRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const { x, y } = clientToGridLogical(e.clientX, e.clientY, rect, zoomLevel);
-    setCurrentPath(prev => `${prev} L${x},${y}`);
-    e.preventDefault();
-  }, [isDrawing, currentTool, zoomLevel, gridSize, onDarknessChange]);
-
-  const endDrawing = useCallback((e?: React.MouseEvent<any>) => {
-    if (!isDrawing) return
-
-    if (isFogCellTool(currentTool)) {
-      e?.preventDefault()
-      resetFogCellDrag()
-      setIsDrawing(false)
-      setCurrentPath("")
-      return
-    }
-
-    if (!currentPath || !isCanvasStrokeTool(currentTool)) return;
-    
-    e?.preventDefault();
-    
-    if (!currentSceneId) {
-      console.warn('[EndDrawing] Aborted: currentSceneId prop is not set.');
-      setIsDrawing(false);
-      setCurrentPath('');
-      return;
-    }
-    
-    if (currentUserId === null || currentUserId === undefined) {
-      console.warn('[EndDrawing] Aborted: currentUserId prop is null or undefined.');
-      setIsDrawing(false);
-      setCurrentPath('');
-      return;
-    }
-
-    const sceneIdNum = typeof currentSceneId === 'string' ? parseInt(currentSceneId, 10) : currentSceneId;
-    if (sceneIdNum === null || isNaN(sceneIdNum)) {
-      console.error("[EndDrawing] Invalid sceneId:", currentSceneId);
-      setIsDrawing(false);
-      setCurrentPath('');
-      return;
-    }
-
-    if (isFogStrokeTool(currentTool)) {
-      if (onDarknessChange && darknessPaths) {
-        const newPath: DarknessPath = {
-          id: `darkness-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          path: currentPath,
-          type: currentTool === "darknessEraser" ? "erase" : "paint",
-          createdAt: new Date().toISOString(),
-          strokeWidth: fogBrushDiameter,
-        };
-        onDarknessChange([...darknessPaths, newPath]);
+      const path = smoothPath(simplifyPoints(stroke.points, SIMPLIFY_SCREEN_PX / stroke.zoom))
+      if (!path) return
+      if (isFogStrokeTool(stroke.tool)) {
+        addDarkness?.([
+          {
+            id: newId("darkness"),
+            path,
+            type: stroke.tool === "darknessEraser" ? "erase" : "paint",
+            createdAt,
+            strokeWidth: stroke.fogBrushDiameter,
+          },
+        ])
       } else {
-        console.warn('[useDrawing] Missing darkness props', { onDarknessChange: !!onDarknessChange, darknessPaths: !!darknessPaths });
+        void addDrawing({ path, color: stroke.color })
       }
-    } else {
-      // Handle regular drawing
-      const drawingPayload: NewDrawingData = { 
-        path: currentPath,
-        color: currentColor,
-      };
-      onDrawingAdd(drawingPayload);
-    }
-    
-    setIsDrawing(false); 
-    setCurrentPath('');
-  }, [isDrawing, currentPath, currentTool, currentSceneId, currentUserId, currentColor, onDrawingAdd, darknessPaths, onDarknessChange, fogBrushDiameter, resetFogCellDrag]);
+    },
+    []
+  )
 
-  const handleMouseLeave = useCallback(() => {
-    if (isDrawing) {
-      if (isFogCellTool(currentTool)) {
-        resetFogCellDrag()
+  const startDrawing = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const cells = isFogCellTool(currentTool)
+      if (!isCanvasStrokeTool(currentTool) && !cells) return
+      if (e.button !== 0 || e.altKey) return
+      if (!currentSceneId || currentUserId === null || currentUserId === undefined) {
+        toast({ title: "Not ready yet", description: "The scene is still loading. Try again in a moment." })
+        return
       }
-      setIsDrawing(false);
-      setCurrentPath('');
-    }
-  }, [isDrawing, currentTool, setIsDrawing, setCurrentPath, resetFogCellDrag]);
+      if (cells && !onDarknessAdd) return
+      const rect = gridRef.current?.getBoundingClientRect()
+      if (!rect) return
+      e.preventDefault()
+      finish(false) // a stroke left hanging (button released outside the window)
 
-  const handleDrawingClick = useCallback((e: React.MouseEvent<SVGPathElement>, drawing: {id: string, path: string, color: string, sceneId: number, createdBy: number, createdAt: string}) => {
-    e.stopPropagation();
-    if (currentTool === 'brush') return;
-    
-    if (currentUserRole === 'player' && drawing.createdBy !== currentUserId) {
-      toast({ title: "Permission Denied", description: "You can only select your own drawings.", variant: "destructive" });
-      return;
-    }
-    
-    if (e.shiftKey) {
-      setSelectedDrawingIds((prev) => 
-        prev.includes(drawing.id) ? prev.filter((id) => id !== drawing.id) : [...prev, drawing.id]
-      );
-    } else {
-      setSelectedDrawingIds([drawing.id]);
-    }
-  }, [currentTool, currentUserRole, currentUserId, setSelectedDrawingIds]);
+      const zoom = zoomLevel || 1
+      const p = clientToGridLogical(e.clientX, e.clientY, rect, zoom)
+      if (cells) {
+        const ix = Math.floor(p.x / gridSize)
+        const iy = Math.floor(p.y / gridSize)
+        strokeRef.current = {
+          kind: "cells",
+          tool: currentTool,
+          gridSize,
+          rect,
+          zoom,
+          visited: new Set([`${ix},${iy}`]),
+          cells: [[ix, iy]],
+          last: { ix, iy },
+          d: cellPathData(ix, iy, gridSize),
+        }
+      } else {
+        strokeRef.current = { kind: "line", tool: currentTool, color: currentColor, fogBrushDiameter, rect, zoom, points: [p] }
+      }
 
-  return {
-    startDrawing,
-    draw,
-    endDrawing,
-    handleMouseLeave,
-    handleDrawingClick,
-  };
-}; 
+      const onMove = (ev: PointerEvent) => {
+        for (const s of samplesOf(ev)) addSample(s.clientX, s.clientY)
+        schedulePreview()
+      }
+      const onUp = (ev: PointerEvent) => {
+        if (ev.button !== 0) return
+        addSample(ev.clientX, ev.clientY)
+        finish(true)
+      }
+      const onKey = (ev: KeyboardEvent) => {
+        if (ev.key === "Escape") finish(false)
+      }
+      const onBlur = () => finish(true)
+      window.addEventListener("pointermove", onMove)
+      window.addEventListener("pointerup", onUp)
+      window.addEventListener("keydown", onKey)
+      window.addEventListener("blur", onBlur)
+      detachRef.current = () => {
+        window.removeEventListener("pointermove", onMove)
+        window.removeEventListener("pointerup", onUp)
+        window.removeEventListener("keydown", onKey)
+        window.removeEventListener("blur", onBlur)
+      }
+      schedulePreview()
+    },
+    [currentTool, currentColor, currentSceneId, currentUserId, fogBrushDiameter, gridRef, gridSize, zoomLevel, onDarknessAdd, addSample, schedulePreview, finish]
+  )
+
+  // Leaving the map mid-stroke (scene switch, unmount) drops the stroke.
+  useEffect(() => () => finish(false), [finish])
+
+  const handleDrawingClick = useCallback(
+    (e: React.MouseEvent<SVGPathElement>, drawing: DrawingObject) => {
+      e.stopPropagation()
+      if (currentTool === "brush") return
+
+      if (currentUserRole === "player" && drawing.createdBy !== currentUserId) {
+        toast({ title: "Permission Denied", description: "You can only select your own drawings.", variant: "destructive" })
+        return
+      }
+
+      if (e.shiftKey) {
+        setSelectedDrawingIds((prev) => (prev.includes(drawing.id) ? prev.filter((id) => id !== drawing.id) : [...prev, drawing.id]))
+      } else {
+        setSelectedDrawingIds([drawing.id])
+      }
+    },
+    [currentTool, currentUserRole, currentUserId, setSelectedDrawingIds]
+  )
+
+  return { previewRef, startDrawing, handleDrawingClick }
+}
